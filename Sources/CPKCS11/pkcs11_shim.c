@@ -245,3 +245,64 @@ int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id,
     ctx->api->C_CloseSession(session);
     return status;
 }
+
+// Raw PKCS#1 v1.5 signature of *already ASN.1 wrapped* SHA-256 digest.
+// Never supply arbitrary data here. Higher-level code must have calculated
+// a matching signed digest; this entry point does not hash.
+int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot,
+                           const uint8_t *id, size_t id_length,
+                           const uint8_t *pin, size_t pin_length,
+                           const uint8_t *digestinfo, size_t digestinfo_length,
+                           uint8_t *signature, size_t signature_capacity,
+                           size_t *signature_length, char *error, size_t error_size) {
+    // SHA-256 DigestInfo is exactly 51 bytes:
+    // SEQUENCE AlgorithmIdentifier SHA256 + OCTET STRING 32.
+    static const uint8_t prefix[] = {
+        0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,
+        0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
+    };
+    if (!ctx || !id || !id_length || !pin || !pin_length ||
+        !digestinfo || digestinfo_length != 51 ||
+        memcmp(digestinfo, prefix, sizeof(prefix)) != 0 ||
+        !signature || signature_capacity < 8192 || !signature_length)
+        return invalid(error, error_size, "Expected DER SHA-256 DigestInfo and valid signing buffers");
+    *signature_length = 0;
+    CK_SESSION_HANDLE session;
+    if (open_session(ctx, slot, &session, error, error_size)) return -1;
+    CK_RV rv = ctx->api->C_Login(session, CKU_USER, (CK_UTF8CHAR_PTR)pin, pin_length);
+    int status = 0;
+    if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
+        status = failed(error, error_size, "C_Login USER", rv);
+    } else {
+        CK_OBJECT_HANDLE key;
+        status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length,
+                          &key, error, error_size);
+        if (!status) {
+            CK_MECHANISM mechanism = {CKM_RSA_PKCS, NULL, 0};
+            rv = ctx->api->C_SignInit(session, &mechanism, key);
+            if (rv != CKR_OK) status = failed(error, error_size, "C_SignInit", rv);
+            else {
+                CK_BBOOL always_auth = CK_FALSE;
+                CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
+                CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
+                if (arv == CKR_OK && always_auth == CK_TRUE) {
+                    rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC,
+                                           (CK_UTF8CHAR_PTR)pin, pin_length);
+                    if (rv != CKR_OK) status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv);
+                } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID &&
+                           arv != CKR_ATTRIBUTE_SENSITIVE) {
+                    status = failed(error, error_size, "C_GetAttributeValue authentication", arv);
+                }
+                if (!status) {
+                    CK_ULONG n = signature_capacity;
+                    rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)digestinfo,
+                                          digestinfo_length, signature, &n);
+                    if (rv == CKR_OK) *signature_length = n;
+                    else status = failed(error, error_size, "C_Sign", rv);
+                }
+            }
+        }
+    }
+    ctx->api->C_CloseSession(session);
+    return status;
+}
