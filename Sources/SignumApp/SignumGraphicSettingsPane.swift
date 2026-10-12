@@ -82,8 +82,9 @@ struct SignumGraphicSettingsPane: View {
         chooser.allowsMultipleSelection = false
         chooser.allowedContentTypes = [.png, .jpeg]
         guard chooser.runModal() == .OK, let url = chooser.url else { return }
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
-        guard size > 0, size <= 5 * 1024 * 1024 else { return }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let length = attributes[.size] as? NSNumber,
+              length.intValue > 0, length.intValue <= 5 * 1024 * 1024 else { return }
         imagePath = url.path
     }
 }
