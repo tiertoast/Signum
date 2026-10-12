@@ -117,7 +117,23 @@ enum CMSDescription {
     private static let maximumCertificates = 64
 
     static func isSignedData(_ data: Data) -> Bool {
-        (try? signers(in: data)) != nil
+        // Detect the ContentInfo OID even when the nested signer set is
+        // malformed. It should not silently be treated as original content.
+        let bytes = [UInt8](data)
+        guard bytes.count >= 16 && bytes.count <= CAdESVerifier.maximumInputBytes else {
+            return false
+        }
+        do {
+            var cursor = 0
+            let outer = try DER.read(bytes, at: &cursor, limit: bytes.count)
+            guard outer.tag == 0x30, cursor == bytes.count else { return false }
+            cursor = outer.contents.lowerBound
+            let type = try DER.read(bytes, at: &cursor, limit: outer.contents.upperBound)
+            return type.tag == 0x06 &&
+                   Data(bytes[type.full]) == DER.signedDataOID
+        } catch {
+            return false
+        }
     }
 
     static func signers(in data: Data) throws -> [String] {
