@@ -115,9 +115,12 @@ struct SignumWindow: View {
             let found = try loaded.tokens()
             let previousSlot = selectedSlot
             tokens = found
-            let nextSlot = found.contains(where: { $0.slot == previousSlot })
-                ? previousSlot
-                : found.first?.slot
+            let nextSlot: UInt?
+            if let previousSlot, found.contains(where: { $0.slot == previousSlot }) {
+                nextSlot = previousSlot
+            } else {
+                nextSlot = found.first?.slot
+            }
             selectedSlot = nextSlot
             // Refresh explicitly even when the slot has not changed.
             loadCertificates(slot: nextSlot)
