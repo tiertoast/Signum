@@ -40,9 +40,6 @@ struct SignumWindow: View {
     @State private var operation: SignumOperation = .sign
     @State private var format: SignumFormat = .cades
     @State private var pdfPlacement: PAdESPlacement?
-    @AppStorage("signum.appearance.style") private var graphicStyle = GraphicStyle.imageAndText.rawValue
-    @AppStorage("signum.appearance.image") private var graphicImagePath = ""
-    @AppStorage("signum.appearance.date") private var graphicDate = true
     @State private var inputFile: URL?
     @State private var lastSignedFile: URL?
     @State private var dropTargeted = false
