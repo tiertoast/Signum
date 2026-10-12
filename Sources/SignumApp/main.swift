@@ -191,14 +191,14 @@ struct SignumWindow: View {
                 result = .failure(error)
             }
             DispatchQueue.main.async {
-                busy = false
+                self.busy = false
                 switch result {
                 case .success(true):
-                    status = "Verified OK — firma RSA/SHA-256 verificata. Nessun PDF firmato."
+                    self.status = "Verified OK — firma RSA/SHA-256 verificata. Nessun PDF firmato."
                 case .success(false):
-                    status = "La verifica crittografica non è riuscita."
+                    self.status = "La verifica crittografica non è riuscita."
                 case .failure(let error):
-                    status = "Test non riuscito: \(error.localizedDescription)"
+                    self.status = "Test non riuscito: \(error.localizedDescription)"
                 }
             }
         }
