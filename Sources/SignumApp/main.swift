@@ -98,7 +98,7 @@ struct SignumWindow: View {
                     if let token = tokens.first(where: { $0.slot == selectedSlot }),
                        let cert = certificates.first(where: { $0.id == selectedCertificateID }) {
                         Text("\(token.deviceKind): \(token.label) · \(certificateIdentities[cert.id]?.title ?? cert.label)")
-                            .font(.callout.weight(.medium"))
+                            .font(.callout.weight(.medium))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     HStack {
