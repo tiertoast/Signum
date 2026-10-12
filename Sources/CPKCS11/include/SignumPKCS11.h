@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 typedef struct SGContext SGContext;
-typedef struct { unsigned long slot; char label[33]; char manufacturer[33]; char model[17]; } SGToken;
+typedef struct { unsigned long slot; char label[33]; char manufacturer[33]; char model[17]; char reader[65]; } SGToken;
 typedef struct { char label[129]; uint8_t id[64]; size_t id_length; } SGCertificate;
 int sg_open(const char *path, SGContext **out, char *error, size_t error_size);
 void sg_close(SGContext *context);
