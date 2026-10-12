@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -38,6 +39,15 @@ static void require_driver_readonly(const fs::path& path) {
             struct stat info {};
             if (::stat(sidecar.c_str(), &info) != 0 || (info.st_mode & 0022) != 0)
                 throw std::runtime_error("Unsafe Bit4id configuration permissions");
+            if (fs::is_directory(sidecar)) {
+                size_t checked = 0;
+                for (const auto& entry : fs::recursive_directory_iterator(sidecar)) {
+                    if (++checked > 1000) throw std::runtime_error("Too many middleware resources");
+                    struct stat child {};
+                    if (::stat(entry.path().c_str(), &child) != 0 || (child.st_mode & 0022) != 0)
+                        throw std::runtime_error("Unsafe Bit4id configuration resource");
+                }
+            }
         }
     }
 }
@@ -132,11 +142,30 @@ int main(int argc, char** argv) {
 
         // Create the output exclusively with owner-only access before the
         // incremental update; never modify the user's original PDF.
-        const int fd = ::open(output.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+        const int fd = ::open(output.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
         if (fd < 0) throw std::runtime_error("Cannot create new output PDF");
-        ::close(fd);
         outputCreated = true;
-        fs::copy_file(input, output, fs::copy_options::overwrite_existing);
+        try {
+            std::ifstream source(input, std::ios::binary);
+            if (!source) throw std::runtime_error("Cannot read source PDF");
+            std::array<char, 65536> buffer{};
+            while (source) {
+                source.read(buffer.data(), buffer.size());
+                auto remaining = source.gcount();
+                const char* ptr = buffer.data();
+                while (remaining > 0) {
+                    const auto n = ::write(fd, ptr, static_cast<size_t>(remaining));
+                    if (n <= 0) throw std::runtime_error("Cannot copy PDF to protected output");
+                    ptr += n;
+                    remaining -= n;
+                }
+            }
+            if (!source.eof()) throw std::runtime_error("Error while reading source PDF");
+            ::close(fd);
+        } catch (...) {
+            ::close(fd);
+            throw;
+        }
 
         PKCS11 token(middleware.c_str());
         const auto der = token.certificate(slot, certificateID);
