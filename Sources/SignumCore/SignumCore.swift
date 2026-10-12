@@ -25,7 +25,43 @@ public struct SignumToken: Identifiable, Hashable {
     public let label: String
     public let manufacturer: String
     public let model: String
+    public let reader: String
+
+    public init(slot: UInt, label: String, manufacturer: String,
+                model: String, reader: String = "") {
+        self.slot = slot
+        self.label = label
+        self.manufacturer = manufacturer
+        self.model = model
+        self.reader = reader
+    }
+
     public var id: UInt { slot }
+
+    /// Best-effort description from PKCS#11 metadata, not a physical USB-bus probe.
+    public var deviceKind: String {
+        let text = "\(label) \(model) \(reader)".lowercased()
+        if text.contains("digitaldna") || text.contains("digital-dna") {
+            return "Token USB"
+        }
+        if text.contains("cns") || text.contains("smart card") ||
+            text.contains("smartcard") || text.contains("hamlet") {
+            return "Smart card"
+        }
+        return "Dispositivo PKCS#11"
+    }
+
+    public var readerDescription: String {
+        reader.isEmpty ? "Lettore non identificato" : "Lettore: \(reader)"
+    }
+
+    public var iconName: String {
+        switch deviceKind {
+        case "Token USB": return "externaldrive"
+        case "Smart card": return "creditcard"
+        default: return "key.horizontal"
+        }
+    }
 }
 
 public struct SignumCertificate: Identifiable, Hashable {
@@ -67,7 +103,8 @@ public final class PKCS11Module {
         }
         return rows.prefix(count).map {
             SignumToken(slot: UInt($0.slot), label: Self.fixedString($0.label),
-                        manufacturer: Self.fixedString($0.manufacturer), model: Self.fixedString($0.model))
+                        manufacturer: Self.fixedString($0.manufacturer),
+                        model: Self.fixedString($0.model), reader: Self.fixedString($0.reader))
         }
     }
 
@@ -106,6 +143,12 @@ public final class PKCS11Module {
             }
         }
         return Data(der.prefix(required))
+    }
+
+    /// Read the subject DN and issuer CN from the public DER certificate, without PIN.
+    /// Do not interpret this information as a validation or trust decision.
+    public func certificateIdentity(slot: UInt, certificate: SignumCertificate) throws -> SignumCertificateIdentity {
+        try CertificateIdentityReader.read(certificateDER(slot: slot, certificate: certificate))
     }
 
     /// Demonstration only: raw SHA256withRSA operation via the installed PKCS#11 module.
