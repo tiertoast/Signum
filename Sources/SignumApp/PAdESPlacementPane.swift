@@ -18,13 +18,12 @@ struct PAdESPlacementPane: View {
     @Binding var placement: PAdESPlacement?
     @State private var page = 0
     @State private var visible = true
+    @State private var pdfDocument: PDFDocument?
     @AppStorage("signum.appearance.style") private var style = GraphicStyle.imageAndText.rawValue
     @AppStorage("signum.appearance.image") private var imagePath = ""
     @AppStorage("signum.appearance.date") private var showDate = true
 
-    private var pageCount: Int {
-        PDFDocument(url: fileURL)?.pageCount ?? 0
-    }
+    private var pageCount: Int { pdfDocument?.pageCount ?? 0 }
 
     var body: some View {
         GroupBox("Firma grafica — posizionamento PDF") {
@@ -42,9 +41,9 @@ struct PAdESPlacementPane: View {
                     .frame(width: 85)
                     .disabled(pageCount == 0)
                 }
-                if pageCount > 0 {
+                if let pdfDocument, pageCount > 0 {
                     SignaturePlacementPDFView(
-                        url: fileURL, selectedPage: $page,
+                        document: pdfDocument, selectedPage: $page,
                         placement: $placement, holder: holder,
                         visible: visible
                     )
@@ -82,13 +81,17 @@ struct PAdESPlacementPane: View {
             }
             .padding(5)
         }
-        .onChange(of: fileURL) { _ in page = 0; placement = nil }
+        .onAppear { pdfDocument = PDFDocument(url: fileURL) }
+        .onChange(of: fileURL) { _ in
+            page = 0
+            placement = nil
+            pdfDocument = PDFDocument(url: fileURL)
+        }
         .onChange(of: visible) { newValue in if !newValue { placement = nil } }
     }
 }
 
 private final class PlacementPDFView: PDFView {
-    var loadedURL: URL?
     var previewAnnotation: PDFAnnotation?
     var currentPreviewPlacement: PAdESPlacement?
     var onChoose: ((PDFPage, CGPoint) -> Void)?
@@ -127,7 +130,7 @@ private final class PlacementPDFView: PDFView {
 }
 
 private struct SignaturePlacementPDFView: NSViewRepresentable {
-    let url: URL
+    let document: PDFDocument
     @Binding var selectedPage: Int
     @Binding var placement: PAdESPlacement?
     let holder: String
@@ -144,10 +147,10 @@ private struct SignaturePlacementPDFView: NSViewRepresentable {
 
     func updateNSView(_ viewer: PlacementPDFView, context: Context) {
         context.coordinator.parent = self
-        if viewer.loadedURL != url {
-            viewer.loadedURL = url
-            viewer.document = PDFDocument(url: url)
+        if viewer.document !== document {
+            viewer.document = document
             viewer.autoScales = true
+            viewer.previewAnnotation = nil
             viewer.currentPreviewPlacement = nil
         }
 
