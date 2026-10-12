@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import SignumCore
 
 /// Launches the separately built PoDoFo proof-of-concept with a private stdin pipe.
 /// No PIN is passed via argv or process environment. This is not production IPC:
