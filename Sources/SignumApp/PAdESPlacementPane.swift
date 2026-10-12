@@ -19,9 +19,6 @@ struct PAdESPlacementPane: View {
     @State private var page = 0
     @State private var visible = true
     @State private var pdfDocument: PDFDocument?
-    @AppStorage("signum.appearance.style") private var style = GraphicStyle.imageAndText.rawValue
-    @AppStorage("signum.appearance.image") private var imagePath = ""
-    @AppStorage("signum.appearance.date") private var showDate = true
 
     private var pageCount: Int { pdfDocument?.pageCount ?? 0 }
 
@@ -55,16 +52,20 @@ struct PAdESPlacementPane: View {
                          : "Firma invisibile: nessun riquadro grafico, ma la firma crittografica sarà presente.")
                         .font(.caption).foregroundStyle(.secondary)
                     if visible {
-                        HStack {
-                            Text("Aspetto selezionato:")
+                        HStack(alignment: .center, spacing: 12) {
+                            Text("Timbro PDF di questa versione:")
                                 .font(.caption).foregroundStyle(.secondary)
-                            SignumGraphicAppearancePreview(
-                                fullName: holder,
-                                style: style,
-                                imagePath: imagePath,
-                                showDate: showDate
-                            )
-                            .frame(height: 85)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Firmato digitalmente da")
+                                    .font(.system(size: 10))
+                                Text(holder)
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .padding(9)
+                            .background(Color.white)
+                            .foregroundStyle(Color.black)
+                            .overlay(RoundedRectangle(cornerRadius: 3)
+                                .stroke(Color.gray, lineWidth: 1))
                             Spacer()
                         }
                     }
@@ -76,7 +77,7 @@ struct PAdESPlacementPane: View {
                     Text("Impossibile aprire il PDF. Seleziona un documento valido e non protetto.")
                         .foregroundStyle(.orange)
                 }
-                Text("Solo anteprima. La creazione effettiva della firma PAdES sarà disponibile dopo il collaudo del motore PDF.")
+                Text("Il timbro con nome è sperimentale. L'immagine personalizzata e la data nel timbro non sono ancora incorporate; verifica sempre il PDF firmato.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(5)
@@ -122,7 +123,7 @@ private final class PlacementPDFView: PDFView {
         annotation.contents = "Firmato digitalmente da\n" + name
         annotation.font = NSFont.systemFont(ofSize: 10)
         annotation.fontColor = NSColor.labelColor
-        annotation.color = NSColor.systemBlue.withAlphaComponent(0.14)
+        annotation.color = NSColor.white
         annotation.border = PDFBorder()
         annotation.border?.lineWidth = 1
         page.addAnnotation(annotation)
