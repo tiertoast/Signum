@@ -12,3 +12,7 @@ build/
 *.der
 *.sig
 .env
+
+# Keep locally signed documents out of source control
+*.p7m
+*.p7s
