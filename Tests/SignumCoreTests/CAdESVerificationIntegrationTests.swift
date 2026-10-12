@@ -1,0 +1,60 @@
+import XCTest
+import Foundation
+@testable import SignumCore
+
+#if os(macOS)
+final class CAdESVerificationIntegrationTests: XCTestCase {
+    private func openssl(_ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw SignumError.module("Local OpenSSL test fixture failed: \(arguments.first ?? "")")
+        }
+    }
+
+    func testNestedAttachedSignaturesAndTamperDetection() throws {
+        let manager = FileManager.default
+        let folder = manager.temporaryDirectory.appendingPathComponent(
+            "signum-cms-tests-" + UUID().uuidString, isDirectory: true)
+        try manager.createDirectory(at: folder, withIntermediateDirectories: false,
+                                    attributes: [.posixPermissions: 0o700])
+        defer { try? manager.removeItem(at: folder) }
+
+        let document = folder.appendingPathComponent("sample.txt")
+        let key = folder.appendingPathComponent("private-key.pem")
+        let certificate = folder.appendingPathComponent("public-cert.pem")
+        let first = folder.appendingPathComponent("sample.txt.p7m")
+        let second = folder.appendingPathComponent("sample.txt.p7m.p7m")
+
+        let expected = Data("Signum fixture for CMS verification\n".utf8)
+        try expected.write(to: document)
+        try openssl(["req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes",
+                     "-keyout", key.path, "-out", certificate.path, "-days", "1",
+                     "-subj", "/CN=Fixture Signer/O=Signum Tests"])
+        func sign(_ input: URL, _ output: URL) throws {
+            try openssl(["cms", "-sign", "-binary", "-nodetach", "-in", input.path,
+                         "-signer", certificate.path, "-inkey", key.path,
+                         "-outform", "DER", "-out", output.path])
+        }
+        try sign(document, first)
+        try sign(first, second)
+
+        let verified = try CAdESVerifier.verify(file: second)
+        XCTAssertEqual(verified.verifiedLayerCount, 2)
+        XCTAssertEqual(verified.verifiedSignatureCount, 2)
+        XCTAssertEqual(verified.levels[0].signers.first, "Fixture Signer")
+        XCTAssertEqual(verified.levels[1].signers.first, "Fixture Signer")
+        XCTAssertEqual(verified.originalDocument, expected)
+        XCTAssertEqual(verified.suggestedFilename, "sample.txt")
+
+        var corrupted = try Data(contentsOf: second)
+        corrupted[corrupted.index(before: corrupted.endIndex)] ^= 0x01
+        XCTAssertThrowsError(try CAdESVerifier.verify(data: corrupted))
+    }
+}
+#endif
