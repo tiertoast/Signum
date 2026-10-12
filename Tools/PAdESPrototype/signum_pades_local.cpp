@@ -187,9 +187,9 @@ static void set_text_appearance(PdfMemDocument& doc, PdfSignature& signature,
 
     // The form XObject is a normal, pre-signing PDF object. It is never
     // appended to the signed PDF after the ByteRange has been calculated.
-    PdfXObjectForm appearance(doc, Rect(0, 0, rect.Width, rect.Height));
+    auto appearance = doc.CreateXObjectForm(Rect(0, 0, rect.Width, rect.Height));
     PdfPainter painter;
-    painter.SetCanvas(appearance);
+    painter.SetCanvas(*appearance);
     painter.GraphicsState.SetNonStrokingColor(PdfColor(1.0));
     painter.DrawRectangle(0, 0, rect.Width, rect.Height, PdfPathDrawMode::Fill);
     painter.GraphicsState.SetStrokingColor(PdfColor(0.45));
@@ -204,7 +204,7 @@ static void set_text_appearance(PdfMemDocument& doc, PdfSignature& signature,
     painter.DrawText(truncated, 7, rect.Height - 33);
     painter.FinishDrawing();
 
-    signature.MustGetWidget().SetAppearanceStream(appearance);
+    signature.MustGetWidget().SetAppearanceStream(*appearance);
 }
 
 int main(int argc, char** argv) {
