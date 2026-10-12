@@ -38,6 +38,7 @@ public struct SignumCertificate: Identifiable, Hashable {
 /// The PKCS#11 driver executes inside this process: use trusted modules only.
 public final class PKCS11Module {
     private let context: OpaquePointer
+    public let modulePath: String
 
     public init(path: String) throws {
         var pointer: OpaquePointer?
@@ -49,6 +50,7 @@ public final class PKCS11Module {
         }
         guard status == 0, let pointer else { throw SignumError.module(Self.diagnostic(diagnostics)) }
         context = pointer
+        modulePath = path
     }
 
     deinit { sg_close(context) }
@@ -104,26 +106,28 @@ public final class PKCS11Module {
         return Data(der.prefix(required))
     }
 
-    /// Signs fixed, synthetic data and verifies RSA/SHA-256 using Security.framework.
-    /// Does NOT generate a PAdES, CAdES or qualified electronic signature.
-    public func signAndVerifyTest(slot: UInt, certificate: SignumCertificate, pin: String) throws -> Bool {
-        #if canImport(Security)
-        guard !pin.isEmpty else { throw SignumError.module("PIN is required") }
-        let message = Data("Signum PKCS11 proof of concept v0.1\n".utf8)
-        let certificateData = try certificateDER(slot: slot, certificate: certificate)
-        guard let x509 = SecCertificateCreateWithData(nil, certificateData as CFData),
-              let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
+    /// Demonstration only: raw SHA256withRSA operation via the installed PKCS#11 module.
+    /// Do not use this without reviewing the driver and its surrounding configuration.
+    private func signRSASHA256(slot: UInt, certificate: SignumCertificate,
+                               pin: String, message: Data) throws -> Data {
+        guard !pin.isEmpty, !message.isEmpty, message.count <= 1024 * 1024 else {
+            throw SignumError.module("Invalid PIN or message size")
+        }
+        try requireSafeModulePermissions()
         var signature = [UInt8](repeating: 0, count: 8192)
         var length = 0
+        var pinBytes = Array(pin.utf8)
+        defer {
+            for i in pinBytes.indices { pinBytes[i] = 0 }
+        }
         try certificate.identifier.withUnsafeBytes { id in
-            try pin.utf8CString.withUnsafeBytes { secret in
+            try pinBytes.withUnsafeBytes { secret in
                 try message.withUnsafeBytes { bytes in
                     try execute { error in
                         signature.withUnsafeMutableBufferPointer { output in
                             sg_sign_test(context, slot,
                                          id.bindMemory(to: UInt8.self).baseAddress, id.count,
-                                         secret.bindMemory(to: UInt8.self).baseAddress,
-                                         max(0, secret.count - 1),
+                                         secret.bindMemory(to: UInt8.self).baseAddress, secret.count,
                                          bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
                                          output.baseAddress, output.count, &length,
                                          error.baseAddress, error.count)
@@ -133,10 +137,77 @@ public final class PKCS11Module {
             }
         }
         guard length > 0, length <= signature.count else { throw SignumError.invalidSignature }
-        let verified = SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,
-                                             message as CFData, Data(signature.prefix(length)) as CFData, nil)
-        if !verified { throw SignumError.invalidSignature }
-        return verified
+        return Data(signature.prefix(length))
+    }
+
+    /// Preliminary file permission check. It is NOT a complete code-signing or
+    /// dynamic-library isolation policy; additional hardening is necessary.
+    private func requireSafeModulePermissions() throws {
+        let fileManager = FileManager.default
+        let absolute = URL(fileURLWithPath: modulePath).resolvingSymlinksInPath().path
+        let targets = [absolute, absolute + ".conf", absolute + ".rc"]
+        for target in targets where fileManager.fileExists(atPath: target) {
+            try verifyPermissions(target)
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: target, isDirectory: &isDirectory), isDirectory.boolValue {
+                guard let enumerator = fileManager.enumerator(atPath: target) else {
+                    throw SignumError.module("Cannot inspect middleware resources")
+                }
+                var inspected = 0
+                while let item = enumerator.nextObject() as? String {
+                    inspected += 1
+                    guard inspected <= 1000 else {
+                        throw SignumError.module("Too many middleware resources to verify")
+                    }
+                    try verifyPermissions((target as NSString).appendingPathComponent(item))
+                }
+            }
+        }
+    }
+
+    private func verifyPermissions(_ path: String) throws {
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        guard let mode = attributes[.posixPermissions] as? NSNumber,
+              mode.intValue & 0o022 == 0 else {
+            throw SignumError.module("Untrusted writable PKCS#11 component: \(path). Remove group/other write permissions before entering a real PIN.")
+        }
+    }
+
+    /// Existing synthetic-string test; the signature is verified using Security.framework.
+    public func signAndVerifyTest(slot: UInt, certificate: SignumCertificate, pin: String) throws -> Bool {
+        #if canImport(Security)
+        let message = Data("Signum PKCS11 proof of concept v0.1\n".utf8)
+        let cert = try certificateDER(slot: slot, certificate: certificate)
+        guard let x509 = SecCertificateCreateWithData(nil, cert as CFData),
+              let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
+        let signature = try signRSASHA256(slot: slot, certificate: certificate, pin: pin, message: message)
+        guard SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,
+                                    message as CFData, signature as CFData, nil) else {
+            throw SignumError.invalidSignature
+        }
+        return true
+        #else
+        throw SignumError.unsupportedPlatform
+        #endif
+    }
+
+    /// Experimental attached CMS/CAdES candidate. Validation by an independent
+    /// CMS/ETSI implementation is mandatory before treating this as a usable document.
+    public func createCAdES(document: Data, slot: UInt,
+                            certificate: SignumCertificate, pin: String) throws -> Data {
+        #if canImport(Security)
+        let cert = try certificateDER(slot: slot, certificate: certificate)
+        guard let x509 = SecCertificateCreateWithData(nil, cert as CFData),
+              let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
+        let prepared = try CAdES.Prepared(document: document, certificateDER: cert)
+        let signature = try signRSASHA256(slot: slot, certificate: certificate,
+                                          pin: pin, message: prepared.attributesToSign)
+        guard SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,
+                                    prepared.attributesToSign as CFData,
+                                    signature as CFData, nil) else {
+            throw SignumError.invalidSignature
+        }
+        return try prepared.finish(signature: signature)
         #else
         throw SignumError.unsupportedPlatform
         #endif
