@@ -18,6 +18,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <limits>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -111,10 +112,27 @@ struct PKCS11 {
     }
 };
 
+// GUI mode reads the PIN only from an anonymous stdin pipe, never argv/env.
+static std::vector<uint8_t> read_stdin_pin() {
+    std::vector<uint8_t> pin;
+    char value = 0;
+    while (::read(STDIN_FILENO, &value, 1) == 1) {
+        if (value == '\n') break;
+        if (value == '\r') continue;
+        if (value == '\0' || pin.size() >= 64)
+            throw std::runtime_error("Invalid PIN input");
+        pin.push_back(static_cast<uint8_t>(value));
+    }
+    if (pin.empty()) throw std::runtime_error("PIN missing");
+    return pin;
+}
+
 int main(int argc, char** argv) {
-    if (argc != 6 && argc != 11) {
+    const bool pinFromPipe = argc > 1 && std::strcmp(argv[argc - 1], "--pin-stdin") == 0;
+    const int positionalCount = argc - (pinFromPipe ? 1 : 0);
+    if (positionalCount != 6 && positionalCount != 11) {
         std::cerr << "Usage: signum-pades-local INPUT.pdf OUTPUT.pdf MODULE SLOT CERT_ID_HEX"
-                  << " [PAGE_ZERO_BASED X Y WIDTH HEIGHT]\n";
+                  << " [PAGE_ZERO_BASED X Y WIDTH HEIGHT] [--pin-stdin]\n";
         return 2;
     }
     fs::path output;
@@ -169,18 +187,22 @@ int main(int argc, char** argv) {
 
         PKCS11 token(middleware.c_str());
         const auto der = token.certificate(slot, certificateID);
-        const char* userPIN = ::getpass("Token PIN (not echoed): ");
-        if (!userPIN || !*userPIN) throw std::runtime_error("PIN missing");
-        std::vector<uint8_t> pin(userPIN, userPIN + std::strlen(userPIN));
-        // macOS getpass stores a static buffer; wipe it as soon as possible.
-        ::explicit_bzero(const_cast<char*>(userPIN), std::strlen(userPIN));
+        std::vector<uint8_t> pin;
+        if (pinFromPipe) {
+            pin = read_stdin_pin();
+        } else {
+            char* userPIN = ::getpass("Token PIN (not echoed): ");
+            if (!userPIN || !*userPIN) throw std::runtime_error("PIN missing");
+            pin.assign(userPIN, userPIN + std::strlen(userPIN));
+            ::explicit_bzero(userPIN, std::strlen(userPIN));
+        }
 
         try {
             auto io = std::make_shared<FileStreamDevice>(output.string(), FileMode::Open);
             PdfMemDocument doc(io);
             unsigned pageIndex = 0;
             Rect rectangle;
-            if (argc == 11) {
+            if (positionalCount == 11) {
                 pageIndex = static_cast<unsigned>(std::stoul(argv[6]));
                 const double x = std::stod(argv[7]);
                 const double y = std::stod(argv[8]);
