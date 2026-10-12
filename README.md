@@ -2,7 +2,7 @@
 
 **Native macOS electronic-signature client — early open-source technical proof of concept.**
 
-The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.2.2-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
+The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.2.3-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
 
 ## Requirements and setup
 
@@ -74,6 +74,21 @@ The certificate identity is shown locally in the GUI. No certificate personal da
 The GUI has a compact fixed-size layout. When an inserted card briefly reports PKCS#11 `CKR_TOKEN_NOT_RECOGNIZED` (`0xE1`), the app skips that reader without hiding the other available devices, retries enumeration **once** after 450 ms, and provides an explicit manual refresh button. This automatic retry does **not** attempt PIN authentication.
 
 The app remains an **experimental CAdES proof of concept** and is not for production documents. PINs are passed only to the installed hardware middleware, but complete in-memory erasure and driver isolation are not yet implemented.
+
+### Local CAdES verification (0.2.3-alpha)
+
+Signum now has a **Verifica .p7m** GUI mode that requires **no token or PIN**. Select or drop a signed file, click **Verifica**, inspect cryptographically verified attached CMS layers/signers, and optionally **Estrai originale…** into a new output file (never overwrites existing files). Nested CMS envelopes are verified from outermost to innermost, up to 5 layers. The original document may be retained in app memory for extraction until you leave or reload the panel.
+
+Run the same verifier directly, without loading any PKCS#11 provider:
+
+```bash
+swift run SignumCLI verify-cades /path/to/example.pdf.p7m
+swift run SignumCLI verify-cades /path/to/example.pdf.p7m /path/to/new-extracted.pdf
+```
+
+The verifier invokes the **system /usr/bin/openssl** in a separate local process (no network). It checks CMS signature integrity with the **-noverify** option, which **intentionally skips certificate trust/chain validation**. It does not yet check revocation, QES qualification, timestamps, ETSI compliance or complete certificate profile status. Its DER reader targets attached CMS SignedData; some external BER or detached variants are intentionally unsupported. Both input and nested payload have a 64 MiB limit, with a maximum of 5 nested layers. Signer display names are untrusted certificate metadata until full validation is implemented.
+
+Tests can be run solely on your Mac with `swift test`; the integration test creates temporary, locally signed CMS fixtures using macOS OpenSSL and checks tampering rejection. **Never report this as full legal signature verification.**
 
 ### Native SwiftUI development application
 
