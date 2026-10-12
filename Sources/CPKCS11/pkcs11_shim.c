@@ -80,6 +80,11 @@ int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity,
         copy_padded(t->label, sizeof(t->label), info.label, sizeof(info.label));
         copy_padded(t->manufacturer, sizeof(t->manufacturer), info.manufacturerID, sizeof(info.manufacturerID));
         copy_padded(t->model, sizeof(t->model), (const unsigned char *)info.model, sizeof(info.model));
+        CK_SLOT_INFO slot_info;
+        if (ctx->api->C_GetSlotInfo(slots[i], &slot_info) == CKR_OK) {
+            copy_padded(t->reader, sizeof(t->reader), slot_info.slotDescription,
+                        sizeof(slot_info.slotDescription));
+        }
     }
     *count = n;
     free(slots);
