@@ -32,7 +32,7 @@ struct SignumWindow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("0.1.0 · PoC").foregroundStyle(.secondary)
+                Text("0.2.0 · Alpha").foregroundStyle(.secondary)
             }
             Divider()
             Text("Libreria PKCS#11").font(.headline)
