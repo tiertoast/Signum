@@ -27,6 +27,14 @@ int sg_sign_test(SGContext *context, unsigned long slot, const uint8_t *id,
                  const uint8_t *message, size_t message_length,
                  uint8_t *signature, size_t signature_capacity,
                  size_t *signature_length, char *error, size_t error_size);
+// For PoDoFo's external signing service: input is a SHA-256 DER DigestInfo,
+// NOT the original message. CKM_RSA_PKCS adds PKCS#1 v1.5 padding only.
+int sg_sign_encoded_digest(SGContext *context, unsigned long slot,
+                           const uint8_t *id, size_t id_length,
+                           const uint8_t *pin, size_t pin_length,
+                           const uint8_t *digestinfo, size_t digestinfo_length,
+                           uint8_t *signature, size_t signature_capacity,
+                           size_t *signature_length, char *error, size_t error_size);
 #ifdef __cplusplus
 }
 #endif
