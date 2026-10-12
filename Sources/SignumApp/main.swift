@@ -320,6 +320,11 @@ struct SignumWindow: View {
             return
         }
 
+        if FileManager.default.fileExists(atPath: destination.path) {
+            status = "Il file .p7m esiste già. Scegli un nome diverso."
+            return
+        }
+
         let suppliedPIN = pin
         pin = "" // Clear SwiftUI text field immediately.
         busy = true
