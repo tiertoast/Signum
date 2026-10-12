@@ -2,7 +2,7 @@
 
 **Native macOS electronic-signature client — early open-source technical proof of concept.**
 
-The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.2.3-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
+The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.3.0-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
 
 ## Requirements and setup
 
@@ -107,6 +107,30 @@ On your Mac, connect your DigitalDNA and/or CNS, launch the actual macOS bundle 
 
 All builds and tests are performed **locally** using `swift test` and `swift run`; no GitHub Actions workflows are used.
 
+
+## Signum 0.3.0 Alpha — PAdES user-interface milestone
+
+The graphical app now offers **Firma documento**, **Verifica .p7m** and **Impostazioni**.
+The signing mode has a format selector: **CAdES (.p7m)** is working as previously tested; **PAdES (.pdf)** provides native PDFKit preview and interactive signature-field placement (click or drag), with zero-based PDF page coordinates; **XAdES** is listed as *prossimamente* and disabled.
+
+The Settings pane stores one local graphic appearance profile (text/image, optional date, PNG/JPEG). The visual preview is an **unsaved PDFKit annotation**, never an actual signed PDF appearance. The graphic profile is for **PAdES, not CAdES**; a CMS `.p7m` contains no visual page.
+
+**The PAdES button is intentionally disabled pending proof of the PoDoFo/PKCS#11 integration.** No fake or invalid PDF signatures are generated from the GUI. The hardware diagnostic test is removed from the GUI but remains available through `swift run SignumCLI sign-test`.
+
+An independent C++ PoDoFo proof-of-concept is included in **Tools/PAdESPrototype**. It signs a PDF incrementally using a token's PKCS#11 RSA key via the external signing service. It is *not* part of the default Swift build and *not yet tested on the user's Mac*. Read its local build instructions and verify every produced PDF with InfoCamere Sign before enabling production use. It does not yet create a real graphical appearance stream.
+
+To check the current SwiftUI milestone only (no PAdES signing):
+
+```bash
+cd ~/Signum
+git pull --ff-only
+swift test
+bash scripts/build-app.sh
+open -n "$PWD/build/Signum.app"
+```
+
+Check that CAdES signing and `.p7m` verification still work, open a test PDF in PAdES mode, choose a page and move the preview rectangle, and save a sample graphic appearance in Settings.
+All compilation and tests must be done **locally on macOS**. No GitHub Actions workflows exist.
 
 ## Architecture
 
