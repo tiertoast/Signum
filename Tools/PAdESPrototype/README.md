@@ -50,3 +50,7 @@ The helper does not perform a full driver security review; the PIN may remain in
 ## GUI prototype
 
 Rebuild the helper locally, then run `bash scripts/build-app.sh` to include it in the app bundle. Until the helper is present, the PAdES signing button stays disabled. Verify every output PDF with an independent validator. The selected position creates a signature field; the custom image and text appearance is not yet embedded into signed PDFs.
+
+## Visible appearance trial
+
+Version 0.3.2-alpha creates a small real `/AP /N` stream when a signature field position is selected in the GUI. It currently renders **text only** (certificate holder display name and signature label), before hashing and signing. Logo, image, custom font, and a graphical signing date remain future work. After rebuilding, validate both the visible stamp in a PDF reader and PAdES integrity with InfoCamere. Never infer qualified status from the visible stamp.
