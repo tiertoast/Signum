@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+build/
+*.xcuserstate
+*.xcuserdata/
+*.p12
+*.pfx
+*.pem
+*.key
+*.der
+*.sig
+.env
