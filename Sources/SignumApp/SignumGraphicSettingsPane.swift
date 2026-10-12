@@ -117,7 +117,7 @@ struct SignumGraphicAppearancePreview: View {
         .padding(10)
         .frame(minWidth: 190, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.25)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
     }
 }
 #endif
