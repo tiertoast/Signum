@@ -67,8 +67,8 @@ struct CAdESVerificationPane: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("Livello \(level.level) · \(level.signers.count) firmatari")
                                             .font(.caption.weight(.semibold))
-                                        ForEach(Array(level.signers.enumerated()), id: \.offset) { item in
-                                            Text(item.element)
+                                        ForEach(level.signers.indices, id: \.self) { index in
+                                            Text(level.signers[index])
                                                 .font(.caption)
                                                 .textSelection(.enabled)
                                         }
