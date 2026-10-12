@@ -19,6 +19,7 @@ struct SignumApp: App {
 private enum SignumOperation: String, Hashable {
     case cades
     case hardwareTest
+    case verify
 }
 
 struct SignumWindow: View {
@@ -48,11 +49,12 @@ struct SignumWindow: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("0.2.2 · Alpha").font(.caption).foregroundStyle(.secondary)
+                Text("0.2.3 · Alpha").font(.caption).foregroundStyle(.secondary)
             }
 
             Divider()
 
+            if operation != .verify {
             Text("Libreria PKCS#11").font(.headline)
             HStack {
                 TextField("Percorso completo del modulo", text: $modulePath)
@@ -110,14 +112,20 @@ struct SignumWindow: View {
                 }
             }
 
+            }
+
             Picker("Operazione", selection: $operation) {
                 Text("Firma documento CAdES (.p7m)").tag(SignumOperation.cades)
                 Text("Test crittografico").tag(SignumOperation.hardwareTest)
+                Text("Verifica .p7m").tag(SignumOperation.verify)
             }
             .labelsHidden()
             .pickerStyle(.segmented)
             .disabled(busy)
 
+            if operation == .verify {
+                CAdESVerificationPane()
+            } else {
             GroupBox(operation == .cades ? "Firma documento" : "Test hardware RSA/SHA-256") {
                 VStack(alignment: .leading, spacing: 9) {
                     if operation == .cades {
@@ -179,7 +187,9 @@ struct SignumWindow: View {
                 }
                 .padding(5)
             }
+            }
 
+            if operation != .verify {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: "info.circle").foregroundStyle(.secondary)
                 Text(status)
@@ -192,6 +202,7 @@ struct SignumWindow: View {
                         NSWorkspace.shared.activateFileViewerSelecting([signedFile])
                     }
                 }
+            }
             }
         }
         .padding(20)
