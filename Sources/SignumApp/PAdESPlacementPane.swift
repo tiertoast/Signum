@@ -18,6 +18,9 @@ struct PAdESPlacementPane: View {
     @Binding var placement: PAdESPlacement?
     @State private var page = 0
     @State private var visible = true
+    @AppStorage("signum.appearance.style") private var style = GraphicStyle.imageAndText.rawValue
+    @AppStorage("signum.appearance.image") private var imagePath = ""
+    @AppStorage("signum.appearance.date") private var showDate = true
 
     private var pageCount: Int {
         PDFDocument(url: fileURL)?.pageCount ?? 0
@@ -47,11 +50,25 @@ struct PAdESPlacementPane: View {
                     )
                     .frame(height: 255)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.25)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
                     Text(visible
                          ? "Clicca o trascina sul PDF per posizionare il riquadro di firma. Usa il menu pagina per spostarti."
                          : "Firma invisibile: nessun riquadro grafico, ma la firma crittografica sarà presente.")
                         .font(.caption).foregroundStyle(.secondary)
+                    if visible {
+                        HStack {
+                            Text("Aspetto selezionato:")
+                                .font(.caption).foregroundStyle(.secondary)
+                            SignumGraphicAppearancePreview(
+                                fullName: holder,
+                                style: style,
+                                imagePath: imagePath,
+                                showDate: showDate
+                            )
+                            .frame(height: 85)
+                            Spacer()
+                        }
+                    }
                     if let placement, visible {
                         Text("Pagina \(placement.pageIndex + 1) · x \(Int(placement.rectangle.minX)), y \(Int(placement.rectangle.minY)) · \(Int(placement.rectangle.width)) × \(Int(placement.rectangle.height)) pt")
                             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
