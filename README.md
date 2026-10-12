@@ -2,7 +2,7 @@
 
 **Native macOS electronic-signature client — early open-source technical proof of concept.**
 
-The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.2.0-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
+The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.2.2-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
 
 ## Requirements and setup
 
@@ -62,6 +62,18 @@ The native GUI displays the certificate holder's **given name and surname**, a p
 Token rows show the PKCS#11 token label, model, and the physical reader's `CK_SLOT_INFO.slotDescription`. Familiar devices such as DigitalDNA and CNS are labeled **Token USB** and **Smart card**. These are model-based UI descriptions, **not authoritative detection of the actual USB transport**; an unknown device remains a generic PKCS#11 device.
 
 The certificate identity is shown locally in the GUI. No certificate personal data is stored in the repository or printed in debug output. A displayed name/CF is informational and is not a substitute for certificate trust and eIDAS qualification verification.
+
+### GUI CAdES signing and reader startup recovery (0.2.2 alpha)
+
+- Start the real macOS app bundle, **not** `swift run SignumApp`, for reliable keyboard focus.
+- Select the DigitalDNA token and its signature certificate (typically `DS3`) or another suitable card/certificate.
+- Select **Firma documento CAdES**, choose a **test file** with **Scegli file…** or drag it to the drop area, enter the device PIN, then click **Firma .p7m**.
+- Choose a **new** output path. Signum will not silently overwrite an existing file. The input must be 1 byte to 16 MiB.
+- To independently verify the resulting attached CMS, run `bash scripts/verify-cades-local.sh <generated.p7m> <original-file>` or check it in InfoCamere Sign. Verification through this script does not check legal qualification, trust, validity at signing time or ETSI conformance.
+
+The GUI has a compact fixed-size layout. When an inserted card briefly reports PKCS#11 `CKR_TOKEN_NOT_RECOGNIZED` (`0xE1`), the app skips that reader without hiding the other available devices, retries enumeration **once** after 450 ms, and provides an explicit manual refresh button. This automatic retry does **not** attempt PIN authentication.
+
+The app remains an **experimental CAdES proof of concept** and is not for production documents. PINs are passed only to the installed hardware middleware, but complete in-memory erasure and driver isolation are not yet implemented.
 
 ### Native SwiftUI development application
 
