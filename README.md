@@ -2,7 +2,7 @@
 
 **Native macOS electronic-signature client — early open-source technical proof of concept.**
 
-The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.3.1-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
+The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.3.2-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
 
 ## Requirements and setup
 
@@ -107,6 +107,31 @@ On your Mac, connect your DigitalDNA and/or CNS, launch the actual macOS bundle 
 
 All builds and tests are performed **locally** using `swift test` and `swift run`; no GitHub Actions workflows are used.
 
+
+## Signum 0.3.2 Alpha — Experimental visible PAdES appearance
+
+The PAdES helper can now create a real PDF widget normal appearance (`/AP /N`)
+**before** the signing operation. When a position is selected, the SwiftUI app
+sends an ASCII display name after the PIN through a private stdin pipe; the
+helper uses PoDoFo to draw a minimal text-only stamp (white background, thin
+border, "Firmato digitalmente da" and the certificate holder name).
+
+**The configured image, logo, and date are not yet embedded** in this
+first rendering pass. The preview has been aligned with the text-only output.
+The appearance describes the signer; it is not evidence of validity by itself.
+Test only with a disposable PDF. After rebuilding the helper and application,
+check (1) whether the stamp is visible in a PDF reader, and (2) whether
+InfoCamere still reports a valid PAdES signature. If either fails, do not use
+the output for work documents. No signing binaries or tests run in GitHub Actions.
+
+```bash
+cd ~/Signum
+git pull --ff-only
+cmake --build .build/signum-pades --config Release
+swift test
+bash scripts/build-app.sh
+open -n "$PWD/build/Signum.app"
+```
 
 ## Signum 0.3.1 Alpha — Resizable workspace and PAdES engine
 
