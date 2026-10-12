@@ -9,23 +9,19 @@ struct SignumApp: App {
     var body: some Scene {
         WindowGroup("Signum") {
             SignumWindow()
-                .frame(width: 900, height: 760, alignment: .top)
+                .frame(minWidth: 980, minHeight: 650)
         }
-        .defaultSize(width: 900, height: 760)
-        .windowResizability(.contentSize)
+        .defaultSize(width: 1320, height: 830)
+        // No contentSize restriction: the user can freely resize the window.
     }
 }
 
 private enum SignumOperation: String, Hashable {
-    case sign
-    case verify
-    case settings
+    case sign, verify, settings
 }
 
 private enum SignumFormat: String, Hashable {
-    case cades
-    case pades
-    case xades
+    case cades, pades, xades
 }
 
 struct SignumWindow: View {
@@ -47,83 +43,41 @@ struct SignumWindow: View {
     @State private var status = "Collega un dispositivo e premi Carica."
     @State private var busy = false
 
+    private var canSign: Bool {
+        guard !busy, !pin.isEmpty, selectedSlot != nil,
+              selectedCertificateID != nil, let file = inputFile else { return false }
+        switch format {
+        case .cades: return true
+        case .pades:
+            return file.pathExtension.lowercased() == "pdf" && SignumPAdESHelper.available
+        case .xades: return false
+        }
+    }
+
+    private var selectedHolder: String {
+        guard let certificate = certificates.first(where: { $0.id == selectedCertificateID }) else {
+            return "Firmatario"
+        }
+        return certificateIdentities[certificate.id]?.fullName ?? certificate.label
+    }
+
     var body: some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
                 Image(systemName: "signature").font(.largeTitle)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Signum").font(.title.bold())
-                    Text("Firma digitale per macOS — prototipo sperimentale")
-                        .font(.callout).foregroundStyle(.secondary)
+                    Text("Signum").font(.title2.bold())
+                    Text("Firma digitale per macOS · sviluppo sperimentale")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("0.3.0 · Alpha").font(.caption).foregroundStyle(.secondary)
+                Text("0.3.1 · Alpha").font(.caption).foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
-            Divider()
-
-            if operation == .sign {
-            Text("Libreria PKCS#11").font(.headline)
-            HStack {
-                TextField("Percorso completo del modulo", text: $modulePath)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Percorso modulo PKCS#11")
-                    .disabled(busy)
-                Button("Carica / Aggiorna") { load() }
-                    .disabled(busy)
-            }
-
-            HStack(alignment: .top, spacing: 12) {
-                GroupBox("Dispositivi collegati") {
-                    List(tokens, selection: Binding(
-                        get: { selectedSlot },
-                        set: { slot in
-                            selectedSlot = slot
-                            loadCertificates(slot: slot)
-                        }
-                    )) { token in
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: token.iconName).frame(width: 20)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(token.label).fontWeight(.medium)
-                                Text("\(token.deviceKind) · \(token.model)")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Text(token.readerDescription)
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .tag(token.slot)
-                    }
-                    .frame(height: 190) // Never expand to fill the desktop height.
-                    .disabled(busy)
-                }
-
-                GroupBox("Certificati X.509") {
-                    List(certificates, selection: $selectedCertificateID) { cert in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(certificateIdentities[cert.id]?.title ?? cert.label)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(2)
-                            Text("\(cert.label) · ID \(cert.id)")
-                                .font(.caption).foregroundStyle(.secondary)
-                            if let issuer = certificateIdentities[cert.id]?.issuer {
-                                Text("Emittente: \(issuer)")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .tag(cert.id)
-                    }
-                    .frame(height: 190)
-                    .disabled(busy)
-                }
-            }
-
-            }
-
-            Picker("Operazione", selection: $operation) {
+            Picker("Sezione", selection: $operation) {
                 Text("Firma documento").tag(SignumOperation.sign)
                 Text("Verifica .p7m").tag(SignumOperation.verify)
                 Text("Impostazioni").tag(SignumOperation.settings)
@@ -131,122 +85,221 @@ struct SignumWindow: View {
             .labelsHidden()
             .pickerStyle(.segmented)
             .disabled(busy)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+
+            Divider()
 
             if operation == .sign {
-                HStack {
-                    Text("Formato di firma").font(.headline)
-                    Picker("Formato", selection: $format) {
-                        Text("CAdES (.p7m)").tag(SignumFormat.cades)
-                        Text("PAdES (.pdf)").tag(SignumFormat.pades)
-                        Text("XAdES (prossimamente)").tag(SignumFormat.xades).disabled(true)
+                HSplitView {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            formatPicker
+                            documentPicker
+                            tokenControls
+                            certificateControls
+                            signingControls
+                            statusFooter
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 255)
-                    Spacer()
-                    if format == .pades {
-                        Text("Motore PAdES in integrazione")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
+                    .frame(minWidth: 350, idealWidth: 420, maxWidth: 550)
 
-            if operation == .verify {
-                CAdESVerificationPane()
-            } else if operation == .settings {
-                SignumGraphicSettingsPane()
+                    pdfWorkspace
+                        .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
-            GroupBox("Firma documento") {
-                VStack(alignment: .leading, spacing: 9) {
-                    if operation == .sign {
-                        HStack(spacing: 10) {
-                            Image(systemName: "doc.badge.plus")
-                                .foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(inputFile?.lastPathComponent ?? "Trascina qui un file, oppure selezionalo")
-                                    .lineLimit(1)
-                                Text(format == .cades
-                                     ? "CAdES con documento incorporato · massimo 16 MiB"
-                                     : "PAdES · PDF con firma incorporata")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button("Scegli file…") { chooseFile() }
-                                .disabled(busy)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if operation == .verify {
+                            CAdESVerificationPane()
+                        } else {
+                            SignumGraphicSettingsPane()
                         }
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.28),
-                                              style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: [5, 4]))
-                        )
-                        .onDrop(of: [UTType.fileURL.identifier],
-                                isTargeted: $dropTargeted, perform: receiveDrop)
-                        Text(format == .cades
-                             ? "Il documento verrà firmato e salvato come .p7m."
-                             : "PAdES conserverà il formato PDF e permetterà la firma grafica opzionale.")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
-
-                    if let token = tokens.first(where: { $0.slot == selectedSlot }),
-                       let cert = certificates.first(where: { $0.id == selectedCertificateID }) {
-                        Text("\(token.deviceKind): \(token.label) · \(certificateIdentities[cert.id]?.title ?? cert.label)")
-                            .font(.callout.weight(.medium))
-                            .lineLimit(2)
-                    }
-
-                    if format == .pades {
-                        Text("Il posizionamento grafico è già disponibile in anteprima. La firma PAdES sarà abilitata quando il motore PoDoFo/PKCS#11 avrà superato la verifica.")
-                            .font(.caption).foregroundStyle(.orange)
-                    }
-                    HStack {
-                        SecureField("PIN del dispositivo", text: $pin)
-                            .textFieldStyle(.roundedBorder)
-                            .privacySensitive()
-                            .disabled(busy || format == .pades)
-                        if busy {
-                            ProgressView()
-                                .controlSize(.small)
-                                .accessibilityLabel("Operazione in corso")
-                        }
-                        Button(busy ? "Elaborazione…" : format == .cades ? "Firma .p7m" : "Firma PDF (in sviluppo)") {
-                            if format == .cades { signDocument() }
-                        }
-                        .disabled(busy || format != .cades || pin.isEmpty || selectedSlot == nil ||
-                                  selectedCertificateID == nil || inputFile == nil)
-                    }
-                    Text("Versione di prova: non controlla ancora la qualificazione eIDAS o lo stato di revoca. Non usare documenti di lavoro.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .padding(5)
-            }
-            if format == .pades, let file = inputFile,
-               file.pathExtension.lowercased() == "pdf" {
-                PAdESPlacementPane(
-                    fileURL: file,
-                    holder: certificates.first(where: { $0.id == selectedCertificateID })
-                        .flatMap { certificateIdentities[$0.id]?.fullName } ?? "Firmatario",
-                    placement: $pdfPlacement
-                )
-            }
-            }
-
-            if operation == .sign {
-            HStack(alignment: .center, spacing: 8) {
-                Image(systemName: "info.circle").foregroundStyle(.secondary)
-                Text(status)
-                    .font(.callout)
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-                Spacer()
-                if let signedFile = lastSignedFile {
-                    Button("Mostra nel Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([signedFile])
-                    }
-                }
-            }
             }
         }
-        .padding(20)
+        .onChange(of: format) { nextFormat in
+            pin = ""
+            pdfPlacement = nil
+            lastSignedFile = nil
+            if nextFormat == .pades,
+               let file = inputFile,
+               file.pathExtension.lowercased() != "pdf" {
+                inputFile = nil
+            }
+        }
+    }
+
+    private var formatPicker: some View {
+        GroupBox("Tipologia di firma") {
+            Picker("Formato", selection: $format) {
+                Text("CAdES — documento .p7m").tag(SignumFormat.cades)
+                Text("PAdES — PDF firmato").tag(SignumFormat.pades)
+                Text("XAdES — prossimamente").tag(SignumFormat.xades).disabled(true)
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(busy)
+            .padding(5)
+        }
+    }
+
+    private var documentPicker: some View {
+        GroupBox("Documento") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc")
+                    Text(inputFile?.lastPathComponent ?? "Trascina o seleziona un file")
+                        .lineLimit(2)
+                        .font(.callout)
+                    Spacer(minLength: 4)
+                    Button("Scegli…") { chooseFile() }.disabled(busy)
+                }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3),
+                                      style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: [5, 4]))
+                )
+                .onDrop(of: [UTType.fileURL.identifier],
+                        isTargeted: $dropTargeted, perform: receiveDrop)
+                Text(format == .pades ? "PDF · dimensione massima 64 MiB"
+                      : "Qualsiasi file · dimensione massima 16 MiB")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(5)
+        }
+    }
+
+    private var tokenControls: some View {
+        GroupBox("Dispositivo e lettore") {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    TextField("Percorso PKCS#11", text: $modulePath)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(busy)
+                    Button("Carica") { load() }.disabled(busy)
+                }
+                List(tokens, selection: Binding(
+                    get: { selectedSlot },
+                    set: { slot in
+                        selectedSlot = slot
+                        loadCertificates(slot: slot)
+                    }
+                )) { token in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: token.iconName)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(token.label).font(.subheadline.weight(.medium))
+                            Text("\(token.deviceKind) · \(token.model)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .tag(token.slot)
+                }
+                .frame(height: 105)
+                .disabled(busy)
+            }
+            .padding(5)
+        }
+    }
+
+    private var certificateControls: some View {
+        GroupBox("Certificato di firma") {
+            VStack(alignment: .leading) {
+                List(certificates, selection: $selectedCertificateID) { certificate in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(certificateIdentities[certificate.id]?.title ?? certificate.label)
+                            .font(.caption.weight(.semibold)).lineLimit(2)
+                        Text("\(certificate.label) · ID \(certificate.id)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .tag(certificate.id)
+                }
+                .frame(height: 130)
+                .disabled(busy)
+                Text("Seleziona un certificato idoneo alla firma, non soltanto all'autenticazione.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(5)
+        }
+    }
+
+    private var signingControls: some View {
+        GroupBox("Firma") {
+            VStack(alignment: .leading, spacing: 10) {
+                if format == .pades {
+                    if SignumPAdESHelper.available {
+                        Text("Motore PoDoFo sperimentale rilevato. Firma PAdES-B senza immagine grafica incorporata; verifica il PDF con InfoCamere.")
+                            .font(.caption).foregroundStyle(.orange)
+                    } else {
+                        Text("Per abilitare PAdES, compila in locale il motore PoDoFo e ricrea Signum.app.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
+                HStack(spacing: 10) {
+                    SecureField("PIN del dispositivo", text: $pin)
+                        .textFieldStyle(.roundedBorder)
+                        .privacySensitive()
+                        .disabled(busy || (format == .pades && !SignumPAdESHelper.available))
+                    if busy {
+                        ProgressView().controlSize(.small)
+                    }
+                    Button(busy ? "Firma in corso…" :
+                           format == .pades ? "Firma PDF" : "Firma .p7m") {
+                        if format == .pades { signPAdES() }
+                        else { signDocument() }
+                    }
+                    .disabled(!canSign)
+                }
+                Text("Solo test con documenti fittizi. Validazione normativa eIDAS e revoche non implementate.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(5)
+        }
+    }
+
+    private var statusFooter: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Image(systemName: "info.circle").foregroundStyle(.secondary)
+            Text(status).font(.caption).textSelection(.enabled)
+            Spacer(minLength: 0)
+            if let file = lastSignedFile {
+                Button("Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([file])
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pdfWorkspace: some View {
+        if format == .pades, let file = inputFile,
+           file.pathExtension.lowercased() == "pdf" {
+            PAdESPlacementPane(
+                fileURL: file, holder: selectedHolder, placement: $pdfPlacement
+            )
+            .padding(14)
+        } else {
+            VStack(spacing: 14) {
+                Image(systemName: format == .pades ? "doc.text.magnifyingglass" : "doc.text")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.tertiary)
+                Text(format == .pades ? "Anteprima PDF" : "Firma documento")
+                    .font(.title3.weight(.medium))
+                Text(format == .pades
+                     ? "Seleziona un PDF per visualizzarlo e posizionare la firma."
+                     : "Con CAdES il documento viene incorporato in una busta .p7m.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -428,6 +481,64 @@ struct SignumWindow: View {
         }
     }
 
+
+    private func signPAdES() {
+        guard format == .pades, !busy, let original = inputFile,
+              let slot = selectedSlot,
+              let cert = certificates.first(where: { $0.id == selectedCertificateID }),
+              !pin.isEmpty else { return }
+
+        let picker = NSSavePanel()
+        picker.title = "Salva PDF firmato PAdES — prototipo"
+        picker.directoryURL = original.deletingLastPathComponent()
+        picker.nameFieldStringValue = original.deletingPathExtension().lastPathComponent + "-firmato.pdf"
+        guard picker.runModal() == .OK, let output = picker.url else { return }
+        guard output.pathExtension.lowercased() == "pdf",
+              output.standardizedFileURL != original.standardizedFileURL else {
+            status = "Scegli un file PDF di destinazione diverso dall'originale."
+            return
+        }
+        guard !FileManager.default.fileExists(atPath: output.path) else {
+            status = "Il PDF di destinazione esiste già: scegli un altro nome."
+            return
+        }
+
+        let field: SignumPAdESHelper.Field?
+        if let placement = pdfPlacement {
+            field = .init(pageIndex: placement.pageIndex,
+                          x: Double(placement.rectangle.minX),
+                          y: Double(placement.rectangle.minY),
+                          width: Double(placement.rectangle.width),
+                          height: Double(placement.rectangle.height))
+        } else {
+            field = nil
+        }
+        let secret = pin
+        pin = ""
+        busy = true
+        lastSignedFile = nil
+        status = "Firma PDF con PoDoFo e PKCS#11 in corso…"
+        let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let outcome = Result {
+                try SignumPAdESHelper.sign(
+                    input: original, output: output, modulePath: path,
+                    slot: slot, certificateID: cert.id, pin: secret, field: field
+                )
+            }
+            DispatchQueue.main.async {
+                self.busy = false
+                switch outcome {
+                case .success:
+                    self.lastSignedFile = output
+                    self.status = "PDF PAdES sperimentale creato: VERIFICALO con InfoCamere prima di utilizzarlo."
+                case .failure(let error):
+                    self.status = "Firma PDF non riuscita: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
 
 }
 #else
