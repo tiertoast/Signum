@@ -1,7 +1,7 @@
 # Signum PAdES Engine — Experimental
 
 Optional native C++/PoDoFo prototype for PAdES-B with a PKCS#11 hardware key.
-Not built by swift test and NOT connected to the GUI until it passes local validation.
+Not built by swift test. When the optional helper is compiled locally, the macOS app can launch it for experimental PAdES signing.
 
 ## Technical flow
 
@@ -46,3 +46,7 @@ Verify the output independently with InfoCamere Sign, including its PAdES profil
 
 PoDoFo is LGPL-2.0-or-later OR MPL-2.0, installed independently, not vendored in Signum.
 The helper does not perform a full driver security review; the PIN may remain in transient memory copies. An eventual GUI bridge must use isolated secure IPC rather than command-line or environment PINs.
+
+## GUI prototype
+
+Rebuild the helper locally, then run `bash scripts/build-app.sh` to include it in the app bundle. Until the helper is present, the PAdES signing button stays disabled. Verify every output PDF with an independent validator. The selected position creates a signature field; the custom image and text appearance is not yet embedded into signed PDFs.
