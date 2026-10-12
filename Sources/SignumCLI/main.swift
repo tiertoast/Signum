@@ -16,11 +16,13 @@ func help() {
     swift run SignumCLI certs <slot> [absolute_module_path]
     swift run SignumCLI sign-test <slot> <cert_ID_hex> [absolute_module_path]
     swift run SignumCLI sign-cades <slot> <cert_ID_hex> <input> <output.p7m> [absolute_module_path]
+    swift run SignumCLI verify-cades <signed.p7m> [extracted-output]
 
     The PIN is entered at a terminal prompt, never as a CLI argument.
     sign-cades produces an EXPERIMENTAL attached CMS/CAdES candidate.
     Independently verify its cryptographic validity before any other use.
-    No certificate chain, revocation, EU trust-list or qualification checks are performed.
+    The verifier checks CMS integrity only: NO certificate trust/qualification/revocation.
+    The extracted output is only saved if explicitly requested and must not exist.
     """)
 }
 
@@ -35,6 +37,28 @@ func inputPIN() throws -> String {
 func run() throws {
     let arguments = Array(CommandLine.arguments.dropFirst())
     guard let action = arguments.first else { help(); return }
+
+    if action == "verify-cades" {
+        guard arguments.count == 2 || arguments.count == 3 else { help(); return }
+        let input = URL(fileURLWithPath: arguments[1])
+        let result = try CAdESVerifier.verify(file: input)
+        print("Verified OK — CMS cryptographic integrity (trust NOT assessed)")
+        print("Verified nested layers: \(result.verifiedLayerCount); signer entries: \(result.verifiedSignatureCount)")
+        for layer in result.levels {
+            print("Layer \(layer.level): \(layer.signers.joined(separator: ", "))")
+        }
+        if arguments.count == 3 {
+            let output = URL(fileURLWithPath: arguments[2])
+            guard input.standardizedFileURL != output.standardizedFileURL else {
+                throw SignumError.module("Extraction output must differ from signed input")
+            }
+            try SignumFileOutput.writeNew(result.originalDocument, to: output)
+            print("Extracted original document to: \(output.path)")
+        }
+        print("WARNING: No certificate trust, revocation, timestamps or eIDAS validation performed.")
+        return
+    }
+
     let modulePath: String
     switch action {
     case "list":
@@ -108,7 +132,7 @@ func run() throws {
     let pin = try inputPIN()
     let cms = try module.createCAdES(document: document, slot: slot,
                                      certificate: certificate, pin: pin)
-    try cms.write(to: output, options: .atomic)
+    try SignumFileOutput.writeNew(cms, to: output)
     print("Created: \(output.path)")
     print("NEXT: verify with: openssl cms -verify -inform DER -binary -noverify -in '\(output.path)' -out /tmp/signum-extracted.dat")
 }
