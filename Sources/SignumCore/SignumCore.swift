@@ -70,6 +70,11 @@ public struct SignumCertificate: Identifiable, Hashable {
     public var id: String { identifier.map { String(format: "%02X", $0) }.joined() }
 }
 
+public struct SignumTokenScan {
+    public let tokens: [SignumToken]
+    public let unavailableSlots: Int
+}
+
 /// Loads an installed PKCS#11 provider. Do not share an instance between threads.
 /// The PKCS#11 driver executes inside this process: use trusted modules only.
 public final class PKCS11Module {
@@ -94,18 +99,27 @@ public final class PKCS11Module {
     deinit { sg_close(context) }
 
     public func tokens() throws -> [SignumToken] {
+        try scanTokens().tokens
+    }
+
+    /// A reader may expose a slot before its card is ready. Return the other
+    /// usable devices, plus a count of transiently unavailable slots.
+    public func scanTokens() throws -> SignumTokenScan {
         var rows = [SGToken](repeating: SGToken(), count: 256)
         var count = 0
+        var unavailable = 0
         try execute { error in
             rows.withUnsafeMutableBufferPointer { buffer in
-                sg_tokens(context, buffer.baseAddress, buffer.count, &count, error.baseAddress, error.count)
+                sg_tokens(context, buffer.baseAddress, buffer.count, &count,
+                          &unavailable, error.baseAddress, error.count)
             }
         }
-        return rows.prefix(count).map {
+        let found = rows.prefix(count).map {
             SignumToken(slot: UInt($0.slot), label: Self.fixedString($0.label),
                         manufacturer: Self.fixedString($0.manufacturer),
                         model: Self.fixedString($0.model), reader: Self.fixedString($0.reader))
         }
+        return SignumTokenScan(tokens: found, unavailableSlots: unavailable)
     }
 
     public func certificates(slot: UInt) throws -> [SignumCertificate] {
