@@ -1,6 +1,6 @@
 // Experimental local PAdES-B proof of concept.
 // Uses PoDoFo for incremental PDF signing, Bit4id/OpenSC PKCS#11 for RSA.
-// Does NOT export the private key, validate trust, or generate a visible AP stream.
+// Does NOT export the private key or validate trust; visible AP is an experimental text-only stream.
 // This is NOT built or invoked by the Signum SwiftUI app yet.
 #include <podofo/podofo.h>
 #include "SignumPKCS11.h"
@@ -163,12 +163,61 @@ static std::vector<uint8_t> read_stdin_pin() {
     return pin;
 }
 
+// Name is only a visible descriptive label. Use conservative printable ASCII
+// for the standard Helvetica PDF font; never interpret text as PDF operators.
+static std::string read_appearance_name() {
+    std::string name;
+    char value = 0;
+    while (::read(STDIN_FILENO, &value, 1) == 1) {
+        if (value == '\n') break;
+        if (value == '\r') continue;
+        if (name.size() >= 100 || static_cast<unsigned char>(value) < 32 ||
+            static_cast<unsigned char>(value) > 126)
+            throw std::runtime_error("Invalid signature appearance name");
+        name.push_back(value);
+    }
+    if (name.empty()) throw std::runtime_error("Missing appearance name");
+    return name;
+}
+
+static void set_text_appearance(PdfMemDocument& doc, PdfSignature& signature,
+                                const Rect& rect, const std::string& holder) {
+    if (rect.Width < 125 || rect.Height < 45)
+        throw std::runtime_error("Visible signature rectangle too small");
+
+    // The form XObject is a normal, pre-signing PDF object. It is never
+    // appended to the signed PDF after the ByteRange has been calculated.
+    PdfXObjectForm appearance(doc, Rect(0, 0, rect.Width, rect.Height));
+    PdfPainter painter;
+    painter.SetCanvas(appearance);
+    painter.GraphicsState.SetNonStrokingColor(PdfColor(1.0));
+    painter.DrawRectangle(0, 0, rect.Width, rect.Height, PdfPathDrawMode::Fill);
+    painter.GraphicsState.SetStrokingColor(PdfColor(0.45));
+    painter.DrawRectangle(0.5, 0.5, rect.Width - 1, rect.Height - 1,
+                          PdfPathDrawMode::Stroke);
+    painter.GraphicsState.SetNonStrokingColor(PdfColor(0.1));
+    auto& font = doc.GetFonts().GetStandard14Font(PdfStandard14FontType::Helvetica);
+    painter.TextState.SetFont(font, 9);
+    painter.DrawText("Firmato digitalmente da", 7, rect.Height - 17);
+    painter.TextState.SetFont(font, 11);
+    const auto truncated = holder.substr(0, 35);
+    painter.DrawText(truncated, 7, rect.Height - 33);
+    painter.FinishDrawing();
+
+    signature.MustGetWidget().SetAppearanceStream(appearance);
+}
+
 int main(int argc, char** argv) {
-    const bool pinFromPipe = argc > 1 && std::strcmp(argv[argc - 1], "--pin-stdin") == 0;
-    const int positionalCount = argc - (pinFromPipe ? 1 : 0);
-    if (positionalCount != 6 && positionalCount != 11) {
+    const bool appearanceFromPipe = argc > 1 &&
+        std::strcmp(argv[argc - 1], "--appearance-stdin") == 0;
+    const int afterAppearance = argc - (appearanceFromPipe ? 1 : 0);
+    const bool pinFromPipe = afterAppearance > 1 &&
+        std::strcmp(argv[afterAppearance - 1], "--pin-stdin") == 0;
+    const int positionalCount = afterAppearance - (pinFromPipe ? 1 : 0);
+    if ((positionalCount != 6 && positionalCount != 11) ||
+        (appearanceFromPipe && (!pinFromPipe || positionalCount != 11))) {
         std::cerr << "Usage: signum-pades-local INPUT.pdf OUTPUT.pdf MODULE SLOT CERT_ID_HEX"
-                  << " [PAGE_ZERO_BASED X Y WIDTH HEIGHT] [--pin-stdin]\n";
+                  << " [PAGE_ZERO_BASED X Y WIDTH HEIGHT] [--pin-stdin] [--appearance-stdin]\n";
         return 2;
     }
     fs::path output;
@@ -233,6 +282,16 @@ int main(int argc, char** argv) {
             wipe_secret(userPIN, std::strlen(userPIN));
         }
 
+        std::string appearanceName;
+        if (appearanceFromPipe) {
+            try {
+                appearanceName = read_appearance_name();
+            } catch (...) {
+                wipe_pin(pin);
+                throw;
+            }
+        }
+
         try {
             auto io = std::make_shared<FileStreamDevice>(output.string(), FileMode::Open);
             PdfMemDocument doc(io);
@@ -253,6 +312,8 @@ int main(int argc, char** argv) {
             auto& page = doc.GetPages().GetPageAt(pageIndex);
             auto& field = page.CreateField<PdfSignature>("SignumSignature", rectangle);
             field.SetSignatureDate(PdfDate::UtcNow());
+            if (!appearanceName.empty())
+                set_text_appearance(doc, field, rectangle, appearanceName);
 
             PdfSignerCmsParams params;
             params.SignatureType = PdfSignatureType::PAdES_B;
