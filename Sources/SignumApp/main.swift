@@ -16,6 +16,7 @@ struct SignumWindow: View {
     @State private var activeModulePath: String?
     @State private var tokens: [SignumToken] = []
     @State private var certificates: [SignumCertificate] = []
+    @State private var certificateIdentities: [String: SignumCertificateIdentity] = [:]
     @State private var selectedSlot: UInt?
     @State private var selectedCertificateID: String?
     @State private var pin = ""
@@ -53,9 +54,17 @@ struct SignumWindow: View {
                             loadCertificates(slot: slot)
                         }
                     )) { token in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(token.label).fontWeight(.medium)
-                            Text("Slot \(token.slot) · \(token.model)").font(.caption).foregroundStyle(.secondary)
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: token.iconName)
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(token.label).fontWeight(.medium)
+                                Text("\(token.deviceKind) · \(token.model)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(token.readerDescription)
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
                         }
                         .tag(token.slot)
                     }
@@ -64,9 +73,17 @@ struct SignumWindow: View {
                 }
                 GroupBox("Certificati X.509") {
                     List(certificates, selection: $selectedCertificateID) { cert in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(cert.label).fontWeight(.medium)
-                            Text("ID: \(cert.id)").font(.caption).monospaced().foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(certificateIdentities[cert.id]?.title ?? cert.label)
+                                .font(.subheadline.weight(.semibold))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("\(cert.label) · ID \(cert.id)")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let issuer = certificateIdentities[cert.id]?.issuer {
+                                Text("Emittente: \(issuer)")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
                         }
                         .tag(cert.id)
                     }
@@ -80,8 +97,9 @@ struct SignumWindow: View {
                         .font(.callout).foregroundStyle(.secondary)
                     if let token = tokens.first(where: { $0.slot == selectedSlot }),
                        let cert = certificates.first(where: { $0.id == selectedCertificateID }) {
-                        Text("Dispositivo: \(token.label)  ·  Certificato: \(cert.label)")
-                            .font(.callout.weight(.medium))
+                        Text("\(token.deviceKind): \(token.label) · \(certificateIdentities[cert.id]?.title ?? cert.label)")
+                            .font(.callout.weight(.medium"))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     HStack {
                         SecureField("PIN del token", text: $pin)
@@ -125,6 +143,7 @@ struct SignumWindow: View {
                 selectedSlot = nil
                 selectedCertificateID = nil
                 certificates = []
+                certificateIdentities = [:]
                 tokens = []
                 module = nil  // Releases old provider before the next C_Initialize.
                 activeModulePath = nil
@@ -151,6 +170,7 @@ struct SignumWindow: View {
             activeModulePath = nil
             tokens = []
             certificates = []
+            certificateIdentities = [:]
             selectedSlot = nil
             selectedCertificateID = nil
             status = error.localizedDescription
@@ -159,13 +179,24 @@ struct SignumWindow: View {
 
     private func loadCertificates(slot: UInt?) {
         selectedCertificateID = nil
-        guard let module, let slot else { certificates = []; return }
+        certificates = []
+        certificateIdentities = [:]
+        guard let module, let slot else { return }
         do {
-            certificates = try module.certificates(slot: slot)
-            selectedCertificateID = certificates.first?.id
-            status = "Trovati \(certificates.count) certificati."
+            let found = try module.certificates(slot: slot)
+            var identities: [String: SignumCertificateIdentity] = [:]
+            for cert in found {
+                // Each certificate is a public object: no PIN or authentication needed.
+                // Failure to decode one certificate must not hide the others.
+                if let identity = try? module.certificateIdentity(slot: slot, certificate: cert) {
+                    identities[cert.id] = identity
+                }
+            }
+            certificates = found
+            certificateIdentities = identities
+            selectedCertificateID = found.first?.id
+            status = "Trovati \(found.count) certificati · \(identities.count) identità lette."
         } catch {
-            certificates = []
             status = error.localizedDescription
         }
     }
