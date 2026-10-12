@@ -47,7 +47,7 @@ struct PAdESPlacementPane: View {
                         placement: $placement, holder: holder,
                         visible: visible
                     )
-                    .frame(height: 255)
+                    .frame(minHeight: 350, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
                     Text(visible
@@ -81,6 +81,7 @@ struct PAdESPlacementPane: View {
             }
             .padding(5)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { pdfDocument = PDFDocument(url: fileURL) }
         .onChange(of: fileURL) { _ in
             page = 0
@@ -139,7 +140,9 @@ private struct SignaturePlacementPDFView: NSViewRepresentable {
     func makeNSView(context: Context) -> PlacementPDFView {
         let viewer = PlacementPDFView()
         viewer.autoScales = true
-        viewer.displayMode = .singlePageContinuous
+        viewer.displayMode = .singlePage
+        viewer.minScaleFactor = 0.25
+        viewer.maxScaleFactor = 5.0
         viewer.backgroundColor = NSColor.windowBackgroundColor
         viewer.displaysPageBreaks = true
         return viewer
