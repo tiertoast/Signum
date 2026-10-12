@@ -2,7 +2,7 @@
 
 **Native macOS electronic-signature client — early open-source technical proof of concept.**
 
-The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.3.0-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
+The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.3.1-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
 
 ## Requirements and setup
 
@@ -107,6 +107,14 @@ On your Mac, connect your DigitalDNA and/or CNS, launch the actual macOS bundle 
 
 All builds and tests are performed **locally** using `swift test` and `swift run`; no GitHub Actions workflows are used.
 
+
+## Signum 0.3.1 Alpha — Resizable workspace and PAdES engine
+
+Signum uses a resizable split window for signing. Device/certificate controls are on the left and PDFKit preview occupies the right panel in PAdES mode. The window and central divider can both be resized.
+
+PAdES signing is experimental and requires the optional local PoDoFo helper. Build it in Tools/PAdESPrototype, then rerun scripts/build-app.sh so the helper is included. If it is not installed the GUI disables PAdES signing. All compilation and validation are local on macOS. CAdES and verification remain available.
+
+The selected rectangle defines a PDF signature field. Custom image/text PDF signature appearances are not yet embedded, even though the interface previews their configuration. Verify every experimental PDF with InfoCamere Sign before relying on the output. Trust, revocation, timestamps and qualified status remain outside the scope of the current implementation.
 
 ## Signum 0.3.0 Alpha — PAdES user-interface milestone
 
