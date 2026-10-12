@@ -55,6 +55,14 @@ The `-noverify` flag **deliberately disables trust-chain checking**; this test o
 
 **No PINs, certificates or private data should be committed to the repository.** Do not use your production documents while testing.
 
+### X.509 holder and device identification (0.2.1 alpha)
+
+The native GUI displays the certificate holder's **given name and surname**, a personal Italian **codice fiscale** when actually present in the public X.509 subject, and the certificate issuer. This does not involve the token PIN or export any private key. If a field is absent or malformed, the GUI falls back to the original PKCS#11 certificate label (e.g., `DS3`).
+
+Token rows show the PKCS#11 token label, model, and the physical reader's `CK_SLOT_INFO.slotDescription`. Familiar devices such as DigitalDNA and CNS are labeled **Token USB** and **Smart card**. These are model-based UI descriptions, **not authoritative detection of the actual USB transport**; an unknown device remains a generic PKCS#11 device.
+
+The certificate identity is shown locally in the GUI. No certificate personal data is stored in the repository or printed in debug output. A displayed name/CF is informational and is not a substitute for certificate trust and eIDAS qualification verification.
+
 ### Native SwiftUI development application
 
 ```bash
