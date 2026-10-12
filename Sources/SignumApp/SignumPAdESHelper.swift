@@ -94,10 +94,16 @@ enum SignumPAdESHelper {
         if field != nil {
             // Helvetica (PDF Standard 14) is used by this first text-only AP.
             // Limit to printable ASCII and avoid injecting protocol delimiters.
-            let cleanedName = String(appearanceName.folding(options: [.diacriticInsensitive],
-                                                             locale: Locale(identifier: "en_US_POSIX"))
-                .utf8.filter { $0 >= 0x20 && $0 <= 0x7E }.prefix(90)
-            let printableName = cleanedName.isEmpty ? Data("Firmatario".utf8) : Data(cleanedName)
+            let normalizedName = appearanceName.folding(
+                options: .diacriticInsensitive,
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            let cleanedName = Array(normalizedName.utf8.filter {
+                $0 >= 0x20 && $0 <= 0x7E
+            }.prefix(90))
+            let printableName = cleanedName.isEmpty
+                ? Data("Firmatario".utf8)
+                : Data(cleanedName)
             secret.append(printableName)
             secret.append(0x0A)
         }
