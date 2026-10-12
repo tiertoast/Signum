@@ -71,7 +71,7 @@ struct SignumWindow: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("0.3.1 · Alpha").font(.caption).foregroundStyle(.secondary)
+                Text("0.3.2 · Alpha").font(.caption).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
