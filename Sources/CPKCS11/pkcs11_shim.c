@@ -57,24 +57,44 @@ void sg_close(SGContext *ctx) {
     free(ctx);
 }
 
+static int transient_slot_error(CK_RV rv) {
+    return rv == CKR_TOKEN_NOT_RECOGNIZED || rv == CKR_TOKEN_NOT_PRESENT ||
+           rv == CKR_SLOT_ID_INVALID || rv == CKR_DEVICE_REMOVED;
+}
+
 int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity,
-              size_t *count, char *error, size_t error_size) {
-    if (!ctx || !out || !count) return invalid(error, error_size, "Invalid token arguments");
+              size_t *count, size_t *unavailable, char *error, size_t error_size) {
+    if (!ctx || !out || !count || !unavailable)
+        return invalid(error, error_size, "Invalid token arguments");
     *count = 0;
-    CK_ULONG n = 0;
-    CK_RV rv = ctx->api->C_GetSlotList(CK_TRUE, NULL, &n);
+    *unavailable = 0;
+
+    CK_ULONG initial_count = 0;
+    CK_RV rv = ctx->api->C_GetSlotList(CK_TRUE, NULL, &initial_count);
     if (rv != CKR_OK) return failed(error, error_size, "C_GetSlotList", rv);
-    if (n > 256) return invalid(error, error_size, "Too many token slots");
-    CK_SLOT_ID *slots = calloc(n ? n : 1, sizeof(CK_SLOT_ID));
-    if (!slots) return invalid(error, error_size, "Out of memory");
+    if (initial_count > 256) return invalid(error, error_size, "Too many token slots");
+
+    // Allocate for the maximum accepted capacity: slots can appear between
+    // the count query and the data query, so allocating only initial_count
+    // would spuriously fail when a second token is inserted.
+    CK_SLOT_ID slots[256] = {0};
+    CK_ULONG n = 256;
     rv = ctx->api->C_GetSlotList(CK_TRUE, slots, &n);
-    if (rv != CKR_OK) { free(slots); return failed(error, error_size, "C_GetSlotList", rv); }
-    if (n > capacity) { free(slots); return invalid(error, error_size, "Too many slots for output buffer"); }
+    if (rv != CKR_OK) return failed(error, error_size, "C_GetSlotList", rv);
+    if (n > 256) return invalid(error, error_size, "Token slot list changed unexpectedly");
+
     for (CK_ULONG i = 0; i < n; ++i) {
         CK_TOKEN_INFO info;
         rv = ctx->api->C_GetTokenInfo(slots[i], &info);
-        if (rv != CKR_OK) { free(slots); return failed(error, error_size, "C_GetTokenInfo", rv); }
-        SGToken *t = &out[i];
+        if (transient_slot_error(rv)) {
+            ++(*unavailable);
+            continue;
+        }
+        if (rv != CKR_OK) return failed(error, error_size, "C_GetTokenInfo", rv);
+
+        if (*count >= capacity)
+            return invalid(error, error_size, "Too many tokens for output buffer");
+        SGToken *t = &out[*count];
         memset(t, 0, sizeof(*t));
         t->slot = slots[i];
         copy_padded(t->label, sizeof(t->label), info.label, sizeof(info.label));
@@ -85,9 +105,8 @@ int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity,
             copy_padded(t->reader, sizeof(t->reader), slot_info.slotDescription,
                         sizeof(slot_info.slotDescription));
         }
+        ++(*count);
     }
-    *count = n;
-    free(slots);
     return 0;
 }
 
