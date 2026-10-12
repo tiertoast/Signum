@@ -18,6 +18,8 @@ swift run SignumCLI certs 1
 swift run SignumCLI sign-test 1 445333
 ```
 
+**Important:** With the previously observed Bit4id `777` permissions, even `list` will now be blocked until permissions are inspected and fixed as described below.
+
 The commands use the default system path `/Library/bit4id/pkcs11/libbit4xpki.dylib`. You can append an absolute module path to any command; replace slot and certificate ID with values shown by your own device. The `sign-test` command requests the PIN using the terminal, **never as an argument or environment variable**.
 
 ### Experimental CAdES (.p7m) — LOCAL TEST ONLY
@@ -26,7 +28,7 @@ This PoC emits an **attached** CMS SignedData with three signed attributes:
 `contentType`, `messageDigest` and `signingCertificateV2` (ESSCertIDv2 SHA-256).
 It signs the DER signed-attribute SET with `CKM_SHA256_RSA_PKCS` on the token and checks that raw signature using macOS Security.framework. Document size is currently limited to 16 MiB, a single signer and RSA/SHA-256. It embeds only the signing certificate (no revocation or timestamp evidence). **Conformance and interoperability are unverified until externally tested.**
 
-Before entering a real PIN, verify the module's original code signature and ensure the installed PKCS#11 library, adjacent `.conf` file, and `.rc` resources are not writable by group or other users. The signing methods now reject unsafe permission bits. On the previously observed root-owned Bit4id installation these paths had mode `777`; after inspecting the paths and confirming the driver is genuine, an administrator may correct them locally:
+Before entering a real PIN, verify the module's original code signature and ensure the installed PKCS#11 library, adjacent `.conf` file, and `.rc` resources are not writable by group or other users. The PKCS#11 loader now rejects unsafe permission bits **before calling dlopen**, including for read-only token discovery. On the previously observed root-owned Bit4id installation these paths had mode `777`; after inspecting the paths and confirming the driver is genuine, an administrator may correct them locally:
 
 ```bash
 sudo chmod -R go-w /Library/bit4id/pkcs11/libbit4xpki.dylib \
