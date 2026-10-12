@@ -52,15 +52,19 @@ static void require_driver_readonly(const fs::path& path) {
         auto sidecar = fs::path(resolved.string() + suffix);
         if (fs::exists(sidecar)) {
             struct stat info {};
-            if (::stat(sidecar.c_str(), &info) != 0 || (info.st_mode & 0022) != 0)
-                throw std::runtime_error("Unsafe Bit4id configuration permissions");
+            if (::stat(sidecar.c_str(), &info) != 0)
+                throw std::runtime_error("Cannot inspect Bit4id configuration: " + sidecar.string());
+            if ((info.st_mode & 0022) != 0)
+                throw std::runtime_error("Unsafe Bit4id configuration permissions: " + sidecar.string());
             if (fs::is_directory(sidecar)) {
                 size_t checked = 0;
                 for (const auto& entry : fs::recursive_directory_iterator(sidecar)) {
                     if (++checked > 1000) throw std::runtime_error("Too many middleware resources");
                     struct stat child {};
-                    if (::stat(entry.path().c_str(), &child) != 0 || (child.st_mode & 0022) != 0)
-                        throw std::runtime_error("Unsafe Bit4id configuration resource");
+                    if (::stat(entry.path().c_str(), &child) != 0)
+                        throw std::runtime_error("Cannot inspect Bit4id resource: " + entry.path().string());
+                    if ((child.st_mode & 0022) != 0)
+                        throw std::runtime_error("Unsafe Bit4id configuration resource: " + entry.path().string());
                 }
             }
         }
