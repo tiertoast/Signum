@@ -61,8 +61,26 @@ static void require_driver_readonly(const fs::path& path) {
                 for (const auto& entry : fs::recursive_directory_iterator(sidecar)) {
                     if (++checked > 1000) throw std::runtime_error("Too many middleware resources");
                     struct stat child {};
-                    if (::stat(entry.path().c_str(), &child) != 0)
+                    // lstat inspects the link itself. stat() follows symlinks and
+                    // fails with ELOOP for Bit4id's installed self-referential
+                    // link inside its .rc resource directory.
+                    if (::lstat(entry.path().c_str(), &child) != 0)
                         throw std::runtime_error("Cannot inspect Bit4id resource: " + entry.path().string());
+
+                    if (S_ISLNK(child.st_mode)) {
+                        const auto link = fs::read_symlink(entry.path());
+                        const auto target = (link.is_absolute()
+                            ? link : entry.path().parent_path() / link).lexically_normal();
+                        const auto self = entry.path().lexically_normal();
+
+                        // The exact self-loop is an unusable, inert vendor
+                        // artifact. Ignore only when root-owned and inside
+                        // an already verified non-writable .rc directory.
+                        if (target == self && child.st_uid == 0)
+                            continue;
+                        throw std::runtime_error(
+                            "Unexpected Bit4id resource symlink: " + entry.path().string());
+                    }
                     if ((child.st_mode & 0022) != 0)
                         throw std::runtime_error("Unsafe Bit4id configuration resource: " + entry.path().string());
                 }
