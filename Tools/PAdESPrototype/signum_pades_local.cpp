@@ -24,6 +24,20 @@
 namespace fs = std::filesystem;
 using namespace PoDoFo;
 
+// Portable best-effort PIN erasure for Apple Clang, which does not expose
+// explicit_bzero in all macOS SDK configurations. Volatile stores prevent
+// the compiler from eliding these specific writes.
+static void wipe_secret(void* buffer, size_t size) noexcept {
+    auto* bytes = reinterpret_cast<volatile unsigned char*>(buffer);
+    for (size_t i = 0; i < size; ++i)
+        bytes[i] = 0;
+}
+
+static void wipe_pin(std::vector<uint8_t>& pin) noexcept {
+    if (!pin.empty())
+        wipe_secret(pin.data(), pin.size());
+}
+
 static void require_driver_readonly(const fs::path& path) {
     if (!path.is_absolute()) throw std::runtime_error("Module path must be absolute");
     const auto resolved = fs::canonical(path);
@@ -194,7 +208,7 @@ int main(int argc, char** argv) {
             char* userPIN = ::getpass("Token PIN (not echoed): ");
             if (!userPIN || !*userPIN) throw std::runtime_error("PIN missing");
             pin.assign(userPIN, userPIN + std::strlen(userPIN));
-            ::explicit_bzero(userPIN, std::strlen(userPIN));
+            wipe_secret(userPIN, std::strlen(userPIN));
         }
 
         try {
@@ -232,10 +246,10 @@ int main(int argc, char** argv) {
             PdfSignerCms signer(der, params);
             PoDoFo::SignDocument(doc, *io, signer, field);
         } catch (...) {
-            std::fill(pin.begin(), pin.end(), 0);
+            wipe_pin(pin);
             throw;
         }
-        std::fill(pin.begin(), pin.end(), 0);
+        wipe_pin(pin);
         std::cout << "PAdES prototype output written: " << output << "\n"
                   << "VERIFY WITH AN INDEPENDENT PDF VALIDATOR BEFORE ANY USE.\n";
         return 0;
