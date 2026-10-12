@@ -23,31 +23,33 @@ The commands use the default system path `/Library/bit4id/pkcs11/libbit4xpki.dyl
 ### Experimental CAdES (.p7m) — LOCAL TEST ONLY
 
 This PoC emits an **attached** CMS SignedData with three signed attributes:
-\`contentType\`, \`messageDigest\` and \`signingCertificateV2\` (ESSCertIDv2 SHA-256).
-It signs the DER signed-attribute SET with \`CKM_SHA256_RSA_PKCS\` on the token and checks that raw signature using macOS Security.framework. Document size is currently limited to 16 MiB, a single signer and RSA/SHA-256. It embeds only the signing certificate (no revocation or timestamp evidence). **Conformance and interoperability are unverified until externally tested.**
+`contentType`, `messageDigest` and `signingCertificateV2` (ESSCertIDv2 SHA-256).
+It signs the DER signed-attribute SET with `CKM_SHA256_RSA_PKCS` on the token and checks that raw signature using macOS Security.framework. Document size is currently limited to 16 MiB, a single signer and RSA/SHA-256. It embeds only the signing certificate (no revocation or timestamp evidence). **Conformance and interoperability are unverified until externally tested.**
 
-Before entering a real PIN, verify the module's original code signature and ensure the installed PKCS#11 library, adjacent \`.conf\` file, and \`.rc\` resources are not writable by group or other users. The signing methods now reject unsafe permission bits. On the previously observed root-owned Bit4id installation these paths had mode \`777\`; after inspecting the paths and confirming the driver is genuine, an administrator may correct them locally:
+Before entering a real PIN, verify the module's original code signature and ensure the installed PKCS#11 library, adjacent `.conf` file, and `.rc` resources are not writable by group or other users. The signing methods now reject unsafe permission bits. On the previously observed root-owned Bit4id installation these paths had mode `777`; after inspecting the paths and confirming the driver is genuine, an administrator may correct them locally:
 
-\`\`\`bash
+```bash
 sudo chmod -R go-w /Library/bit4id/pkcs11/libbit4xpki.dylib \
   /Library/bit4id/pkcs11/libbit4xpki.dylib.conf \
   /Library/bit4id/pkcs11/libbit4xpki.dylib.rc
 codesign --verify --verbose=2 /Library/bit4id/pkcs11/libbit4xpki.dylib
-\`\`\`
+```
 
 This is a limited filesystem permission check, **not** a complete malware, configuration or dependency verification solution. Do not adjust vendor software without checking local policies, backups and vendor support.
 
-On a Mac with a working DigitalDNA (check slot and ID first via \`swift run SignumCLI list\` and \`certs\`):
+On a Mac with a working DigitalDNA (check slot and ID first via `swift run SignumCLI list` and `certs`):
 
-\`\`\`bash
+```bash
 printf 'Signum CMS local test\n' > /tmp/signum-test.txt
 swift run SignumCLI sign-cades 1 445333 /tmp/signum-test.txt /tmp/signum-test.txt.p7m
 openssl cms -verify -inform DER -binary -noverify \
   -in /tmp/signum-test.txt.p7m -out /tmp/signum-extracted.txt
 cmp /tmp/signum-test.txt /tmp/signum-extracted.txt && echo "CMS integrity OK"
-\`\`\`
+```
 
-The \`-noverify\` flag **deliberately disables trust-chain checking**; this test only verifies CMS cryptographic integrity. Do not treat its success as validation of an eIDAS-qualified signature. For CAdES baseline profile checks use an independently configured ETSI-aware validator such as EU DSS.
+Alternatively, run `bash scripts/verify-cades-local.sh /tmp/signum-test.txt.p7m /tmp/signum-test.txt`.
+
+The `-noverify` flag **deliberately disables trust-chain checking**; this test only verifies CMS cryptographic integrity. Do not treat its success as validation of an eIDAS-qualified signature. For CAdES baseline profile checks use an independently configured ETSI-aware validator such as EU DSS.
 
 **No PINs, certificates or private data should be committed to the repository.** Do not use your production documents while testing.
 
@@ -64,7 +66,7 @@ You may open `Package.swift` in Xcode for building and testing the package. The 
 
 ### Local GUI signing test
 
-On your Mac, connect your DigitalDNA and/or CNS, launch `swift run SignumApp`, select a token and certificate, enter its PIN into the protected field, and click **Firma e verifica**. The button signs **only a hard-coded test string** via PKCS#11 and verifies it with Security.framework. Its success message is `Verified OK`; it does not produce a PDF/P7M. The GUI disables selection and reload operations while the test runs, and clears its PIN field when you initiate the test. If an authentication error occurs, do not automatically retry: repeated wrong PINs can block a smart card.
+On your Mac, connect your DigitalDNA and/or CNS, launch the actual macOS bundle with `bash scripts/build-app.sh` and `open -n "$PWD/build/Signum.app"`, select a token and certificate, enter its PIN into the protected field, and click **Firma e verifica**. The button signs **only a hard-coded test string** via PKCS#11 and verifies it with Security.framework. Its success message is `Verified OK`; it does not produce a PDF/P7M. The GUI disables selection and reload operations while the test runs, and clears its PIN field when you initiate the test. If an authentication error occurs, do not automatically retry: repeated wrong PINs can block a smart card.
 
 All builds and tests are performed **locally** using `swift test` and `swift run`; no GitHub Actions workflows are used.
 
