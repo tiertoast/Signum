@@ -236,7 +236,7 @@ struct SignumWindow: View {
             VStack(alignment: .leading, spacing: 10) {
                 if format == .pades {
                     if SignumPAdESHelper.available {
-                        Text("Motore PoDoFo sperimentale rilevato. Firma PAdES-B senza immagine grafica incorporata; verifica il PDF con InfoCamere.")
+                        Text("Motore PoDoFo sperimentale rilevato. Riquadro con nome incorporato se posizionato; immagini personalizzate non ancora disponibili. Verifica sempre con InfoCamere.")
                             .font(.caption).foregroundStyle(.orange)
                     } else {
                         Text("Per abilitare PAdES, compila in locale il motore PoDoFo e ricrea Signum.app.")
@@ -514,6 +514,7 @@ struct SignumWindow: View {
             field = nil
         }
         let secret = pin
+        let holder = selectedHolder
         pin = ""
         busy = true
         lastSignedFile = nil
@@ -524,7 +525,8 @@ struct SignumWindow: View {
             let outcome = Result {
                 try SignumPAdESHelper.sign(
                     input: original, output: output, modulePath: path,
-                    slot: slot, certificateID: cert.id, pin: secret, field: field
+                    slot: slot, certificateID: cert.id, pin: secret,
+                    appearanceName: holder, field: field
                 )
             }
             DispatchQueue.main.async {
