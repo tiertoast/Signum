@@ -9,17 +9,23 @@ struct SignumApp: App {
     var body: some Scene {
         WindowGroup("Signum") {
             SignumWindow()
-                .frame(width: 850, height: 690, alignment: .top)
+                .frame(width: 900, height: 760, alignment: .top)
         }
-        .defaultSize(width: 850, height: 690)
+        .defaultSize(width: 900, height: 760)
         .windowResizability(.contentSize)
     }
 }
 
 private enum SignumOperation: String, Hashable {
-    case cades
-    case hardwareTest
+    case sign
     case verify
+    case settings
+}
+
+private enum SignumFormat: String, Hashable {
+    case cades
+    case pades
+    case xades
 }
 
 struct SignumWindow: View {
@@ -31,7 +37,12 @@ struct SignumWindow: View {
     @State private var certificateIdentities: [String: SignumCertificateIdentity] = [:]
     @State private var selectedSlot: UInt?
     @State private var selectedCertificateID: String?
-    @State private var operation: SignumOperation = .cades
+    @State private var operation: SignumOperation = .sign
+    @State private var format: SignumFormat = .cades
+    @State private var pdfPlacement: PAdESPlacement?
+    @AppStorage("signum.appearance.style") private var graphicStyle = GraphicStyle.imageAndText.rawValue
+    @AppStorage("signum.appearance.image") private var graphicImagePath = ""
+    @AppStorage("signum.appearance.date") private var graphicDate = true
     @State private var inputFile: URL?
     @State private var lastSignedFile: URL?
     @State private var dropTargeted = false
@@ -40,6 +51,7 @@ struct SignumWindow: View {
     @State private var busy = false
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Image(systemName: "signature").font(.largeTitle)
@@ -49,12 +61,12 @@ struct SignumWindow: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("0.2.3 · Alpha").font(.caption).foregroundStyle(.secondary)
+                Text("0.3.0 · Alpha").font(.caption).foregroundStyle(.secondary)
             }
 
             Divider()
 
-            if operation != .verify {
+            if operation == .sign {
             Text("Libreria PKCS#11").font(.headline)
             HStack {
                 TextField("Percorso completo del modulo", text: $modulePath)
@@ -115,27 +127,49 @@ struct SignumWindow: View {
             }
 
             Picker("Operazione", selection: $operation) {
-                Text("Firma documento CAdES (.p7m)").tag(SignumOperation.cades)
-                Text("Test crittografico").tag(SignumOperation.hardwareTest)
+                Text("Firma documento").tag(SignumOperation.sign)
                 Text("Verifica .p7m").tag(SignumOperation.verify)
+                Text("Impostazioni").tag(SignumOperation.settings)
             }
             .labelsHidden()
             .pickerStyle(.segmented)
             .disabled(busy)
 
+            if operation == .sign {
+                HStack {
+                    Text("Formato di firma").font(.headline)
+                    Picker("Formato", selection: $format) {
+                        Text("CAdES (.p7m)").tag(SignumFormat.cades)
+                        Text("PAdES (.pdf)").tag(SignumFormat.pades)
+                        Text("XAdES (prossimamente)").tag(SignumFormat.xades).disabled(true)
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 255)
+                    Spacer()
+                    if format == .pades {
+                        Text("Motore PAdES in integrazione")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             if operation == .verify {
                 CAdESVerificationPane()
+            } else if operation == .settings {
+                SignumGraphicSettingsPane()
             } else {
-            GroupBox(operation == .cades ? "Firma documento" : "Test hardware RSA/SHA-256") {
+            GroupBox("Firma documento") {
                 VStack(alignment: .leading, spacing: 9) {
-                    if operation == .cades {
+                    if operation == .sign {
                         HStack(spacing: 10) {
                             Image(systemName: "doc.badge.plus")
                                 .foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(inputFile?.lastPathComponent ?? "Trascina qui un file, oppure selezionalo")
                                     .lineLimit(1)
-                                Text("CAdES con documento incorporato · massimo 16 MiB")
+                                Text(format == .cades
+                                     ? "CAdES con documento incorporato · massimo 16 MiB"
+                                     : "PAdES · PDF con firma incorporata")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -150,11 +184,10 @@ struct SignumWindow: View {
                         )
                         .onDrop(of: [UTType.fileURL.identifier],
                                 isTargeted: $dropTargeted, perform: receiveDrop)
-                        Text("Il documento verrà firmato dal dispositivo selezionato e salvato come .p7m.")
+                        Text(format == .cades
+                             ? "Il documento verrà firmato e salvato come .p7m."
+                             : "PAdES conserverà il formato PDF e permetterà la firma grafica opzionale.")
                             .font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Text("Firma solo un messaggio fittizio e ne verifica la firma con Security.framework. Non produce documenti.")
-                            .font(.callout).foregroundStyle(.secondary)
                     }
 
                     if let token = tokens.first(where: { $0.slot == selectedSlot }),
@@ -164,32 +197,43 @@ struct SignumWindow: View {
                             .lineLimit(2)
                     }
 
+                    if format == .pades {
+                        Text("Il posizionamento grafico è già disponibile in anteprima. La firma PAdES sarà abilitata quando il motore PoDoFo/PKCS#11 avrà superato la verifica.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                     HStack {
                         SecureField("PIN del dispositivo", text: $pin)
                             .textFieldStyle(.roundedBorder)
                             .privacySensitive()
-                            .disabled(busy)
+                            .disabled(busy || format == .pades)
                         if busy {
                             ProgressView()
                                 .controlSize(.small)
                                 .accessibilityLabel("Operazione in corso")
                         }
-                        Button(busy ? "Elaborazione…" : operation == .cades ? "Firma .p7m" : "Firma e verifica") {
-                            if operation == .cades { signDocument() }
-                            else { signTest() }
+                        Button(busy ? "Elaborazione…" : format == .cades ? "Firma .p7m" : "Firma PDF (in sviluppo)") {
+                            if format == .cades { signDocument() }
                         }
-                        .disabled(busy || pin.isEmpty || selectedSlot == nil ||
-                                  selectedCertificateID == nil ||
-                                  (operation == .cades && inputFile == nil))
+                        .disabled(busy || format != .cades || pin.isEmpty || selectedSlot == nil ||
+                                  selectedCertificateID == nil || inputFile == nil)
                     }
                     Text("Versione di prova: non controlla ancora la qualificazione eIDAS o lo stato di revoca. Non usare documenti di lavoro.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(5)
             }
+            if format == .pades, let file = inputFile,
+               file.pathExtension.lowercased() == "pdf" {
+                PAdESPlacementPane(
+                    fileURL: file,
+                    holder: certificates.first(where: { $0.id == selectedCertificateID })
+                        .flatMap { certificateIdentities[$0.id]?.fullName } ?? "Firmatario",
+                    placement: $pdfPlacement
+                )
+            }
             }
 
-            if operation != .verify {
+            if operation == .sign {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: "info.circle").foregroundStyle(.secondary)
                 Text(status)
@@ -206,6 +250,7 @@ struct SignumWindow: View {
             }
         }
         .padding(20)
+        }
     }
 
     private func load(allowRetry: Bool = true) {
@@ -288,7 +333,12 @@ struct SignumWindow: View {
         picker.canChooseDirectories = false
         picker.allowsMultipleSelection = false
         if picker.runModal() == .OK, let url = picker.url {
+            guard format != .pades || url.pathExtension.lowercased() == "pdf" else {
+                status = "Per PAdES seleziona un documento .pdf."
+                return
+            }
             inputFile = url
+            pdfPlacement = nil
             lastSignedFile = nil
             status = "Documento selezionato: \(url.lastPathComponent)"
         }
@@ -306,7 +356,12 @@ struct SignumWindow: View {
             else { url = nil }
             DispatchQueue.main.async {
                 guard !self.busy, let url, url.isFileURL else { return }
+                guard self.format != .pades || url.pathExtension.lowercased() == "pdf" else {
+                    self.status = "Per PAdES seleziona un file PDF."
+                    return
+                }
                 self.inputFile = url
+                self.pdfPlacement = nil
                 self.lastSignedFile = nil
                 self.status = "Documento selezionato: \(url.lastPathComponent)"
             }
@@ -315,7 +370,7 @@ struct SignumWindow: View {
     }
 
     private func signDocument() {
-        guard !busy, let module, let slot = selectedSlot,
+        guard format == .cades, !busy, let module, let slot = selectedSlot,
               let cert = certificates.first(where: { $0.id == selectedCertificateID }),
               let original = inputFile, !pin.isEmpty else { return }
 
@@ -376,36 +431,7 @@ struct SignumWindow: View {
         }
     }
 
-    private func signTest() {
-        guard !busy, let module, let slot = selectedSlot,
-              let certificate = certificates.first(where: { $0.id == selectedCertificateID }),
-              !pin.isEmpty else { return }
-        let suppliedPIN = pin
-        pin = ""
-        busy = true
-        status = "Firma di prova in corso…"
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result: Result<Bool, Error>
-            do {
-                result = .success(try module.signAndVerifyTest(
-                    slot: slot, certificate: certificate, pin: suppliedPIN))
-            } catch {
-                result = .failure(error)
-            }
-            DispatchQueue.main.async {
-                self.busy = false
-                switch result {
-                case .success(true):
-                    self.status = "Verified OK — firma RSA/SHA-256. Nessun documento firmato."
-                case .success(false):
-                    self.status = "Verifica crittografica non riuscita."
-                case .failure(let error):
-                    self.status = "Test non riuscito: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
 }
 #else
 import Foundation
