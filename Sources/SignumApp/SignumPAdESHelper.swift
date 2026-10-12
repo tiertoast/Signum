@@ -29,6 +29,7 @@ enum SignumPAdESHelper {
                      slot: UInt,
                      certificateID: String,
                      pin: String,
+                     appearanceName: String,
                      field: Field?) throws {
         guard available else {
             throw SignumError.module("Motore PAdES non installato nel bundle. Compila PoDoFo in locale.")
@@ -69,6 +70,7 @@ enum SignumPAdESHelper {
             ]
         }
         args.append("--pin-stdin")
+        if field != nil { args.append("--appearance-stdin") }
 
         let process = Process()
         process.executableURL = executableURL
@@ -89,6 +91,16 @@ enum SignumPAdESHelper {
         // contexts and avoids leaking credentials through command arguments.
         var secret = Data(pin.utf8)
         secret.append(0x0A)
+        if field != nil {
+            // Helvetica (PDF Standard 14) is used by this first text-only AP.
+            // Limit to printable ASCII and avoid injecting protocol delimiters.
+            let cleanedName = String(appearanceName.folding(options: [.diacriticInsensitive],
+                                                             locale: Locale(identifier: "en_US_POSIX"))
+                .utf8.filter { $0 >= 0x20 && $0 <= 0x7E }.prefix(90)
+            let printableName = cleanedName.isEmpty ? Data("Firmatario".utf8) : Data(cleanedName)
+            secret.append(printableName)
+            secret.append(0x0A)
+        }
         do {
             try inputPipe.fileHandleForWriting.write(contentsOf: secret)
             try inputPipe.fileHandleForWriting.close()
