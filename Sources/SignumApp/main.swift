@@ -40,7 +40,9 @@ struct SignumWindow: View {
                 TextField("Percorso completo del modulo", text: $modulePath)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Percorso modulo PKCS#11")
+                    .disabled(busy)
                 Button("Carica") { load() }
+                    .disabled(busy)
             }
             HStack(alignment: .top, spacing: 16) {
                 GroupBox("Token collegati") {
@@ -58,6 +60,7 @@ struct SignumWindow: View {
                         .tag(token.slot)
                     }
                     .frame(minHeight: 190)
+                    .disabled(busy)
                 }
                 GroupBox("Certificati X.509") {
                     List(certificates, selection: $selectedCertificateID) { cert in
@@ -68,19 +71,32 @@ struct SignumWindow: View {
                         .tag(cert.id)
                     }
                     .frame(minHeight: 190)
+                    .disabled(busy)
                 }
             }
             GroupBox("Test crittografico — NON genera PAdES/CAdES") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Firma un messaggio di prova e ne verifica la firma con Security.framework. Non produce un documento firmato.")
+                    Text("Firma soltanto un messaggio fittizio, mai un documento. Il PIN è utilizzato per l'autenticazione USER e, se richiesto dal token, CONTEXT_SPECIFIC.")
                         .font(.callout).foregroundStyle(.secondary)
+                    if let token = tokens.first(where: { $0.slot == selectedSlot }),
+                       let cert = certificates.first(where: { $0.id == selectedCertificateID }) {
+                        Text("Dispositivo: \(token.label)  ·  Certificato: \(cert.label)")
+                            .font(.callout.weight(.medium))
+                    }
                     HStack {
                         SecureField("PIN del token", text: $pin)
                             .textFieldStyle(.roundedBorder)
                             .privacySensitive()
-                        Button("Firma e verifica") { signTest() }
+                            .disabled(busy)
+                        if busy {
+                            ProgressView().controlSize(.small)
+                                .accessibilityLabel("Firma in corso")
+                        }
+                        Button(busy ? "Firma in corso…" : "Firma e verifica") { signTest() }
                             .disabled(selectedSlot == nil || selectedCertificateID == nil || pin.isEmpty || busy)
                     }
+                    Text("Prototipo: non inserire PIN in un modulo PKCS#11 non attendibile. Un PIN errato può bloccare la carta.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(6)
             }
@@ -155,15 +171,36 @@ struct SignumWindow: View {
     }
 
     private func signTest() {
-        guard let module, let slot = selectedSlot,
-              let certificate = certificates.first(where: { $0.id == selectedCertificateID }) else { return }
+        guard !busy, let module, let slot = selectedSlot,
+              let certificate = certificates.first(where: { $0.id == selectedCertificateID }),
+              !pin.isEmpty else { return }
+        let suppliedPIN = pin
+        pin = "" // Remove PIN from the visible SwiftUI field immediately.
         busy = true
-        defer { pin = ""; busy = false }
-        do {
-            _ = try module.signAndVerifyTest(slot: slot, certificate: certificate, pin: pin)
-            status = "Verified OK: prova RSA/SHA-256 completata. Nessun PDF firmato."
-        } catch {
-            status = "Test non riuscito: \(error.localizedDescription)"
+        status = "Firma di prova in corso sul dispositivo selezionato…"
+
+        // Keep the provider alive. Disable all other PKCS#11 controls while
+        // this operation executes so calls are not made concurrently.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: Result<Bool, Error>
+            do {
+                result = .success(try module.signAndVerifyTest(
+                    slot: slot, certificate: certificate, pin: suppliedPIN
+                ))
+            } catch {
+                result = .failure(error)
+            }
+            DispatchQueue.main.async {
+                busy = false
+                switch result {
+                case .success(true):
+                    status = "Verified OK — firma RSA/SHA-256 verificata. Nessun PDF firmato."
+                case .success(false):
+                    status = "La verifica crittografica non è riuscita."
+                case .failure(let error):
+                    status = "Test non riuscito: \(error.localizedDescription)"
+                }
+            }
         }
     }
 }
