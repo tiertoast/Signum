@@ -31,6 +31,13 @@ open build/Signum.app
 
 You may open `Package.swift` in Xcode for building and testing the package. The packaging script makes a local, **unsigned** application; signing, hardened runtime, entitlements and notarization are later milestones.
 
+### Local GUI signing test
+
+On your Mac, connect your DigitalDNA and/or CNS, launch `swift run SignumApp`, select a token and certificate, enter its PIN into the protected field, and click **Firma e verifica**. The button signs **only a hard-coded test string** via PKCS#11 and verifies it with Security.framework. Its success message is `Verified OK`; it does not produce a PDF/P7M. The GUI disables selection and reload operations while the test runs, and clears its PIN field when you initiate the test. If an authentication error occurs, do not automatically retry: repeated wrong PINs can block a smart card.
+
+All builds and tests are performed **locally** using `swift test` and `swift run`; no GitHub Actions workflows are used.
+
+
 ## Architecture
 
 - `SignumApp` — native SwiftUI front end (read-only device discovery and explicit signing test).
@@ -41,7 +48,7 @@ You may open `Package.swift` in Xcode for building and testing the package. The 
 
 ## Safety limitations
 
-**Do not use this PoC for confidential, production or legal signing workflows.** The test signs a built-in synthetic string, not the user's documents. A chosen PKCS#11 module is loaded in-process with `dlopen`: review its signature and file permissions before loading. A world-writable (`777`) middleware module is unsafe. Future versions should verify module provenance, isolate driver execution and perform UI operations asynchronously.
+**Do not use this PoC for confidential, production or legal signing workflows.** The test signs a built-in synthetic string, not the user's documents. A chosen PKCS#11 module is loaded in-process with `dlopen`: review its signature and file permissions before loading. A world-writable (`777`) middleware module is unsafe. The GUI signing test now runs in the background while its token controls are disabled. Future versions should verify module provenance, isolate driver execution, serialize all provider operations and harden secret handling.
 
 PINs are not written to disk or logs, but transient copies may remain in Swift memory; complete memory zeroization is not yet guaranteed. Context-specific PIN authentication is supported for `CKA_ALWAYS_AUTHENTICATE`. **Incorrect PIN entry can lock a token; do not repeatedly retry failures.** Never paste PINs, personal certificate information or private-key contents into tickets, logs or commits.
 
