@@ -41,6 +41,8 @@ public final class PKCS11Module {
     public let modulePath: String
 
     public init(path: String) throws {
+        // Validate locally installed middleware BEFORE dlopen executes any code.
+        try Self.requireSafeModulePermissions(path: path)
         var pointer: OpaquePointer?
         var diagnostics = [CChar](repeating: 0, count: 512)
         let status = path.withCString { p in
@@ -113,7 +115,7 @@ public final class PKCS11Module {
         guard !pin.isEmpty, !message.isEmpty, message.count <= 1024 * 1024 else {
             throw SignumError.module("Invalid PIN or message size")
         }
-        try requireSafeModulePermissions()
+        try Self.requireSafeModulePermissions(path: modulePath)
         var signature = [UInt8](repeating: 0, count: 8192)
         var length = 0
         var pinBytes = Array(pin.utf8)
@@ -140,11 +142,29 @@ public final class PKCS11Module {
         return Data(signature.prefix(length))
     }
 
-    /// Preliminary file permission check. It is NOT a complete code-signing or
-    /// dynamic-library isolation policy; additional hardening is necessary.
-    private func requireSafeModulePermissions() throws {
+    /// Conservative pre-load filesystem permission check.
+    /// Does NOT replace signature verification, driver isolation or review.
+    private static func requireSafeModulePermissions(path: String) throws {
         let fileManager = FileManager.default
-        let absolute = URL(fileURLWithPath: modulePath).resolvingSymlinksInPath().path
+        guard path.hasPrefix("/") else {
+            throw SignumError.module("PKCS#11 module path must be absolute")
+        }
+        let absolute = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        guard fileManager.fileExists(atPath: absolute) else {
+            throw SignumError.module("PKCS#11 module not found: \(absolute)")
+        }
+
+        // Protect against replacing the module through writable ancestor folders.
+        // Inspect the original path as well as the resolved target.
+        for location in [path, absolute] {
+            var parent = (location as NSString).deletingLastPathComponent
+            while !parent.isEmpty {
+                try verifyPermissions(parent)
+                if parent == "/" { break }
+                parent = (parent as NSString).deletingLastPathComponent
+            }
+        }
+
         let targets = [absolute, absolute + ".conf", absolute + ".rc"]
         for target in targets where fileManager.fileExists(atPath: target) {
             try verifyPermissions(target)
@@ -165,11 +185,11 @@ public final class PKCS11Module {
         }
     }
 
-    private func verifyPermissions(_ path: String) throws {
+    private static func verifyPermissions(_ path: String) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: path)
         guard let mode = attributes[.posixPermissions] as? NSNumber,
               mode.intValue & 0o022 == 0 else {
-            throw SignumError.module("Untrusted writable PKCS#11 component: \(path). Remove group/other write permissions before entering a real PIN.")
+            throw SignumError.module("Untrusted writable PKCS#11 component: \(path). Remove group/other write permissions before loading this module.")
         }
     }
 
