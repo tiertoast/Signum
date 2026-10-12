@@ -13,6 +13,7 @@ struct SignumApp: App {
 struct SignumWindow: View {
     @State private var modulePath = "/Library/bit4id/pkcs11/libbit4xpki.dylib"
     @State private var module: PKCS11Module?
+    @State private var activeModulePath: String?
     @State private var tokens: [SignumToken] = []
     @State private var certificates: [SignumCertificate] = []
     @State private var selectedSlot: UInt?
@@ -90,16 +91,44 @@ struct SignumWindow: View {
     }
 
     private func load() {
+        // PKCS#11 initialization is process-wide. Recreating a provider while
+        // the previous instance is still alive can result in C_Finalize()
+        // shutting down the new instance (CKR_CRYPTOKI_NOT_INITIALIZED = 0x190).
+        // Reuse the same provider for a refresh; close it before switching paths.
+        let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            let loaded = try PKCS11Module(path: modulePath)
+            let loaded: PKCS11Module
+            if let existing = module, activeModulePath == path {
+                loaded = existing
+            } else {
+                selectedSlot = nil
+                selectedCertificateID = nil
+                certificates = []
+                tokens = []
+                module = nil  // Releases old provider before the next C_Initialize.
+                activeModulePath = nil
+                loaded = try PKCS11Module(path: path)
+                module = loaded
+                activeModulePath = path
+            }
+
             let found = try loaded.tokens()
-            self.module = loaded
-            self.tokens = found
-            self.selectedSlot = found.first?.slot
-            self.status = found.isEmpty ? "Nessun token trovato." : "Trovati \(found.count) token."
+            let previousSlot = selectedSlot
+            tokens = found
+            let nextSlot = found.contains(where: { $0.slot == previousSlot })
+                ? previousSlot
+                : found.first?.slot
+            selectedSlot = nextSlot
+            // Refresh explicitly even when the slot has not changed.
+            loadCertificates(slot: nextSlot)
+            if found.isEmpty { status = "Nessun token trovato." }
         } catch {
-            module = nil; tokens = []; certificates = []
-            selectedSlot = nil; selectedCertificateID = nil
+            module = nil
+            activeModulePath = nil
+            tokens = []
+            certificates = []
+            selectedSlot = nil
+            selectedCertificateID = nil
             status = error.localizedDescription
         }
     }
