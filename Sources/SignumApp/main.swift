@@ -44,7 +44,13 @@ struct SignumWindow: View {
             }
             HStack(alignment: .top, spacing: 16) {
                 GroupBox("Token collegati") {
-                    List(tokens, selection: $selectedSlot) { token in
+                    List(tokens, selection: Binding(
+                        get: { selectedSlot },
+                        set: { slot in
+                            selectedSlot = slot
+                            loadCertificates(slot: slot)
+                        }
+                    )) { token in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(token.label).fontWeight(.medium)
                             Text("Slot \(token.slot) · \(token.model)").font(.caption).foregroundStyle(.secondary)
@@ -87,7 +93,6 @@ struct SignumWindow: View {
             Spacer(minLength: 0)
         }
         .padding(22)
-        .onChange(of: selectedSlot) { newSlot in loadCertificates(slot: newSlot) }
     }
 
     private func load() {
