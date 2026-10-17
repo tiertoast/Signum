@@ -38,6 +38,20 @@ def minimum(text):
     return max(tuple(int(x) for x in value.split(".")) for value in versions)
 
 
+def version_key(value):
+    if not re.fullmatch(r"\d+(?:\.\d+){0,2}", value):
+        raise ValueError("Invalid macOS version")
+    parts = tuple(int(x) for x in value.split("."))
+    return parts + (0,) * (3 - len(parts))
+
+
+def enforce_minimum(versions, declared):
+    measured = max(v + (0,) * (3 - len(v)) for v in versions)
+    if measured > version_key(declared):
+        raise ValueError("Mach-O deployment target exceeds the declared macOS minimum; rebuild all dependencies")
+    return declared
+
+
 def system(path):
     return path.startswith(("/System/Library/", "/usr/lib/"))
 
@@ -80,6 +94,10 @@ def build(output, configuration, native_prefix, cmake):
     native_metadata = json.loads((prefix / "signum-native-build.json").read_text())
     if native_metadata.get("recipe") != 1 or native_metadata.get("architecture") != "arm64":
         raise ValueError("Expected the private beta native recipe")
+    info = plistlib.loads((REPO / "Resources/Info.plist").read_bytes())
+    declared_target = info["LSMinimumSystemVersion"]
+    if version_key(native_metadata["deploymentTarget"]) > version_key(declared_target):
+        raise ValueError("Native prefix requires a newer OS; rebuild it for " + declared_target)
     sdk = run(["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"], capture=True).strip()
     env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": os.environ["HOME"],
            "SDKROOT": sdk, "LC_ALL": "C", "PKG_CONFIG_LIBDIR": "/nonexistent"}
@@ -95,7 +113,7 @@ def build(output, configuration, native_prefix, cmake):
     run([cmake, "-S", REPO / "Tools/PAdESPrototype", "-B", native_build,
          "-DCMAKE_BUILD_TYPE=" + configuration.capitalize(), "-DCMAKE_PREFIX_PATH=" + str(prefix),
          "-DOPENSSL_ROOT_DIR=" + str(prefix), "-DOPENSSL_USE_STATIC_LIBS=TRUE",
-         "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0", "-DCMAKE_OSX_ARCHITECTURES=arm64",
+         "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + declared_target, "-DCMAKE_OSX_ARCHITECTURES=arm64",
          "-DCMAKE_C_FLAGS=-ffile-prefix-map=" + mapping,
          "-DCMAKE_CXX_FLAGS=-ffile-prefix-map=" + mapping,
          "-DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew;/usr/local",
@@ -180,16 +198,15 @@ def build(output, configuration, native_prefix, cmake):
                     raise ValueError("Load command escapes the bundle")
             portable(dest.read_bytes())
 
-        info = plistlib.loads((REPO / "Resources/Info.plist").read_bytes())
         info.update(CFBundleIdentifier="io.github.tiertoast.Signum.BetaFoundation",
-                    CFBundleName="Signum Beta Foundation", CFBundleShortVersionString="0.3.3",
-                    CFBundleVersion="1", LSMinimumSystemVersion=".".join(map(str, max(versions))))
+                    CFBundleName="Signum Beta Foundation", LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
         shutil.copytree(prefix / "share/signum-notices", app / "Contents/Resources/Notices")
         manifest = {"configuration": configuration, "architecture": "arm64",
                     "sourceCommit": run(["/usr/bin/git", "rev-parse", "HEAD"], capture=True, cwd=REPO).strip(),
                     "sourceTrackedDirty": bool(run(["/usr/bin/git", "diff", "--name-only", "HEAD"], capture=True, cwd=REPO).strip()),
-                    "minimumOSFromMachO": info["LSMinimumSystemVersion"], "native": native_metadata,
+                    "minimumOSFromMachO": ".".join(map(str, max(versions))), "declaredMinimumOS": declared_target, "native": native_metadata,
+                    "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
                     "signing": "ad-hoc only; no Developer ID, hardened runtime or notarization",
                     "external": "User-installed PKCS#11 middleware; system /usr/bin/openssl for CAdES verification"}
         # Inner dylibs, helpers, main executable, then the enclosing bundle.

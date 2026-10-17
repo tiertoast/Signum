@@ -6,10 +6,20 @@ import json
 import os
 from pathlib import Path
 import platform
+import plistlib
 import subprocess
 import tarfile
 
 REPO = Path(__file__).resolve().parents[1]
+
+
+def deployment_target():
+    target = plistlib.loads((REPO / "Resources/Info.plist").read_bytes())["LSMinimumSystemVersion"]
+    if target not in ("13.0", "14.0"):
+        raise ValueError("Unreviewed macOS deployment target")
+    return target
+
+
 ARCHIVES = {
     "openssl": ("openssl.tar.gz", "openssl-3.5.4", "967311f84955316969bdb1d8d4b983718ef42338639c621ec4c34fddef355e99"),
     "freetype": ("freetype.tar.xz", "freetype-2.13.3", "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289"),
@@ -24,6 +34,7 @@ def run(args, cwd, env):
 def build(output, cmake):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise ValueError("This local recipe currently requires macOS arm64")
+    target = deployment_target()
     # Check all inputs before reserving an exclusively new output tree.
     for archive, _, digest in ARCHIVES.values():
         path = REPO / ".build/native-src" / archive
@@ -51,7 +62,7 @@ def build(output, cmake):
     sdk = subprocess.check_output(["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
     # No Homebrew search paths, inherited compiler flags, or runtime DYLD overrides.
     env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": os.environ["HOME"],
-           "SDKROOT": sdk, "MACOSX_DEPLOYMENT_TARGET": "14.0",
+           "SDKROOT": sdk, "MACOSX_DEPLOYMENT_TARGET": target,
            "PKG_CONFIG_LIBDIR": "/nonexistent", "LC_ALL": "C"}
     sslbuild = output / "openssl-build"
     sslbuild.mkdir()
@@ -59,7 +70,7 @@ def build(output, cmake):
     # Configure's prefix is a logical staging prefix, never installed at root.
     run(["/usr/bin/perl", "../sources/openssl-3.5.4/Configure", "darwin64-arm64-cc",
          "--prefix=/signum-native", "--openssldir=/etc/ssl", "no-shared", "no-tests",
-         "no-module", "no-engine", "-mmacosx-version-min=14.0"], sslbuild, env)
+         "no-module", "no-engine", "-mmacosx-version-min=" + target], sslbuild, env)
     run(["/usr/bin/make", "-j6"], sslbuild, env)
     stage = output / "openssl-install"
     run(["/usr/bin/make", "install_sw", "DESTDIR=" + str(stage)], sslbuild, env)
@@ -67,7 +78,7 @@ def build(output, cmake):
 
     flags = "-ffile-prefix-map=" + str(REPO) + "=."
     common = ["-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_INSTALL_PREFIX=" + str(prefix),
-              "-DCMAKE_PREFIX_PATH=" + str(prefix), "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
+              "-DCMAKE_PREFIX_PATH=" + str(prefix), "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + target,
               "-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_C_FLAGS=" + flags,
               "-DCMAKE_CXX_FLAGS=" + flags, "-DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew;/usr/local",
               "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF", "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
@@ -103,7 +114,7 @@ def build(output, cmake):
     for name, source in licenses.items():
         (notices / name).write_bytes((sources / source).read_bytes())
     (prefix / "signum-native-build.json").write_text(json.dumps({
-        "recipe": 1, "architecture": "arm64", "deploymentTarget": "14.0",
+        "recipe": 1, "architecture": "arm64", "deploymentTarget": target,
         "sources": {name: {"version": value[1], "sha256": value[2]} for name, value in ARCHIVES.items()},
         "openssl": "static; no-module; no-engine; default provider built in; config /etc/ssl",
     }, indent=2) + "\n")

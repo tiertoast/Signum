@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import plistlib
+import json
 
 SCRIPT = Path(__file__).resolve().parents[1] / "build-beta-app.py"
 spec = importlib.util.spec_from_file_location("beta_package", SCRIPT)
@@ -25,6 +27,34 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(package.minimum("cmd LC_VERSION_MIN_MACOSX\n cmdsize 16\n version 13.5\n sdk 14.0"), (13, 5))
         with self.assertRaises(ValueError):
             package.minimum("sdk 27.0")
+
+    def test_macos13_requires_every_binary_to_fit_declared_minimum(self):
+        self.assertEqual(package.enforce_minimum([(13, 0), (12, 0, 1)], "13.0"), "13.0")
+        for versions in ([(13, 0), (14, 0)], [(13, 0, 1)], [(27, 0)]):
+            with self.assertRaises(ValueError):
+                package.enforce_minimum(versions, "13.0")
+        with self.assertRaises(ValueError):
+            package.version_key("13.0 extra flags")
+
+    def test_native_and_swift_policy_agree_with_resource_metadata(self):
+        spec = importlib.util.spec_from_file_location("beta_native", SCRIPT.with_name("build-beta-native.py"))
+        native = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(native)
+        info = plistlib.loads((package.REPO / "Resources/Info.plist").read_bytes())
+        self.assertEqual(native.deployment_target(), info["LSMinimumSystemVersion"])
+        self.assertIn(".macOS(.v" + info["LSMinimumSystemVersion"].split(".")[0] + ")", (package.REPO / "Package.swift").read_text())
+        self.assertEqual(info["CFBundleShortVersionString"], "0.3.3")
+
+    def test_newer_native_prefix_is_rejected_before_build_or_publication(self):
+        with tempfile.TemporaryDirectory() as root:
+            prefix = Path(root) / "prefix"
+            prefix.mkdir()
+            (prefix / "signum-native-build.json").write_text(json.dumps({
+                "recipe": 1, "architecture": "arm64", "deploymentTarget": "99.0"}))
+            output = Path(root) / "Signum.app"
+            with self.assertRaisesRegex(ValueError, "newer OS"):
+                package.build(output, "release", prefix, Path("/missing/cmake"))
+            self.assertFalse(output.exists())
 
     def test_compiled_development_paths_are_rejected(self):
         for data in (b"\x00/Users/another/Developer/Signum/foo.cpp\x00", b"/opt/homebrew/lib/libx.dylib",

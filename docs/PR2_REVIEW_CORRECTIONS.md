@@ -64,3 +64,47 @@ Alpha/Beta inventata. Eseguibile senza metadati: «Build di sviluppo».
 Resources/Info.plist aggiornato a 0.3.3/build 1. Due test verificano cambio di
 versione/build senza costanti UI e fallback senza metadati: **2/2** riusciti
 (`pr2-version-swift.log`). Il packager verrà allineato alla stessa fonte.
+
+## Decisione macOS 13/14
+
+**DECISIONE IMPLEMENTATA:** mantenere **macOS 13.0 come target di build**, senza
+ridurre protezioni. Il precedente 14.0 era imposto dalla ricetta nativa, non da
+un requisito dimostrato delle API esaminate. I precedenti eseguibili Swift erano
+già minos 13.0; ora anche helper e PoDoFo vengono ricompilati a 13.0.
+
+Analisi locale: Package.swift rimane `.macOS(.v13)`; SwiftUI usa gli overload
+onChange precedenti a macOS 14, senza richiedere i nuovi overload. PDFKit,
+Security, CoreGraphics e la supervisione Process non hanno richiesto API esclusive
+14 durante questa compilazione. Gli header SDK indicano disponibilità 10.12 per
+fclonefileat/renamex_np/renameatx_np. Non sono stati rimossi O_NOFOLLOW_ANY,
+controlli descriptor/inode, ACL, CoW, SHA-256, lease, verifica delle firme,
+pubblicazione esclusiva o isolamento dei processi. Non è stato aggiunto alcun
+fallback meno sicuro per un filesystem/flag non supportato: resta fail closed.
+
+Resources/Info.plist è la fonte del target per entrambe le ricette native.
+Il packager conserva versione/build delle risorse e **rifiuta** un prefisso
+nativo più recente o qualunque Mach-O sopra il minimo dichiarato, invece di
+alzare silenziosamente Info.plist. Manifest distingue minimo dichiarato e misurato.
+Due confronti separati impediscono che metadati sbagliati mascherino un binario
+incompatibile. La vecchia `.build/beta-native-v1` a target 14 è stata provata e
+rifiutata prima della build/pubblicazione; non viene alterata o riutilizzata.
+
+**TESTATO:** ricompilazione completa offline, da archivi SHA-256 già fissati,
+in `.build/pr2-native-macos13`. Debug e Release: tutti e cinque i Mach-O
+(GUI, CLI, worker, helper PAdES, PoDoFo) hanno minos **13.0**, come Info.plist.
+BuildManifest e Info.plist concordano su **0.3.3/build 1**. Audit byte/stringhe,
+load command, chiusura dylib, firma annidata e rilocazione passati. Dieci test
+Python coprono anche prefisso troppo recente, binari 14/27 o 13.0.1 contro
+minimo 13.0 e coerenza Package/risorse/ricetta (`pr2-packaging-tests.log`).
+
+**NON TESTATO:** esecuzione su macOS 13 e 14, Mac pulito e middleware reale.
+Host effettivo: macOS 27.2 (26B5101f), Swift 6.4, SDK macOS 27.0. Il target e
+l'audit Mach-O dimostrano coerenza di build, non una matrice runtime già validata.
+Il supporto Beta su 13/14 resta subordinato a test su quegli OS: avvio GUI/helper,
+ACL incluse deny-delete, snapshot/clone APFS, cancellazione, crash/lease e firma
+manuale sintetica. Non si deduce sicurezza del sistema operativo dal solo target.
+
+Durante il primo tentativo di packaging la nuova variabile del target era
+sovrascritta da un percorso dylib del ciclo: TypeError, staging eliminato e nessun
+bundle finale. Rinominata `declared_target`; entrambi i packaging completi ripetuti
+con successo. Nessuna verifica fallita lasciata come evidenza di riuscita.
