@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import CryptoKit
 import SignumCore
 
 /// Launches the separately built PoDoFo proof-of-concept with a private stdin pipe.
@@ -28,6 +29,7 @@ enum SignumPAdESHelper {
                      modulePath: String,
                      slot: UInt,
                      certificateID: String,
+                     expectedCertificate: Data,
                      pin: String,
                      appearanceName: String,
                      field: Field?) throws {
@@ -93,7 +95,8 @@ enum SignumPAdESHelper {
             secret.append(0x0A)
         }
         defer { secret.resetBytes(in: 0..<secret.count) }
-        args.append("--verified-output-v1")
+        let fingerprint = SHA256.hash(data: expectedCertificate).map { String(format: "%02x", $0) }.joined()
+        args += ["--expected-cert-sha256", fingerprint, "--verified-output-v1"]
         switch PAdESHelperProcess.run(executable: executableURL, arguments: args,
                                       input: &secret, destination: output) {
         case .published: return

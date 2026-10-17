@@ -31,6 +31,7 @@ struct SignumWindow: View {
     @State private var tokens: [SignumToken] = []
     @State private var certificates: [SignumCertificate] = []
     @State private var certificateIdentities: [String: SignumCertificateIdentity] = [:]
+    @State private var certificateDERs: [String: Data] = [:]
     @State private var selectedSlot: UInt?
     @State private var selectedCertificateID: String?
     @State private var operation: SignumOperation = .sign
@@ -314,6 +315,7 @@ struct SignumWindow: View {
                 selectedCertificateID = nil
                 certificates = []
                 certificateIdentities = [:]
+                certificateDERs = [:]
                 tokens = []
                 module = nil // Finalize the previous module before opening another.
                 activeModulePath = nil
@@ -357,17 +359,23 @@ struct SignumWindow: View {
         selectedCertificateID = nil
         certificates = []
         certificateIdentities = [:]
+        certificateDERs = [:]
         guard let module, let slot else { return }
         do {
             let found = try module.certificates(slot: slot)
             var identities: [String: SignumCertificateIdentity] = [:]
+            var derByID: [String: Data] = [:]
             for certificate in found {
-                if let identity = try? module.certificateIdentity(slot: slot, certificate: certificate) {
-                    identities[certificate.id] = identity
+                if let der = try? module.certificateDER(slot: slot, certificate: certificate) {
+                    derByID[certificate.id] = der
+                    if let identity = try? SignumCertificateIdentity(certificateDER: der) {
+                        identities[certificate.id] = identity
+                    }
                 }
             }
             certificates = found
             certificateIdentities = identities
+            certificateDERs = derByID
             selectedCertificateID = found.first?.id
             status = "\(found.count) certificati · \(identities.count) identità lette."
         } catch {
@@ -490,6 +498,11 @@ struct SignumWindow: View {
               let cert = certificates.first(where: { $0.id == selectedCertificateID }),
               !pin.isEmpty else { return }
 
+        guard let path = activeModulePath, let expectedCertificate = certificateDERs[cert.id] else {
+            status = "Ricarica il certificato prima di firmare il PDF."
+            return
+        }
+
         let picker = NSSavePanel()
         picker.title = "Salva PDF firmato PAdES — prototipo"
         picker.directoryURL = original.deletingLastPathComponent()
@@ -521,13 +534,12 @@ struct SignumWindow: View {
         busy = true
         lastSignedFile = nil
         status = "Firma PDF con PoDoFo e PKCS#11 in corso…"
-        let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines)
 
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome = Result {
                 try SignumPAdESHelper.sign(
                     input: original, output: output, modulePath: path,
-                    slot: slot, certificateID: cert.id, pin: secret,
+                    slot: slot, certificateID: cert.id, expectedCertificate: expectedCertificate, pin: secret,
                     appearanceName: holder, field: field
                 )
             }

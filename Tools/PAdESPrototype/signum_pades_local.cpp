@@ -185,7 +185,17 @@ static std::string read_appearance_name() {
 
 int main(int argc, char** argv) {
     // GUI requires this protocol marker, so an older bundled helper fails closed.
-    const int protocolCount = argc - (argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v1") == 0 ? 1 : 0);
+    const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v1") == 0;
+    int protocolCount = argc - (verifiedProtocol ? 1 : 0);
+    std::string expectedFingerprint;
+    if (protocolCount >= 3 && std::strcmp(argv[protocolCount - 2], "--expected-cert-sha256") == 0) {
+        expectedFingerprint = argv[protocolCount - 1];
+        protocolCount -= 2;
+    }
+    if (verifiedProtocol && expectedFingerprint.empty()) {
+        std::cerr << "Verified output protocol requires the selected certificate fingerprint\n";
+        return 2;
+    }
     const bool appearanceFromPipe = protocolCount > 1 &&
         std::strcmp(argv[protocolCount - 1], "--appearance-stdin") == 0;
     const int afterAppearance = protocolCount - (appearanceFromPipe ? 1 : 0);
@@ -217,6 +227,9 @@ int main(int argc, char** argv) {
 
         PKCS11 token(middleware.c_str());
         const auto der = token.certificate(slot, certificateID);
+        // Bind to the exact certificate shown by the GUI, before any PIN read
+        // or private-key operation. Full certificate policy remains SG-04.
+        if (!expectedFingerprint.empty()) signum::requireExpectedCertificate(der, expectedFingerprint);
         std::vector<uint8_t> pin;
         if (pinFromPipe) {
             pin = read_stdin_pin();

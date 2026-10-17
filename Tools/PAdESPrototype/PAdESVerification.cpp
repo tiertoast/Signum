@@ -245,6 +245,15 @@ size_t verifySignature(CGPDFDictionaryRef signature, const Bytes& pdf, const std
 }
 }
 
+void requireExpectedCertificate(const std::string& certificate, const std::string& sha256) {
+    require(sha256.size() == 64 && std::all_of(sha256.begin(), sha256.end(), [](char c) { return nibble(c) >= 0; }), "Invalid expected certificate fingerprint");
+    std::array<unsigned char, 32> digest{};
+    unsigned int length = 0;
+    require(EVP_Digest(certificate.data(), certificate.size(), digest.data(), &length, EVP_sha256(), nullptr) == 1 && length == digest.size(), "Cannot hash expected certificate");
+    for (size_t i = 0; i < digest.size(); ++i)
+        require(digest[i] == static_cast<unsigned char>((nibble(sha256[2*i]) << 4) | nibble(sha256[2*i+1])), "Token certificate differs from selected certificate; reload selection before signing");
+}
+
 Bytes readSource(const std::string& path) {
     const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0) throw std::runtime_error("Cannot open PDF source");
@@ -275,7 +284,7 @@ void verifyPDF(const Bytes& pdf, const Bytes& source, const std::string& expecte
     require(CGPDFDocumentGetNumberOfPages(original.value) > 0 &&
             CGPDFDocumentGetNumberOfPages(original.value) == CGPDFDocumentGetNumberOfPages(result.value), "PDF page count changed");
     const auto addedWidgets = comparePages(original, result);
-    // Certification transforms require a separate DocMDP/FieldMDP policy (SG-09).
+    // Certification transforms require a separate DocMDP/FieldMDP policy (SG-11).
     CGPDFDictionaryRef permissions = nullptr;
     require(!CGPDFDictionaryGetDictionary(CGPDFDocumentGetCatalog(original.value), "Perms", &permissions), "Certified PDFs are not supported");
     const auto before = signatures(original), after = signatures(result);

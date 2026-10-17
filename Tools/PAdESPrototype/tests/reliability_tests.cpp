@@ -145,6 +145,19 @@ int main(int argc, char** argv) {
         }
         Folder folder; Identity identity, other;
         const auto source = sourcePDF(), valid = signedPDF(source, identity);
+        test("selected certificate fingerprint binding before authentication", [&] {
+            unsigned char digest[32]; unsigned int count = 0;
+            expect(EVP_Digest(identity.der.data(), identity.der.size(), digest, &count, EVP_sha256(), nullptr) == 1 && count == 32, "Fixture fingerprint failed");
+            const char* hex = "0123456789abcdef"; std::string expected;
+            for (auto byte : digest) { expected += hex[byte >> 4]; expected += hex[byte & 15]; }
+            requireExpectedCertificate(identity.der, expected);
+            for (auto fingerprint : {std::string(64, '0'), std::string(64, 'Z'), std::string()}) {
+                bool failed = false; try { requireExpectedCertificate(identity.der, fingerprint); } catch (...) { failed = true; }
+                expect(failed, "Wrong/invalid expected fingerprint accepted");
+            }
+            bool failed = false; try { requireExpectedCertificate(other.der, expected); } catch (...) { failed = true; }
+            expect(failed, "Replacement certificate accepted");
+        });
         test("valid visible PDF, source unchanged, private staging, atomic publication", [&] {
             auto input = folder.path / "source.pdf", output = folder.path / "signed.pdf";
             put(input, source); TransactionalOutput tx(output.string());
