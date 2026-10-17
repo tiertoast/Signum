@@ -55,3 +55,12 @@ alias visibile e canonico solo con richiesta fresca; cambio slot che cancella
 cache certificati/PIN. **4/4** riusciti (`pr2-provider-swift.log`). La GUI non viene
 avviata automaticamente: questi sono test della logica della selezione, non click
 registrati sulla View. Gli input di un job già approvato rimangono immutabili.
+
+## P3 — Versione visualizzata
+
+**IMPLEMENTATO e TESTATO:** la View legge `AppVersion.label`, derivata da
+CFBundleShortVersionString e CFBundleVersion del bundle effettivo; nessuna label
+Alpha/Beta inventata. Eseguibile senza metadati: «Build di sviluppo».
+Resources/Info.plist aggiornato a 0.3.3/build 1. Due test verificano cambio di
+versione/build senza costanti UI e fallback senza metadati: **2/2** riusciti
+(`pr2-version-swift.log`). Il packager verrà allineato alla stessa fonte.
