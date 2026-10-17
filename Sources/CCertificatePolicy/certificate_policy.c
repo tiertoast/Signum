@@ -82,7 +82,15 @@ static int extensions(Slice list, SGCertificateAssessment *r) {
             if (!field(&ext, 1, &boolean) || boolean.n != 1 || boolean.p[0] != 255) return 0;
             critical = 1; /* DEFAULT FALSE must be omitted in DER. */
         }
-        if (!field(&ext, 4, &value) || ext.n || !take(&value, &node) || value.n) return 0;
+        if (!field(&ext, 4, &value) || ext.n) return 0;
+        /* extnValue is opaque for unknown OIDs. Validate its outer OCTET STRING,
+         * OID and uniqueness, without requiring the private syntax to fit take().
+         * Unsupported critical semantics still block signing as indeterminate. */
+        if (!OID(oid, 0x55,0x1d,0x0f) && !OID(oid, 0x55,0x1d,0x25) && !OID(oid, 0x55,0x1d,0x13)) {
+            if (critical) r->reasons |= SG_CERT_CRITICAL_EXTENSION;
+            continue;
+        }
+        if (!take(&value, &node) || value.n) return 0;
         Slice inner = node.value;
         if (OID(oid, 0x55,0x1d,0x0f)) {
             if (node.tag != 3 || !bits(inner) || inner.n > 3 || !inner.p[inner.n - 1]) return 0;
@@ -121,10 +129,6 @@ static int extensions(Slice list, SGCertificateAssessment *r) {
             }
             if (inner.n) return 0;
             if (ca) r->reasons |= SG_CERT_CA;
-        } else if (critical) {
-            /* Do not guess semantics of policy constraints, QC statements or
-             * private/vendor extensions, even when Security can display them. */
-            r->reasons |= SG_CERT_CRITICAL_EXTENSION;
         }
     }
     return count > 0;

@@ -468,6 +468,21 @@ int main(int argc, char** argv) {
             const auto a = sg_certificate_assess(reinterpret_cast<const uint8_t*>(identity.der.data()), identity.der.size(), sg_certificate_now());
             expect(a.status == SG_CERT_INDETERMINATE && (a.reasons & SG_CERT_MISSING_KEY_USAGE), "Missing usage accepted");
         });
+        for (bool critical : {false, true}) test(critical ? "unknown critical high-tag extension remains indeterminate" : "unknown noncritical high-tag extension permits local signing", [&] {
+            Identity signer(2048, true);
+            auto oid = OBJ_txt2obj("1.2.3.4.99", 1);
+            auto value = ASN1_OCTET_STRING_new(); const unsigned char highTag[] = {0x9f, 0x1f, 1, 0};
+            expect(oid && value && ASN1_OCTET_STRING_set(value, highTag, sizeof(highTag)) == 1, "Cannot create high-tag fixture");
+            auto extension = X509_EXTENSION_create_by_OBJ(nullptr, oid, critical, value);
+            expect(extension && X509_add_ext(signer.certificate.get(), extension, -1) == 1 &&
+                   X509_sign(signer.certificate.get(), signer.key.get(), EVP_sha256()) > 0, "Cannot sign high-tag certificate");
+            X509_EXTENSION_free(extension); ASN1_OCTET_STRING_free(value); ASN1_OBJECT_free(oid);
+            unsigned char* encoded = nullptr; int count = i2d_X509(signer.certificate.get(), &encoded);
+            expect(count > 0, "Cannot encode high-tag certificate"); signer.der.assign(reinterpret_cast<char*>(encoded), count); OPENSSL_free(encoded);
+            const auto a = sg_certificate_assess(reinterpret_cast<const uint8_t*>(signer.der.data()), signer.der.size(), sg_certificate_now());
+            expect(a.status == (critical ? SG_CERT_INDETERMINATE : SG_CERT_ELIGIBLE) && !(a.reasons & SG_CERT_MALFORMED), "Unknown extension misclassified");
+            if (!critical) verifyPDF(signedPDF(source, signer), source, signer.der);
+        });
         for (size_t bits : {size_t(3072), size_t(4096)}) test("eligible RSA " + std::to_string(bits) + " PDF with matching signature reservation", [&] {
             Identity signer(bits, true);
             const auto a = sg_certificate_assess(reinterpret_cast<const uint8_t*>(signer.der.data()), signer.der.size(), sg_certificate_now());

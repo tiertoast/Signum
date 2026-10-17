@@ -89,12 +89,17 @@ final class SyntheticCertificates {
         try make("missingKU", ku: nil)
         try make("criticalUnknown", other: "1.2.3.4.5=critical,DER:05:00")
         try make("noncriticalUnknown", other: "1.2.3.4.5=DER:05:00")
+        try make("noncriticalHighTag", other: "1.2.3.4.99=DER:9F:1F:01:00")
+        try make("noncriticalLongTag", other: "1.2.3.4.99=DER:9F:81:80:00:01:00")
+        try make("criticalHighTag", other: "1.2.3.4.99=critical,DER:9F:1F:01:00")
         try make("ec", csr: "ec.csr")
         try make("pss", csr: "pss.csr")
         try make("small", csr: "small.csr")
         try make("ca", ca: true)
         try make("badKUPadding", ku: "DER:03:02:07:81")
         try make("emptyEKU", eku: "DER:30:00")
+        try make("badKUHighTag", ku: "DER:9F:1F:01:00")
+        try make("badEKUHighTag", eku: "DER:9F:1F:01:00")
     }
     func der(_ name: String) -> Data { certificates[name]! }
 }
@@ -162,6 +167,25 @@ final class CertificateEligibilityTests: XCTestCase {
         }
         XCTAssertEqual(try assess("noncriticalUnknown").status, .eligible)
     }
+    func testUnknownNoncriticalHighTagValuesAreOpaqueAndEligible() throws {
+        for name in ["noncriticalUnknown", "noncriticalHighTag", "noncriticalLongTag"] {
+            let bytes = try der(name)
+            XCTAssertNotNil(SecCertificateCreateWithData(nil, bytes as CFData), name)
+            let assessment = try assess(name)
+            XCTAssertEqual(assessment.status, .eligible, name)
+            XCTAssertTrue(assessment.reasons.isEmpty, name)
+            XCTAssertNoThrow(try CertificateEligibility.requireEligible(certificateDER: bytes, at: date))
+        }
+    }
+    func testUnknownCriticalHighTagBlocksWithoutClaimingMalformed() throws {
+        let bytes = try der("criticalHighTag")
+        XCTAssertNotNil(SecCertificateCreateWithData(nil, bytes as CFData))
+        let assessment = try assess("criticalHighTag")
+        XCTAssertEqual(assessment.status, .indeterminate)
+        XCTAssertFalse(assessment.permitsSigning)
+        XCTAssertNotNil(assessment.notBefore)
+        XCTAssertThrowsError(try CertificateEligibility.requireEligible(certificateDER: bytes, at: date))
+    }
     func testUnsupportedPublicKeysAndCA() throws {
         for name in ["ec", "pss", "small", "ca"] { XCTAssertEqual(try assess(name).status, .ineligible, name) }
     }
@@ -173,7 +197,7 @@ final class CertificateEligibilityTests: XCTestCase {
         }
     }
     func testMalformedUsageExtensionsAndTimeAreBlocked() throws {
-        for name in ["badKUPadding", "emptyEKU"] {
+        for name in ["badKUPadding", "emptyEKU", "badKUHighTag", "badEKUHighTag"] {
             XCTAssertEqual(try assess(name).status, .ineligible)
         }
         var broken = try der("valid")
@@ -183,25 +207,27 @@ final class CertificateEligibilityTests: XCTestCase {
         XCTAssertEqual(CertificateEligibility.evaluate(certificateDER: broken, at: date).status, .ineligible)
     }
     func testDuplicateExtensionsAreRejectedRatherThanChoosingOne() throws {
-        let bytes = [UInt8](try der("valid"))
-        func children(_ node: DER.Node) throws -> [DER.Node] {
-            var result: [DER.Node] = [], offset = node.contents.lowerBound
-            while offset < node.contents.upperBound { result.append(try DER.read(bytes, at: &offset, limit: node.contents.upperBound)) }
-            return result
-        }
-        var offset = 0
-        let root = try DER.read(bytes, at: &offset, limit: bytes.count)
-        let outer = try children(root), fields = try children(outer[0])
-        let ext = try XCTUnwrap(fields.first(where: { $0.tag == 0xa3 }))
-        let sequence = try XCTUnwrap(children(ext).first)
-        let values = try children(sequence)
-        // Duplicate each extension, including KU and EKU, with an unchanged
-        // certificate signature: these malformed encodings must fail before trust.
-        for duplicate in values {
-            let extensions = DER.wrap(0xa3, DER.sequence(values.map { Data(bytes[$0.full]) } + [Data(bytes[duplicate.full])]))
-            let tbs = DER.sequence(fields.map { $0.full == ext.full ? extensions : Data(bytes[$0.full]) })
-            let malformed = DER.sequence([tbs] + outer.dropFirst().map { Data(bytes[$0.full]) })
-            XCTAssertEqual(CertificateEligibility.evaluate(certificateDER: malformed, at: date).status, .ineligible)
+        for name in ["valid", "noncriticalHighTag", "criticalHighTag"] {
+            let bytes = [UInt8](try der(name))
+            func children(_ node: DER.Node) throws -> [DER.Node] {
+                var result: [DER.Node] = [], offset = node.contents.lowerBound
+                while offset < node.contents.upperBound { result.append(try DER.read(bytes, at: &offset, limit: node.contents.upperBound)) }
+                return result
+            }
+            var offset = 0
+            let root = try DER.read(bytes, at: &offset, limit: bytes.count)
+            let outer = try children(root), fields = try children(outer[0])
+            let ext = try XCTUnwrap(fields.first(where: { $0.tag == 0xa3 }))
+            let sequence = try XCTUnwrap(children(ext).first)
+            let values = try children(sequence)
+            // Duplicate each extension, including KU and EKU, with an unchanged
+            // certificate signature: these malformed encodings must fail before trust.
+            for duplicate in values {
+                let extensions = DER.wrap(0xa3, DER.sequence(values.map { Data(bytes[$0.full]) } + [Data(bytes[duplicate.full])]))
+                let tbs = DER.sequence(fields.map { $0.full == ext.full ? extensions : Data(bytes[$0.full]) })
+                let malformed = DER.sequence([tbs] + outer.dropFirst().map { Data(bytes[$0.full]) })
+                XCTAssertEqual(CertificateEligibility.evaluate(certificateDER: malformed, at: date).status, .ineligible)
+            }
         }
     }
     func testReplacedCertificateWithSameKeySubjectAndIDIsRejected() throws {
