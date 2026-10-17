@@ -325,3 +325,106 @@ limitata ai figli che caricano middleware terzi. I notices disponibili sono
 incorporati; la verifica completa degli obblighi di distribuzione/licenze e
 delle sorgenti da rendere disponibili resta un gate separato. Non distribuire
 questi candidati come Beta pubblica già qualificata.
+
+## Chiusura: commit, comandi e ripresa
+
+Commit locali, tutti sopra `origin/main` verificato `96facb9`:
+
+| Unità | Commit | Contenuto |
+|---|---|---|
+| 1 | `0729819` | Analisi prima del codice |
+| 2 | `d1fc3a2` | Worker isolato, IPC limitato, supervisore e mock |
+| 3 | `8c133c1` | GUI/CLI attive, stati/cancel, OpenSSL supervisionato |
+| 4 | `c4c4f6f` | Lease interprocesso e watchdog comune |
+| 5 | `b88fd7a` | Ricette native/bundle e test packaging |
+
+Un successivo commit di sola documentazione registra questa consegna.
+`main` locale resta `be84a1e44f3b0bbe41bee9a2f46dbed36342ab70` e il branch
+`codex/reliability-foundation` resta `e328fbf1a2b4ed05018f2346c2aa48ccebd569d4`.
+La review originale non tracciata resta tale, SHA-256
+`2f275328cdca3ebe2023ade1c87b3179bc89540af8d7a898b304241d61a168a6`.
+Nessun push, merge, tag, release o CI remoto; nessun accesso ad altri repository.
+
+### Comandi ripetibili, esclusivamente sintetici
+
+Dal checkout corrente, con Xcode e il CMake locale già presenti:
+
+```sh
+cd /Users/andreaoregioni/Developer/Signum-Reliability
+swift test --scratch-path .build/reliability
+scripts/test-pkcs11-local.sh
+scripts/test-pades-local.sh
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
+swift build -c debug --scratch-path .build/reliability
+swift build -c release --scratch-path .build/reliability
+```
+
+Per ricostruire anche le dipendenze, scegliere directory **nuove**. Questi nomi
+non sono stati usati dalla verifica sopra; se già esistono, usare altri nomi:
+
+```sh
+/usr/bin/python3 scripts/build-beta-native.py --output .build/beta-native-rebuild
+/usr/bin/python3 scripts/build-beta-app.py --configuration debug --native-prefix .build/beta-native-rebuild/prefix --output .build/beta-bundles/rebuild-debug/Signum.app
+/usr/bin/python3 scripts/build-beta-app.py --configuration release --native-prefix .build/beta-native-rebuild/prefix --output .build/beta-bundles/rebuild-release/Signum.app
+```
+
+Ogni invocazione del packager esegue PAdES **63** casi contro le nuove dipendenze,
+audit completo, firma/verifica, discovery mock e prove PAdES anche dopo rilocazione.
+Non esegue la GUI né legge il middleware installato. Per il candidato già pronto:
+
+```sh
+/usr/bin/codesign --verify --deep --strict --verbose=2 .build/beta-bundles/release-v3/Signum.app
+/usr/bin/plutil -p .build/beta-bundles/release-v3/Signum.app/Contents/Info.plist
+```
+
+Sanitizer effettivamente eseguiti durante gli incrementi (prefissi della baseline,
+non le dipendenze beta ricompilate con sanitizer). Per ripeterli:
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 swift test --scratch-path .build/reliability-asan --sanitize address
+swift test --scratch-path .build/beta-tsan --sanitize thread --filter 'ProcessCoordinationTests|SigningOperationTests'
+.build/native-tools/cmake/data/bin/cmake --build .build/signum-pades-hardening-asan --parallel 6
+ASAN_OPTIONS=detect_leaks=0 .build/native-tools/cmake/data/bin/ctest --test-dir .build/signum-pades-hardening-asan --output-on-failure --verbose
+.build/native-tools/cmake/data/bin/cmake --build .build/pkcs11-tests-tsan --parallel 6
+.build/native-tools/cmake/data/bin/ctest --test-dir .build/pkcs11-tests-tsan --output-on-failure --verbose
+```
+
+I due ultimi build tree sono già configurati nel workspace: C/C++
+`-fsanitize=address -g -O1` o `-fsanitize=thread -g -O1` e relativo linker sanitizer.
+Le librerie di terze parti non sono interamente strumentate. Nessuna deduzione di
+assenza universale di race/leak dalla sola riuscita dei runner.
+
+### Collaudo hardware futuro — istruzioni, NON ESEGUITO
+
+Questa sessione si ferma prima dell'hardware. Il prossimo passo è un collaudo
+manuale esplicitamente avviato dall'utente sul candidato **release-v3**, preservando
+l'Alpha. Non usarlo ancora come sostituzione stabile o in integrazioni esterne.
+
+1. Aprire quella precisa copia di `Signum.app`; verificare certificato e documento
+   sintetico in anteprima. Il nuovo identifier evita di sovrascrivere le preferenze
+   dell'Alpha, ma la configurazione middleware deve essere controllata manualmente.
+2. Con DigitalDNA/DS3, provare un CAdES e un PAdES su documenti sintetici e destinazioni
+   nuove. Inserire il proprio PIN solo nel campo previsto, mai in comandi/log/report.
+   Verificare separatamente con InfoCamere e confrontare contenuto approvato/output.
+3. Provare cancellazione prima dell'invio; poi una singola operazione manuale durante
+   attesa. In caso di timeout/esito incerto non ripetere automaticamente il PIN;
+   controllare eventuale file preservato e stato del dispositivo prima di proseguire.
+4. Collaudare due finestre/client Signum sullo stesso slot, distinguendo discovery
+   esclusiva e token differenti. I client terzi non partecipano alla lease.
+   Rimozione token e prompt vendor richiedono cautela e osservazione manuale;
+   nessuno script di questa consegna li esegue.
+5. Annotare solo versione OS/middleware, tempi/fase, formato e risultato, senza PIN,
+   documenti personali o log vendor grezzi. Rilevare eventuali incompatibilità del
+   nuovo Initialize/Finalize per richiesta e adeguare timeout dopo evidenza reale.
+
+**Rischi residui prioritari:** compatibilità e costo del lifecycle per richiesta;
+slot ID non stabili/alias fisici, middleware con servizi condivisi; cancellazione
+PAdES dopo un possibile commit; chiamate kernel non interrompibili, pur con
+numero di worker limitato; segreti in memoria Swift/vendor non azzerabili con
+certezza; niente sandbox contro codice vendor ostile. SG-06 copre i flussi attivi
+GUI/CLI e il helper supervisionato, non rende isolata l'API legacy in-process.
+
+**Ripresa consigliata:** raccogliere il collaudo manuale senza ulteriori cambi
+crittografici, poi matrice macOS/driver e packaging su Mac pulito; successivamente
+Developer ID/notarizzazione, library validation e adempimenti di distribuzione.
+Non iniziare Trust Engine o nuove integrazioni prima di questi riscontri.
