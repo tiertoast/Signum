@@ -211,3 +211,41 @@ GUI manuale né un collaudo del middleware installato.
 ASAN Swift completo: **140/140**, nessuna segnalazione nel runner; leak detection
 disabilitata (`ASAN_OPTIONS=detect_leaks=0`). I canali diagnostici dei figli sono
 intenzionalmente scartati; i casi positivi richiedono risposta/uscita valide.
+
+## Unità 4 — Lease cooperativa tra processi
+
+**IMPLEMENTATO e TESTATO:** `CProcessCoordination` condiviso da worker Swift e
+helper PAdES. Identità provider tramite device/inode del percorso canonico
+(anche alias hardlink), lock provider condiviso + slot esclusivo; discovery
+esclusiva sul provider. Ordine dei lock fisso, attesa monotona limitata a 10 s
+(default, massimo 30 s), errore «dispositivo occupato» prima di Initialize/Login.
+Lease posseduta dal figlio fino al teardown: uccidere il parent non libera il
+lock prima che il figlio sia morto. Crash/exit rilasciano i descriptor nel kernel.
+Directory per utente 0700 e file vuoti 0600, senza ACL estese, no symlink; i file
+lock non vengono rimossi per evitare di sostituire inode ancora in uso.
+
+Il watchdog nativo comune ora copre anche PAdES e sostituisce quello Swift:
+controllo del parent ogni 250 ms, exit senza Finalize concorrente al vendor.
+Cancellare un'attesa termina il worker; nessun nuovo tentativo PIN. Un busy noto
+prima di Initialize è un fallimento ordinario, non una firma di esito incerto.
+
+Sei nuovi test Swift verificano esclusione multiprocesso, slot distinti,
+alias, discovery, crash del proprietario, cancellazione e nessun Login quando
+occupato. Due nuovi casi nativi provano il helper v3 completo con chiave RSA e
+certificato sintetici, PDF verificato e un solo Login/Sign; con lease occupata
+il helper non inizializza il provider e non pubblica output.
+
+**TESTATO:** Swift **146/146**, PKCS#11 **40/40**, PAdES Debug e Release **63/63**
+ciascuna; build di tutti i prodotti Swift Debug/Release riuscite. ASAN Swift
+**146/146** e PAdES **63/63**, leak detection disabilitata; TSAN Swift mirato a
+coordinamento/job **13/13**, senza segnalazioni nei runner. Log locali:
+`.build/reliability/evidence/beta-unit4-*.log`.
+
+**LIMITI:** protocollo cooperativo per utente e stesso provider/inode + slot.
+Richiede slot ID stabili fra processi; non identifica universalmente due slot
+logici della stessa carta o moduli vendor differenti dello stesso dispositivo.
+Non coordina applicazioni terze né la vecchia API Core in-process. Aggiornamenti
+in-place del modulo, rimozione amministrativa della directory temporanea e codice
+ostile nello stesso account non sono risolti da flock. I lock vuoti persistono;
+non contengono percorsi, documenti, identificativi certificati o credenziali.
+Nessuna verifica hardware o prova con middleware installato è stata eseguita.

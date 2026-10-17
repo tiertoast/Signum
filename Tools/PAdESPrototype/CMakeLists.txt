@@ -13,9 +13,9 @@ if(NOT TARGET podofo::podofo)
     message(FATAL_ERROR "Installed PoDoFo does not export podofo::podofo")
 endif()
 
-add_library(signum-pades-reliability STATIC TransactionalOutput.cpp PAdESVerification.cpp ../../Sources/COutputPermissions/output_permissions.c)
+add_library(signum-pades-reliability STATIC TransactionalOutput.cpp PAdESVerification.cpp ../../Sources/COutputPermissions/output_permissions.c ../../Sources/CProcessCoordination/process_coordination.c)
 target_link_libraries(signum-pades-reliability PUBLIC OpenSSL::Crypto "-framework CoreGraphics" "-framework CoreFoundation")
-target_include_directories(signum-pades-reliability PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../../Sources/COutputPermissions/include)
+target_include_directories(signum-pades-reliability PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../../Sources/COutputPermissions/include ../../Sources/CProcessCoordination/include)
 target_compile_options(signum-pades-reliability PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(signum-pades-local
@@ -35,6 +35,9 @@ option(SIGNUM_BUILD_OFFLINE_TESTS "Build local synthetic PAdES tests" OFF)
 if(SIGNUM_BUILD_OFFLINE_TESTS)
     enable_testing()
     add_executable(signum-pades-tests tests/reliability_tests.cpp)
+    target_compile_definitions(signum-pades-tests PRIVATE
+        SIGNUM_MOCK_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/../PKCS11Tests/mock_provider.c"
+        SIGNUM_MOCK_HEADERS="${CMAKE_CURRENT_SOURCE_DIR}/../../Sources/CPKCS11")
     target_link_libraries(signum-pades-tests PRIVATE signum-pades-reliability podofo::podofo OpenSSL::Crypto)
     add_library(signum-pades-policy-mock MODULE ../PKCS11Tests/mock_provider.c)
     target_include_directories(signum-pades-policy-mock PRIVATE ../../Sources/CPKCS11)

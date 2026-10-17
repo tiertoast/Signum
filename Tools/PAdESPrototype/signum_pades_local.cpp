@@ -1,3 +1,4 @@
+#include "process_coordination.h"
 #include "SignumCertificatePolicy.h"
 #include <cctype>
 // Experimental local PAdES-B proof of concept.
@@ -187,6 +188,7 @@ static std::string read_appearance_name() {
 
 
 int main(int argc, char** argv) {
+    if (sg_worker_watch_parent() != 0) return 2;
     // GUI requires this protocol marker, so an older bundled helper fails closed.
     const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v3") == 0;
     int protocolCount = argc - (verifiedProtocol ? 1 : 0);
@@ -242,6 +244,9 @@ int main(int argc, char** argv) {
         // re-opened temporary pathname. The input is never opened for writing.
         charbuff pdfBytes(std::string(reinterpret_cast<const char*>(source.data()), source.size()));
 
+        std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(
+            sg_token_lease_acquire(middleware.c_str(), slot, 0, 10000), sg_token_lease_release);
+        if (!lease) throw std::runtime_error("Dispositivo occupato o coordinamento non disponibile; nessun PIN inviato al provider");
         PKCS11 token(middleware.c_str());
         const auto der = token.certificate(slot, certificateID);
         // Bind to the exact certificate shown by the GUI, before any PIN read

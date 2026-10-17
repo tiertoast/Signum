@@ -78,6 +78,11 @@ static CK_RV begin(int op) {
         raise(SIGABRT);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 4
         faults[op] = CKR_GENERAL_ERROR;
+#elif SIGNUM_MOCK_WORKER_EFFECT == 7
+#ifdef SIGNUM_MOCK_AUDIT_PATH
+        int claim = open(SIGNUM_MOCK_AUDIT_PATH ".once", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (claim >= 0) { close(claim); for (;;) pause(); }
+#endif
 #elif SIGNUM_MOCK_WORKER_EFFECT == 5
         for (int i = 0; i < 30000; ++i) { fputs("synthetic vendor stdout\n", stdout); fputs("synthetic vendor stderr\n", stderr); }
 #endif
@@ -207,14 +212,18 @@ static CK_RV sign_init(CK_SESSION_HANDLE h, CK_MECHANISM_PTR mechanism, CK_OBJEC
 static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PTR signature, CK_ULONG_PTR length) {
     (void)bytes; (void)n; BEGIN(M_SIGN); VALID(h);
 #ifdef SIGNUM_MOCK_SOFTWARE_KEY
-    if (stats.last_mechanism != CKM_SHA256_RSA_PKCS) return end(CKR_MECHANISM_INVALID);
+    SecKeyAlgorithm algorithm = kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256;
+    if (stats.last_mechanism == CKM_RSA_PKCS) {
+        if (n != 51) return end(CKR_ARGUMENTS_BAD);
+        bytes += 19; n -= 19; algorithm = kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256;
+    } else if (stats.last_mechanism != CKM_SHA256_RSA_PKCS) return end(CKR_MECHANISM_INVALID);
     CFDataRef keyData = CFDataCreate(NULL, bootstrap_private_key, sizeof(bootstrap_private_key));
     const void *keys[] = {kSecAttrKeyType, kSecAttrKeyClass};
     const void *values[] = {kSecAttrKeyTypeRSA, kSecAttrKeyClassPrivate};
     CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     SecKeyRef key = SecKeyCreateWithData(keyData, attrs, NULL);
     CFDataRef message = CFDataCreate(NULL, bytes, n);
-    CFDataRef result = key ? SecKeyCreateSignature(key, kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256, message, NULL) : NULL;
+    CFDataRef result = key ? SecKeyCreateSignature(key, algorithm, message, NULL) : NULL;
     CK_RV rv = CKR_GENERAL_ERROR;
     if (result) {
         const CFIndex count = CFDataGetLength(result);

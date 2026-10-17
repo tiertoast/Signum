@@ -1,19 +1,14 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import CProcessCoordination
 
 /// Implementation entry point for our bundled one-shot worker executable only.
 public enum PKCS11WorkerEntrypoint {
     public static func serve() -> Int32 {
         var coreLimit = rlimit(rlim_cur: 0, rlim_max: 0)
         guard setrlimit(RLIMIT_CORE, &coreLimit) == 0 else { return 2 }
-        let parent = getppid()
-        guard parent > 1 else { return 2 }
-        let watchdog = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        watchdog.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(250))
-        watchdog.setEventHandler { if getppid() != parent { _exit(74) } }
-        watchdog.resume()
-        defer { watchdog.cancel() }
+        guard sg_worker_watch_parent() == 0 else { return 2 }
         // Reserve a reply fd, then silence incidental/vendor stdout and stderr.
         let reply = dup(STDOUT_FILENO), sink = Darwin.open("/dev/null", O_WRONLY | O_CLOEXEC)
         guard reply >= 0, sink >= 0, fcntl(reply, F_SETFD, FD_CLOEXEC) == 0,
@@ -34,7 +29,9 @@ public enum PKCS11WorkerEntrypoint {
         input.resetBytes(in: 0..<input.count)
         var response = PKCS11WorkerResponse(version: 1, id: request.id, action: request.action,
             provider: request.provider, tokens: [], unavailable: 0, certificates: [], signature: nil, succeeded: false)
-        do { response = try perform(request) } catch { /* Never return vendor diagnostics or request bytes. */ }
+        do { response = try perform(request) }
+        catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
+        catch { /* Never return vendor diagnostics or request bytes. */ }
         guard var output = try? JSONEncoder().encode(response), output.count <= 2 * 1024 * 1024 else { return 2 }
         defer { output.resetBytes(in: 0..<output.count) }
         var offset = 0
@@ -46,6 +43,12 @@ public enum PKCS11WorkerEntrypoint {
         return 0
     }
     private static func perform(_ request: PKCS11WorkerRequest) throws -> PKCS11WorkerResponse {
+        guard let lease = sg_token_lease_acquire(request.provider, UInt64(request.slot ?? 0), request.action == .scan ? 1 : 0,
+                                                 UInt32(request.leaseWaitMilliseconds)) else {
+            if errno == ETIMEDOUT { throw IsolatedPKCS11Client.Failure.busy }
+            throw SupervisedProcess.Failure.launch
+        }
+        defer { sg_token_lease_release(lease) }
         let module = try PKCS11Module(path: request.provider)
         let result = Result { () -> PKCS11WorkerResponse in
             var tokens: [WorkerToken] = [], certificates: [WorkerCertificate] = [], unavailable = 0

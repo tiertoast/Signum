@@ -5,14 +5,21 @@ import Security
 /// App-internal client for the bundled worker, not a public integration protocol.
 /// Calls are synchronous off-main and bounded. No installed provider is loaded here.
 public final class IsolatedPKCS11Client: @unchecked Sendable {
+    public enum Failure: Error, LocalizedError {
+        case busy
+        public var errorDescription: String? { "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al provider." }
+    }
     public let executable: URL
+    private let leaseWaitMilliseconds: UInt
     public static var bundledExecutable: URL {
         let bundle = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/SignumPKCS11Worker")
         if Bundle.main.bundleURL.pathExtension == "app" { return bundle }
         return URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
             .deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker")
     }
-    public init(executable: URL = IsolatedPKCS11Client.bundledExecutable) { self.executable = executable }
+    public init(executable: URL = IsolatedPKCS11Client.bundledExecutable, leaseWaitMilliseconds: UInt = 10000) {
+        self.executable = executable; self.leaseWaitMilliseconds = leaseWaitMilliseconds
+    }
 
     public struct Scan: Sendable {
         public let provider: String
@@ -25,7 +32,7 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
     }
     public func scan(provider: String, timeout: TimeInterval = 30,
                      isCancelled: () -> Bool = { false }) throws -> Scan {
-        let result = try exchange(.init(action: .scan, provider: provider), timeout: timeout, isCancelled: isCancelled)
+        let result = try exchange(.init(action: .scan, provider: provider, leaseWaitMilliseconds: leaseWaitMilliseconds), timeout: timeout, isCancelled: isCancelled)
         guard result.tokens.count <= 256, result.unavailable >= 0, result.unavailable <= 256,
               result.certificates.isEmpty, result.signature == nil,
               result.tokens.allSatisfy({ $0.label.utf8.count <= 128 && $0.model.utf8.count <= 128 &&
@@ -34,7 +41,7 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
     }
     public func certificates(provider: String, slot: UInt, timeout: TimeInterval = 30,
                              isCancelled: () -> Bool = { false }) throws -> [Certificate] {
-        let result = try exchange(.init(action: .certificates, provider: provider, slot: slot), timeout: timeout, isCancelled: isCancelled)
+        let result = try exchange(.init(action: .certificates, provider: provider, slot: slot, leaseWaitMilliseconds: leaseWaitMilliseconds), timeout: timeout, isCancelled: isCancelled)
         guard result.tokens.isEmpty, result.signature == nil, result.certificates.count <= 256,
               result.certificates.allSatisfy(\.valid), result.certificates.reduce(0, { $0 + $1.der.count }) <= 1024 * 1024,
               Set(result.certificates.map { $0.value.id }).count == result.certificates.count else { throw SupervisedProcess.Failure.protocolViolation }
@@ -47,7 +54,7 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
               isCancelled: () -> Bool = { false }) throws -> Data {
         try CertificateEligibility.requireEligible(certificateDER: der)
         let result = try exchange(.init(id: id, action: .rsaSHA256, provider: provider, slot: slot,
-            certificate: WorkerCertificate(certificate, der: der), attributes: attributes, pin: pin),
+            certificate: WorkerCertificate(certificate, der: der), attributes: attributes, pin: pin, leaseWaitMilliseconds: leaseWaitMilliseconds),
             timeout: timeout, isCancelled: isCancelled)
         guard result.tokens.isEmpty, result.certificates.isEmpty, let signature = result.signature,
               (128...1024).contains(signature.count), let cert = SecCertificateCreateWithData(nil, der as CFData),
@@ -71,7 +78,8 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
               response.version == 1, response.id == request.id, response.action == request.action,
               response.provider.hasPrefix("/"), response.provider.utf8.count <= 4096,
               !response.provider.utf8.contains(0) else { throw SupervisedProcess.Failure.protocolViolation }
-        guard response.succeeded else { throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.") }
+        if !response.succeeded, response.failureKind == "busy" { throw Failure.busy }
+        guard response.succeeded, response.failureKind == nil else { throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.") }
         return response
     }
 }

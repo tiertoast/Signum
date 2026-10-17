@@ -109,7 +109,8 @@ extension SigningJob {
             }
             operation.transition(to: .completed)
         } catch {
-            if submitted && !receivedVerifiedSignature {
+            if submitted && !receivedVerifiedSignature && !(error is IsolatedPKCS11Client.Failure) &&
+                (error as? SupervisedProcess.Failure) != .launch && (error as? SupervisedProcess.Failure) != .capacity {
                 operation.transition(to: .outcomeUncertain)
                 throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Questo job non ha pubblicato un documento. Non ripetere automaticamente il PIN.")
             }

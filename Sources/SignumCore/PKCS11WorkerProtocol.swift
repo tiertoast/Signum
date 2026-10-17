@@ -8,17 +8,19 @@ struct PKCS11WorkerRequest: Codable {
     let id: UUID
     let action: Action
     let provider: String
+    let leaseWaitMilliseconds: UInt
     let slot: UInt?
     let certificate: WorkerCertificate?
     let attributes: Data?
     var pin: String?
     init(id: UUID = UUID(), action: Action, provider: String, slot: UInt? = nil,
-         certificate: WorkerCertificate? = nil, attributes: Data? = nil, pin: String? = nil) {
+         certificate: WorkerCertificate? = nil, attributes: Data? = nil, pin: String? = nil, leaseWaitMilliseconds: UInt = 10000) {
         self.version = 1; self.id = id; self.action = action; self.provider = provider
+        self.leaseWaitMilliseconds = leaseWaitMilliseconds
         self.slot = slot; self.certificate = certificate; self.attributes = attributes; self.pin = pin
     }
     var valid: Bool {
-        guard version == 1, provider.hasPrefix("/"), provider.utf8.count <= 4096, !provider.utf8.contains(0) else { return false }
+        guard version == 1, leaseWaitMilliseconds <= 30000, provider.hasPrefix("/"), provider.utf8.count <= 4096, !provider.utf8.contains(0) else { return false }
         switch action {
         case .scan: return slot == nil && certificate == nil && attributes == nil && pin == nil
         case .certificates: return slot != nil && certificate == nil && attributes == nil && pin == nil
@@ -51,5 +53,6 @@ struct PKCS11WorkerResponse: Codable {
     let certificates: [WorkerCertificate]
     let signature: Data?
     let succeeded: Bool
+    var failureKind: String? = nil
 }
 #endif
