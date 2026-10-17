@@ -1,192 +1,142 @@
 # Signum
 
-**Native macOS electronic-signature client — early open-source technical proof of concept.**
+**Digital signatures. Simply native.**
 
-The long-term goal is a lightweight SwiftUI client supporting ETSI/eIDAS PAdES, CAdES and XAdES documents, local PKCS#11 hardware and remote signing. **Version 0.3.2-alpha is an experimental PKCS#11 and CAdES candidate:** it detects tokens, lists public X.509 certificates, runs a synthetic RSA/SHA-256 signing test, and has a CLI proof-of-concept that can package a small document into an **attached CMS `.p7m`**. The package is NOT yet independently validated against the ETSI CAdES-B-B profile. It does NOT produce PAdES or qualified electronic signatures, and it does not validate certificate trust.
+A lightweight, native macOS application for signing documents with local PKCS#11 hardware. Built with **Swift, SwiftUI, PDFKit and Apple's Security framework**, with a dedicated native PoDoFo engine for PDF signatures.
 
-## Requirements and setup
+Signum aims to make document signing practical and understandable, particularly in document-heavy workflows such as the Italian public administration, without locking users into a particular token vendor's desktop interface.
 
-- macOS 13+ (Apple Silicon supported), Swift 5.9+ / Xcode Command Line Tools.
-- A *separately installed* PKCS#11 driver supporting your token. No proprietary driver ships with Signum.
+> **Current status — 17 October 2026:** **0.3.3 Alpha · Beta Foundation integrated into `main`.**
+> CAdES and PAdES have both passed real DigitalDNA/DS3 signing tests and independent checks with InfoCamere Sign. **This is not a public Beta or production-ready eIDAS validation product.** No signed, notarized distribution is available yet.
+
+## Capabilities
+
+| Area | Current implementation |
+| --- | --- |
+| **CAdES** | Attached CMS/`.p7m` signing with PKCS#11 RSA/SHA-256, signed attributes including `signingCertificateV2`; cryptographic verification before publication. |
+| **PAdES** | Incremental PDF signing through the bundled PoDoFo helper; optional minimal text-based visible signature appearance. |
+| **Devices** | Local PKCS#11 module discovery, reader/token selection, certificate display and local X.509 signing-eligibility checks. Tested with Bit4id DigitalDNA/DS3; other middleware requires its own validation. |
+| **User interface** | Native resizable SwiftUI workspace, PDFKit preview, interactive PDF signature-field placement and explicit document approval. |
+| **CLI** | Device discovery, certificate listing, signing diagnostic, CAdES signing and attached-CMS integrity verification. |
+| **Local verification** | Verify `.p7m` CMS integrity and extract the original content. This is **not** certificate trust or qualified-signature validation. |
+| **XAdES** | Planned, **not implemented**. |
+| **Remote signing** | Future possibility, **not implemented**. |
+
+The current PDF appearance is intentionally limited: custom image/logo and date profiles are **not yet embedded** in the produced signature appearance.
+
+## The invisible work that makes signing reliable
+
+The 0.3.3 Reliability Foundation and subsequent Beta Foundation are substantial **architecture and security** milestones, not just UI changes:
+
+1. **Approved bytes stay approved.** Signum captures a private, immutable document snapshot, binds it to SHA-256 and uses those bytes for preview/approval and signing rather than silently rereading a changed original.
+2. **Isolated PKCS#11 execution.** The GUI and CLI delegate token operations to a short-lived `SignumPKCS11Worker` process; vendor code is no longer loaded by their ordinary signing/discovery paths.
+3. **Bounded work, recoverable UI.** Process supervision provides timeouts, cancellation, crash handling and bounded child-process capacity. A hung vendor call is not treated as a cancellable Swift task.
+4. **Cooperative device coordination.** Cross-process leases coordinate Signum's own workers and PDF helper by provider/slot. They cannot prevent conflicts with third-party applications or all physical-token aliases.
+5. **Verified, exclusive publication.** CAdES and PAdES outputs are checked before an atomic, no-overwrite commit. Interrupted signing is handled conservatively; an uncertain result is **never retried automatically**.
+6. **Certificate and provider binding.** Local X.509 eligibility, selected certificate identity and provider provenance are checked; changing the middleware path invalidates the prior selection and PIN.
+7. **Self-contained local app packaging.** The arm64 build recipe embeds its required PoDoFo dynamic library, audits dependencies/`@rpath`, checks signatures and refuses to overwrite earlier bundles. PKCS#11 middleware remains installed separately.
+
+The isolated worker protects the GUI from crashes and hangs; **it is not a sandbox against malicious vendor code running with the user's privileges**. The historical in-process Core API remains present for tests/compatibility and is not covered by this isolation.
+
+Read [the Beta Foundation engineering report](docs/SIGNUM_BETA_FOUNDATION_REPORT.md) and [the PR #2 review corrections](docs/PR2_REVIEW_CORRECTIONS.md) for the implementation details and limitations.
+
+## Validation evidence
+
+The latest correction cycle recorded these **local, synthetic** results:
+
+| Verification | Reported result |
+| --- | --- |
+| Swift suite (native PAdES integration explicitly enabled) | **154 / 154** |
+| PKCS#11 suite | **40 / 40** |
+| PAdES tests, Debug and Release | **63 / 63** each |
+| Packaging Python tests | **10 / 10** |
+| Targeted Swift ASAN | **17 / 17** |
+| Native PAdES ASAN | **63 / 63** |
+
+AddressSanitizer runs disabled leak detection and did not instrument every third-party library. ThreadSanitizer was exercised in earlier foundation work, but **not rerun** in the final review-correction cycle.
+
+**Real hardware:** the development candidate was manually tested with a Bit4id DigitalDNA signing certificate; both CAdES and PAdES were accepted as valid by **InfoCamere Sign**. The final provider-selection checks were also reported as passed. These are manual user-reported acceptance tests, **not** a certification or a broad vendor compatibility claim.
+
+## Requirements
+
+- **macOS 13.0+ declared minimum** in the package, bundled Info.plist and arm64 native build recipe. Runtime compatibility on macOS **13 and 14**, and installation on a clean Mac, **have not yet been established**.
+- **Apple Silicon** for the current reproducible local bundle recipe.
+- Xcode / Apple command-line build tools, Swift 5.9+ and local CMake for building.
+- An **independently installed, trusted PKCS#11 middleware** for the token (for example OpenSC or vendor middleware). Signum does not distribute proprietary token drivers.
+
+## Build and test locally
+
+The repository is currently a development project; it does not ship a public installer.
 
 ```bash
 git clone https://github.com/tiertoast/Signum.git
 cd Signum
+swift build
 swift test
-swift run SignumCLI list
-swift run SignumCLI certs 1
-swift run SignumCLI sign-test 1 445333
+scripts/test-pkcs11-local.sh
 ```
 
-**Important:** With the previously observed Bit4id `777` permissions, even `list` will now be blocked until permissions are inspected and fixed as described below.
+`swift test` alone may skip the optional native PAdES end-to-end integration unless `SIGNUM_TEST_PADES_HELPER` points to a locally built helper; consult the two engineering reports for the exact full-suite configuration.
 
-The commands use the default system path `/Library/bit4id/pkcs11/libbit4xpki.dylib`. You can append an absolute module path to any command; replace slot and certificate ID with values shown by your own device. The `sign-test` command requests the PIN using the terminal, **never as an argument or environment variable**.
+### Reproducible local app bundle
 
-### Experimental CAdES (.p7m) — LOCAL TEST ONLY
-
-This PoC emits an **attached** CMS SignedData with three signed attributes:
-`contentType`, `messageDigest` and `signingCertificateV2` (ESSCertIDv2 SHA-256).
-It signs the DER signed-attribute SET with `CKM_SHA256_RSA_PKCS` on the token and checks that raw signature using macOS Security.framework. Document size is currently limited to 16 MiB, a single signer and RSA/SHA-256. It embeds only the signing certificate (no revocation or timestamp evidence). **Conformance and interoperability are unverified until externally tested.**
-
-Before entering a real PIN, verify the module's original code signature and ensure the installed PKCS#11 library, adjacent `.conf` file, and `.rc` resources are not writable by group or other users. The PKCS#11 loader now rejects unsafe permission bits **before calling dlopen**, including for read-only token discovery. On the previously observed root-owned Bit4id installation these paths had mode `777`; after inspecting the paths and confirming the driver is genuine, an administrator may correct them locally:
+The packaging recipe requires three **locally available, SHA-256-pinned** source archives in `.build/native-src` (OpenSSL 3.5.4, FreeType 2.13.3, PoDoFo 1.1.2) and a working CMake binary (the default is `.build/native-tools/cmake/data/bin/cmake`). It performs **no network downloads or global installations**. Choose **new, unused output paths**:
 
 ```bash
-sudo chmod -R go-w /Library/bit4id/pkcs11/libbit4xpki.dylib \
-  /Library/bit4id/pkcs11/libbit4xpki.dylib.conf \
-  /Library/bit4id/pkcs11/libbit4xpki.dylib.rc
-codesign --verify --verbose=2 /Library/bit4id/pkcs11/libbit4xpki.dylib
+python3 scripts/build-beta-native.py --output .build/native-local-01
+python3 scripts/build-beta-app.py --configuration release \
+  --native-prefix .build/native-local-01/prefix \
+  --output .build/bundles/local-01/Signum.app
+
+codesign --verify --deep --strict --verbose=2 \
+  .build/bundles/local-01/Signum.app
+open -n .build/bundles/local-01/Signum.app
 ```
 
-This is a limited filesystem permission check, **not** a complete malware, configuration or dependency verification solution. Do not adjust vendor software without checking local policies, backups and vendor support.
+This produces a **locally ad-hoc-signed** development bundle, not a Developer ID–signed or notarized application. The script audits the Mach-O deployment targets and load paths and tests a relocated copy. It will not replace an existing app. Never assume that its availability on your development Mac establishes compatibility with an unconfigured Mac.
 
-On a Mac with a working DigitalDNA (check slot and ID first via `swift run SignumCLI list` and `certs`):
+### CLI examples
+
+Build the full Swift package first so the sibling worker is present, then use:
 
 ```bash
-printf 'Signum CMS local test\n' > /tmp/signum-test.txt
-swift run SignumCLI sign-cades 1 445333 /tmp/signum-test.txt /tmp/signum-test.txt.p7m
-openssl cms -verify -inform DER -binary -noverify \
-  -in /tmp/signum-test.txt.p7m -out /tmp/signum-extracted.txt
-cmp /tmp/signum-test.txt /tmp/signum-extracted.txt && echo "CMS integrity OK"
+swift run SignumCLI list [absolute_module_path]
+swift run SignumCLI certs <slot> [absolute_module_path]
+swift run SignumCLI sign-test <slot> <cert_ID_hex> [absolute_module_path]
+swift run SignumCLI sign-cades <slot> <cert_ID_hex> <input> <new-output.p7m> [absolute_module_path]
+swift run SignumCLI verify-cades <signed.p7m> [new-extracted-output]
 ```
 
-Alternatively, run `bash scripts/verify-cades-local.sh /tmp/signum-test.txt.p7m /tmp/signum-test.txt`.
-
-The `-noverify` flag **deliberately disables trust-chain checking**; this test only verifies CMS cryptographic integrity. Do not treat its success as validation of an eIDAS-qualified signature. For CAdES baseline profile checks use an independently configured ETSI-aware validator such as EU DSS.
-
-**No PINs, certificates or private data should be committed to the repository.** Do not use your production documents while testing.
-
-### X.509 holder and device identification (0.2.1 alpha)
-
-The native GUI displays the certificate holder's **given name and surname**, a personal Italian **codice fiscale** when actually present in the public X.509 subject, and the certificate issuer. This does not involve the token PIN or export any private key. If a field is absent or malformed, the GUI falls back to the original PKCS#11 certificate label (e.g., `DS3`).
-
-Token rows show the PKCS#11 token label, model, and the physical reader's `CK_SLOT_INFO.slotDescription`. Familiar devices such as DigitalDNA and CNS are labeled **Token USB** and **Smart card**. These are model-based UI descriptions, **not authoritative detection of the actual USB transport**; an unknown device remains a generic PKCS#11 device.
-
-The certificate identity is shown locally in the GUI. No certificate personal data is stored in the repository or printed in debug output. A displayed name/CF is informational and is not a substitute for certificate trust and eIDAS qualification verification.
-
-### GUI CAdES signing and reader startup recovery (0.2.2 alpha)
-
-- Start the real macOS app bundle, **not** `swift run SignumApp`, for reliable keyboard focus.
-- Select the DigitalDNA token and its signature certificate (typically `DS3`) or another suitable card/certificate.
-- Select **Firma documento CAdES**, choose a **test file** with **Scegli file…** or drag it to the drop area, enter the device PIN, then click **Firma .p7m**.
-- Choose a **new** output path. Signum will not silently overwrite an existing file. The input must be 1 byte to 16 MiB.
-- To independently verify the resulting attached CMS, run `bash scripts/verify-cades-local.sh <generated.p7m> <original-file>` or check it in InfoCamere Sign. Verification through this script does not check legal qualification, trust, validity at signing time or ETSI conformance.
-
-The GUI has a compact fixed-size layout. When an inserted card briefly reports PKCS#11 `CKR_TOKEN_NOT_RECOGNIZED` (`0xE1`), the app skips that reader without hiding the other available devices, retries enumeration **once** after 450 ms, and provides an explicit manual refresh button. This automatic retry does **not** attempt PIN authentication.
-
-The app remains an **experimental CAdES proof of concept** and is not for production documents. PINs are passed only to the installed hardware middleware, but complete in-memory erasure and driver isolation are not yet implemented.
-
-### Local CAdES verification (0.2.3-alpha)
-
-Signum now has a **Verifica .p7m** GUI mode that requires **no token or PIN**. Select or drop a signed file, click **Verifica**, inspect cryptographically verified attached CMS layers/signers, and optionally **Estrai originale…** into a new output file (never overwrites existing files). Nested CMS envelopes are verified from outermost to innermost, up to 5 layers. The original document may be retained in app memory for extraction until you leave or reload the panel.
-
-Run the same verifier directly, without loading any PKCS#11 provider:
-
-```bash
-swift run SignumCLI verify-cades /path/to/example.pdf.p7m
-swift run SignumCLI verify-cades /path/to/example.pdf.p7m /path/to/new-extracted.pdf
-```
-
-The verifier invokes the **system /usr/bin/openssl** in a separate local process (no network). It checks CMS signature integrity with the **-noverify** option, which **intentionally skips certificate trust/chain validation**. It does not yet check revocation, QES qualification, timestamps, ETSI compliance or complete certificate profile status. Its DER reader targets attached CMS SignedData; some external BER or detached variants are intentionally unsupported. Both input and nested payload have a 64 MiB limit, with a maximum of 5 nested layers. Signer display names are untrusted certificate metadata until full validation is implemented.
-
-Tests can be run solely on your Mac with `swift test`; the integration test creates temporary, locally signed CMS fixtures using macOS OpenSSL and checks tampering rejection. **Never report this as full legal signature verification.**
-
-### Native SwiftUI development application
-
-```bash
-swift run SignumApp
-# Development-only unsigned .app bundle:
-bash scripts/build-app.sh
-open build/Signum.app
-```
-
-You may open `Package.swift` in Xcode for building and testing the package. The packaging script makes a local, **unsigned** application; signing, hardened runtime, entitlements and notarization are later milestones.
-
-### Local GUI signing test
-
-On your Mac, connect your DigitalDNA and/or CNS, launch the actual macOS bundle with `bash scripts/build-app.sh` and `open -n "$PWD/build/Signum.app"`, select a token and certificate, enter its PIN into the protected field, and click **Firma e verifica**. The button signs **only a hard-coded test string** via PKCS#11 and verifies it with Security.framework. Its success message is `Verified OK`; it does not produce a PDF/P7M. The GUI disables selection and reload operations while the test runs, and clears its PIN field when you initiate the test. If an authentication error occurs, do not automatically retry: repeated wrong PINs can block a smart card.
-
-All builds and tests are performed **locally** using `swift test` and `swift run`; no GitHub Actions workflows are used.
-
-
-## Signum 0.3.2 Alpha — Experimental visible PAdES appearance
-
-The PAdES helper can now create a real PDF widget normal appearance (`/AP /N`)
-**before** the signing operation. When a position is selected, the SwiftUI app
-sends an ASCII display name after the PIN through a private stdin pipe; the
-helper uses PoDoFo to draw a minimal text-only stamp (white background, thin
-border, "Firmato digitalmente da" and the certificate holder name).
-
-**The configured image, logo, and date are not yet embedded** in this
-first rendering pass. The preview has been aligned with the text-only output.
-The appearance describes the signer; it is not evidence of validity by itself.
-Test only with a disposable PDF. After rebuilding the helper and application,
-check (1) whether the stamp is visible in a PDF reader, and (2) whether
-InfoCamere still reports a valid PAdES signature. If either fails, do not use
-the output for work documents. No signing binaries or tests run in GitHub Actions.
-
-```bash
-cd ~/Signum
-git pull --ff-only
-cmake --build .build/signum-pades --config Release
-swift test
-bash scripts/build-app.sh
-open -n "$PWD/build/Signum.app"
-```
-
-## Signum 0.3.1 Alpha — Resizable workspace and PAdES engine
-
-Signum uses a resizable split window for signing. Device/certificate controls are on the left and PDFKit preview occupies the right panel in PAdES mode. The window and central divider can both be resized.
-
-PAdES signing is experimental and requires the optional local PoDoFo helper. Build it in Tools/PAdESPrototype, then rerun scripts/build-app.sh so the helper is included. If it is not installed the GUI disables PAdES signing. All compilation and validation are local on macOS. CAdES and verification remain available.
-
-The selected rectangle defines a PDF signature field. Custom image/text PDF signature appearances are not yet embedded, even though the interface previews their configuration. Verify every experimental PDF with InfoCamere Sign before relying on the output. Trust, revocation, timestamps and qualified status remain outside the scope of the current implementation.
-
-## Signum 0.3.0 Alpha — PAdES user-interface milestone
-
-The graphical app now offers **Firma documento**, **Verifica .p7m** and **Impostazioni**.
-The signing mode has a format selector: **CAdES (.p7m)** is working as previously tested; **PAdES (.pdf)** provides native PDFKit preview and interactive signature-field placement (click or drag), with zero-based PDF page coordinates; **XAdES** is listed as *prossimamente* and disabled.
-
-The Settings pane stores one local graphic appearance profile (text/image, optional date, PNG/JPEG). The visual preview is an **unsaved PDFKit annotation**, never an actual signed PDF appearance. The graphic profile is for **PAdES, not CAdES**; a CMS `.p7m` contains no visual page.
-
-**The PAdES button is intentionally disabled pending proof of the PoDoFo/PKCS#11 integration.** No fake or invalid PDF signatures are generated from the GUI. The hardware diagnostic test is removed from the GUI but remains available through `swift run SignumCLI sign-test`.
-
-An independent C++ PoDoFo proof-of-concept is included in **Tools/PAdESPrototype**. It signs a PDF incrementally using a token's PKCS#11 RSA key via the external signing service. It is *not* part of the default Swift build and *not yet tested on the user's Mac*. Read its local build instructions and verify every produced PDF with InfoCamere Sign before enabling production use. It does not yet create a real graphical appearance stream.
-
-To check the current SwiftUI milestone only (no PAdES signing):
-
-```bash
-cd ~/Signum
-git pull --ff-only
-swift test
-bash scripts/build-app.sh
-open -n "$PWD/build/Signum.app"
-```
-
-Check that CAdES signing and `.p7m` verification still work, open a test PDF in PAdES mode, choose a page and move the preview rectangle, and save a sample graphic appearance in Settings.
-All compilation and tests must be done **locally on macOS**. No GitHub Actions workflows exist.
+In the examples above, replace angle-bracket placeholders with real values; brackets denote optional arguments. The default middleware path is `/Library/bit4id/pkcs11/libbit4xpki.dylib`. Signing requests explicit approval, then reads the PIN privately from the terminal. **Never put a real PIN in command arguments, logs, tickets or commits.** Do not retry an uncertain signature automatically: repeated incorrect attempts can lock the device.
 
 ## Architecture
 
-- `SignumApp` — native SwiftUI front end (read-only device discovery and explicit signing test).
-- `SignumCore` — Swift PKCS#11 façade, experimental DER/CMS builder, and independent RSA verification with Apple's Security.framework.
-- `CPKCS11` — C dynamic loader for PKCS#11, using the upstream p11-kit header. No private keys are exported.
-- `SignumCLI` — command line diagnosis and cryptographic proof of concept.
-- `Tests` — Swift unit tests, with hardware integration tests performed on a real Mac.
+- `SignumApp` — native SwiftUI interface, document approval and PDFKit preview.
+- `SignumCore` — immutable job/snapshot, CMS construction and verification, supervised processes, worker IPC and state machine.
+- `SignumPKCS11Worker` — one-shot, isolated middleware execution with bounded private IPC.
+- `CPKCS11`, `CCertificatePolicy`, `CProcessCoordination`, `COutputPermissions` — native token bridge, local certificate policy, cooperative locking and filesystem safeguards.
+- `Tools/PAdESPrototype` / `signum-pades-local` — PoDoFo-based native PDF signing, verification and exclusive output publication.
+- `SignumCLI` — developer-facing diagnostic and CAdES commands.
+- `scripts/build-beta-*.py` — local, audited arm64 native dependencies and standalone app-bundle creation.
 
-## Safety limitations
+Builds and tests are local; **there are no GitHub Actions workflows**.
 
-**Do not use this PoC for confidential, production or legal signing workflows.** The test signs a built-in synthetic string, not the user's documents. A chosen PKCS#11 module is loaded in-process with `dlopen`: review its signature and file permissions before loading. A world-writable (`777`) middleware module is unsafe. The GUI signing test now runs in the background while its token controls are disabled. Future versions should verify module provenance, isolate driver execution, serialize all provider operations and harden secret handling.
+## Security and legal scope
 
-PINs are not written to disk or logs, but transient copies may remain in Swift memory; complete memory zeroization is not yet guaranteed. Context-specific PIN authentication is supported for `CKA_ALWAYS_AUTHENTICATE`. **Incorrect PIN entry can lock a token; do not repeatedly retry failures.** Never paste PINs, personal certificate information or private-key contents into tickets, logs or commits.
+Signum verifies **cryptographic integrity** in the implemented workflows. It does **not** currently determine whether a certificate is trusted, revoked, qualified under eIDAS, valid at the asserted signing time or compliant with complete ETSI baseline/long-term-validation profiles. `openssl cms -verify -noverify` deliberately **disables certificate-chain verification**.
 
-## Roadmap
+Do not treat these tests as legal validation of qualified electronic signatures or rely on this experimental version for confidential/production signing workflows. PIN bytes exist transiently in Swift and middleware memory; complete zeroization is not guaranteed. An external PKCS#11 module must be independently vetted before loading.
 
-1. Verify experimental CAdES/CMS output with OpenSSL and an ETSI-aware validator; correct any format errors.
-2. Harden driver loading, secure PIN handling, and add hardware-mocked tests.
-3. Add incremental PDF PAdES with a suitable audited library.
-4. Implement EU trust-list validation, revocation, timestamping and long-term profiles.
-5. Add optional remote CSC signing and release packaging/notarization.
+## What comes next
+
+1. Validate behavior on real **macOS 13/14** systems and an otherwise clean Apple Silicon Mac; expand the OpenSC/Bit4id/CNS driver matrix.
+2. Exercise cancellation, token removal, vendor hangs, provider changes and recovery with controlled hardware tests.
+3. Complete distribution readiness: dependency/license review, Developer ID signing, suitable hardened-runtime/library-validation policy, notarization and installation testing.
+4. Improve the visual PAdES appearance and application experience without weakening the signing invariants.
+5. In a later, independently reviewed phase: EU trust lists, certificate chains, revocation, timestamps, ETSI profiles, plus possible XAdES and remote signing.
+
+**No public Beta release is implied by the name “Beta Foundation.”** See [release-readiness gates](docs/RELEASE_READINESS.md) for the criteria still open.
 
 ## License
 
-Signum's original source code is offered under Apache License 2.0 (see `LICENSE`). The bundled `pkcs11.h` comes from p11-kit and preserves its upstream redistribution notice. **No proprietary Bit4id, InfoCamere or other vendor binaries are redistributed.**
+Signum's original code is licensed under **Apache License 2.0**; see [LICENSE](LICENSE). Third-party sources retain their own licenses and notices. The offline packaging recipe includes available notices for PoDoFo, OpenSSL, FreeType and bundled components, but **distribution obligations still require a separate review**. No Bit4id, InfoCamere or other proprietary middleware is redistributed.
