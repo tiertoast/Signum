@@ -145,21 +145,39 @@ static std::string aclText(const fs::path& path) {
     std::string result(text); acl_free(text); acl_free(acl); return result;
 }
 static void inheritedACL(const fs::path& path, bool write,
-                         std::vector<acl_flag_t> inheritance = {ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT}) {
-    auto acl = acl_init(1); acl_entry_t entry; uuid_t everyone;
+                         std::vector<acl_flag_t> inheritance = {ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT},
+                         acl_tag_t tag = ACL_EXTENDED_ALLOW, std::vector<acl_perm_t> rights = {}, bool append = false) {
+    int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    expect(fd >= 0, "Cannot open ACL fixture");
+    auto acl = append ? acl_get_fd(fd) : nullptr;
+    if (!acl) acl = acl_init(1);
+    acl_entry_t entry; uuid_t everyone;
     expect(acl && acl_create_entry(&acl, &entry) == 0 &&
         uuid_parse("ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000000C", everyone) == 0 &&
-        acl_set_tag_type(entry, ACL_EXTENDED_ALLOW) == 0 && acl_set_qualifier(entry, everyone) == 0, "Cannot create ACL fixture");
+        acl_set_tag_type(entry, tag) == 0 && acl_set_qualifier(entry, everyone) == 0, "Cannot create ACL fixture");
     acl_permset_t perms; expect(acl_get_permset(entry, &perms) == 0, "ACL permissions");
-    for (auto right : {ACL_READ_DATA, ACL_EXECUTE, ACL_READ_ATTRIBUTES, ACL_READ_SECURITY})
-        expect(acl_add_perm(perms, right) == 0, "ACL read grant");
-    if (write) for (auto right : {ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_WRITE_ATTRIBUTES})
-        expect(acl_add_perm(perms, right) == 0, "ACL write grant");
+    if (rights.empty()) {
+        rights = {ACL_READ_DATA, ACL_EXECUTE, ACL_READ_ATTRIBUTES, ACL_READ_SECURITY};
+        if (write) rights.insert(rights.end(), {ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_WRITE_ATTRIBUTES});
+    }
+    for (auto right : rights) expect(acl_add_perm(perms, right) == 0, "ACL grant/denial");
     acl_flagset_t flags; expect(acl_get_flagset_np(entry, &flags) == 0, "ACL inheritance flags");
     for (auto flag : inheritance) expect(acl_add_flag_np(flags, flag) == 0, "ACL inheritance flag");
-    int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    expect(fd >= 0 && acl_set_fd(fd, acl) == 0, "Cannot set ACL fixture"); close(fd); acl_free(acl);
+    expect(acl_set_fd(fd, acl) == 0, "Cannot set ACL fixture"); close(fd); acl_free(acl);
 }
+struct ACLFixtureCleanup {
+    std::vector<fs::path> paths;
+    ~ACLFixtureCleanup() {
+        for (const auto& path : paths) {
+            int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+            if (fd >= 0) {
+                struct stat info{};
+                if (fstat(fd, &info) == 0) sg_output_make_private(fd, S_ISDIR(info.st_mode) ? 0700 : 0600);
+                close(fd);
+            }
+        }
+    }
+};
 static void rejects(const std::string& name, const Bytes& candidate, const Bytes& source, const std::string& certificate) {
     test(name, [&] {
         Folder folder; auto original = folder.path / "source.pdf", output = folder.path / "signed.pdf";
@@ -282,6 +300,71 @@ int main(int argc, char** argv) {
             put(abandoned / ".permissions" / "empty", {});
             { TransactionalOutput tx((f.path / "signed.pdf").string()); }
             expect(fs::is_empty(f.path), "Empty inheritance fixture leaked");
+        });
+        for (bool directoryInherit : {false, true}) test(directoryInherit
+                ? "deny-delete on directories: PAdES publication keeps final sharing"
+                : "noninheritable deny-delete: PAdES probe cleanup and publication", [&] {
+            Folder f; auto output = f.path / "signed.pdf", control = f.path / "control";
+            ACLFixtureCleanup cleanup{{output, control, f.path}};
+            inheritedACL(f.path, true);
+            inheritedACL(f.path, false, directoryInherit ? std::vector<acl_flag_t>{ACL_ENTRY_DIRECTORY_INHERIT} : std::vector<acl_flag_t>{},
+                         ACL_EXTENDED_DENY, {ACL_DELETE}, true);
+            auto parentACL = aclText(f.path);
+            int fd = open(control.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600); expect(fd >= 0, "Cannot create control");
+            auto expected = aclText(control); expect(sg_output_make_private(fd, 0600) == 0, "Cannot clean synthetic control"); close(fd); fs::remove(control);
+            struct stat payloadIdentity{};
+            {
+                TransactionalOutput tx(output.string()); auto stage = stageIn(f.path);
+                expect(aclText(stage).empty() && aclText(stage / "output.pdf").empty(), "Stage/payload ACL not private");
+                expect(std::distance(fs::directory_iterator(stage), fs::directory_iterator{}) == 1, "ACL probe leaked");
+                expect(lstat((stage / "output.pdf").c_str(), &payloadIdentity) == 0, "Cannot identify payload");
+                tx.write(valid); tx.verifyAndPublish(source, identity.der);
+            }
+            struct stat published{}; expect(lstat(output.c_str(), &published) == 0 && published.st_ino == payloadIdentity.st_ino, "Published inode differs");
+            expect(fileBytes(output) == valid && aclText(output) == expected && aclText(f.path) == parentACL, "Bytes or final/parent ACL changed");
+            expect(std::distance(fs::directory_iterator(f.path), fs::directory_iterator{}) == 1, "Staging leaked");
+        });
+        for (int scenario = 0; scenario < 4; ++scenario) test("ACL probe cleans delete denials and preserves captured ACL, scenario " + std::to_string(scenario), [&] {
+            Folder f; auto control = f.path / "control", stage = f.path / "private", payload = stage / "payload";
+            ACLFixtureCleanup cleanup{{control, payload, f.path}};
+            inheritedACL(f.path, true);
+            inheritedACL(f.path, false, scenario < 2 ? std::vector<acl_flag_t>{} : std::vector<acl_flag_t>{ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT},
+                ACL_EXTENDED_DENY, scenario == 1 ? std::vector<acl_perm_t>{ACL_DELETE_CHILD} : scenario == 3 ?
+                    std::vector<acl_perm_t>{ACL_DELETE, ACL_DELETE_CHILD} : std::vector<acl_perm_t>{ACL_DELETE}, true);
+            auto parentACL = aclText(f.path);
+            int controlFD = open(control.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600); expect(controlFD >= 0, "Cannot create control"); close(controlFD);
+            auto expected = aclText(control); fs::create_directory(stage);
+            int parentFD = open(f.path.c_str(), O_RDONLY | O_DIRECTORY), stageFD = open(stage.c_str(), O_RDONLY | O_DIRECTORY);
+            expect(parentFD >= 0 && stageFD >= 0 && sg_output_make_private(stageFD, 0700) == 0, "Cannot harden fixture");
+            auto final = sg_output_inherited_acl(parentFD, stageFD);
+            expect(final && sg_output_is_private(stageFD, 0700) == 0 && fs::is_empty(stage), "Probe failed or leaked empty objects");
+            int payloadFD = open(payload.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
+            expect(payloadFD >= 0 && sg_output_apply_acl(payloadFD, final) == 0, "Cannot apply captured final ACL");
+            expect(aclText(payload) == expected && aclText(f.path) == parentACL, "ACLs were discarded or destination changed");
+            acl_free(final); close(payloadFD); close(stageFD); close(parentFD);
+        });
+        for (int layout = 0; layout < 3; ++layout) test(layout == 0 ? "recovery removes crashed empty probe with deny-delete ACL" :
+                layout == 1 ? "recovery preserves unknown ACL probe layout" : "recovery preserves nonempty ACL probe", [&] {
+            const bool unknown = layout == 1;
+            Folder f; auto abandoned = f.path / ".signum-pades-staging-44444444-4444-4444-8444-444444444444";
+            auto chamber = abandoned / ".permissions", empty = chamber / "empty";
+            ACLFixtureCleanup cleanup{{empty, chamber / "foreign", chamber}};
+            fs::create_directories(chamber); chmod(abandoned.c_str(), 0700);
+            inheritedACL(chamber, false, {ACL_ENTRY_FILE_INHERIT}, ACL_EXTENDED_DENY, {ACL_DELETE, ACL_DELETE_CHILD});
+            put(empty, layout == 2 ? source : Bytes{}); auto before = aclText(chamber);
+            if (unknown) put(chamber / "foreign", source);
+            { TransactionalOutput tx((f.path / "result.pdf").string()); }
+            if (unknown) expect(fs::exists(empty) && fileBytes(chamber / "foreign") == source && aclText(chamber) == before, "Unknown layout or ACL changed");
+            else if (layout == 2) expect(fileBytes(empty) == source && aclText(chamber) == before, "Nonempty probe removed or ACL changed");
+            else expect(!fs::exists(abandoned), "Crashed ACL fixture not recovered");
+        });
+        test("inheritance failure preserves actual errno and foreign fixture", [&] {
+            Folder f; auto stage = f.path / "private", foreign = stage / ".permissions";
+            fs::create_directory(stage); chmod(stage.c_str(), 0700); put(foreign, source);
+            int parentFD = open(f.path.c_str(), O_RDONLY | O_DIRECTORY), stageFD = open(stage.c_str(), O_RDONLY | O_DIRECTORY);
+            errno = 0; auto result = sg_output_inherited_acl(parentFD, stageFD); int saved = errno;
+            close(stageFD); close(parentFD);
+            expect(!result && saved == EEXIST && fileBytes(foreign) == source, "Error masked or foreign fixture removed");
         });
         test("appearance stream text and placement preserved", [&] {
             auto provider = CGDataProviderCreateWithData(nullptr, valid.data(), valid.size(), nullptr);

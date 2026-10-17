@@ -56,26 +56,33 @@ final class SignumFileOutputTests: XCTestCase {
     }
 
     private func setInheritedACL(_ folder: URL, write: Bool,
-                                 inheritance: [acl_flag_t] = [ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT]) throws {
-        var acl: acl_t? = try XCTUnwrap(acl_init(1))
+                                 inheritance: [acl_flag_t] = [ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT],
+                                 deny: Bool = false, permissions: [acl_perm_t]? = nil, append: Bool = false) throws {
+        let fd = Darwin.open(folder.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(fd, 0); defer { Darwin.close(fd) }
+        var acl: acl_t? = append ? acl_get_fd(fd) : nil
+        if acl == nil { acl = try XCTUnwrap(acl_init(1)) }
         defer { acl_free(UnsafeMutableRawPointer(acl!)) }
         var entry: acl_entry_t?
         XCTAssertEqual(acl_create_entry(&acl, &entry), 0)
         let ace = try XCTUnwrap(entry)
-        XCTAssertEqual(acl_set_tag_type(ace, ACL_EXTENDED_ALLOW), 0)
+        XCTAssertEqual(acl_set_tag_type(ace, deny ? ACL_EXTENDED_DENY : ACL_EXTENDED_ALLOW), 0)
         var everyone = UUID(uuidString: "ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000000C")!.uuid
         XCTAssertEqual(withUnsafePointer(to: &everyone) { acl_set_qualifier(ace, $0) }, 0)
         var perms: acl_permset_t?
         XCTAssertEqual(acl_get_permset(ace, &perms), 0)
-        let rights: [acl_perm_t] = [ACL_READ_DATA, ACL_EXECUTE, ACL_READ_ATTRIBUTES, ACL_READ_SECURITY] +
-            (write ? [ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_WRITE_ATTRIBUTES] : [])
+        let rights: [acl_perm_t] = permissions ?? ([ACL_READ_DATA, ACL_EXECUTE, ACL_READ_ATTRIBUTES, ACL_READ_SECURITY] +
+            (write ? [ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_WRITE_ATTRIBUTES] : []))
         for right in rights { XCTAssertEqual(acl_add_perm(perms!, right), 0) }
         var flags: acl_flagset_t?
         XCTAssertEqual(acl_get_flagset_np(UnsafeMutableRawPointer(ace), &flags), 0)
         for flag in inheritance { XCTAssertEqual(acl_add_flag_np(flags!, flag), 0) }
-        let fd = Darwin.open(folder.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-        XCTAssertGreaterThanOrEqual(fd, 0); defer { Darwin.close(fd) }
         XCTAssertEqual(acl_set_fd(fd, acl), 0)
+    }
+
+    private func clearFixtureACL(_ url: URL, directory: Bool = false) {
+        let fd = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        if fd >= 0 { _ = sg_output_make_private(fd, directory ? 0o700 : 0o600); Darwin.close(fd) }
     }
 
     private func aclDescription(_ url: URL) throws -> String {
@@ -181,6 +188,119 @@ final class SignumFileOutputTests: XCTestCase {
             try Data().write(to: chamber.appendingPathComponent("empty"))
             try SignumFileOutput.writeNew(bytes, to: output)
             XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [output.lastPathComponent])
+        }
+    }
+
+    func testDenyDeletionACLDoesNotBreakInheritanceProbeCleanupOrFinalSharing() throws {
+        let scenarios: [([acl_perm_t], [acl_flag_t])] = [
+            ([ACL_DELETE], []), ([ACL_DELETE], [ACL_ENTRY_DIRECTORY_INHERIT])]
+        for (denials, flags) in scenarios {
+            try inFolder { folder, output in
+                defer { clearFixtureACL(output); clearFixtureACL(folder, directory: true) }
+                try setInheritedACL(folder, write: true)
+                try setInheritedACL(folder, write: false, inheritance: flags, deny: true, permissions: denials, append: true)
+                let parentACL = try aclDescription(folder)
+                let control = folder.appendingPathComponent("control")
+                let controlFD = Darwin.open(control.path, O_CREAT | O_EXCL | O_RDWR, 0o600)
+                XCTAssertGreaterThanOrEqual(controlFD, 0)
+                let expected = try aclDescription(control)
+                XCTAssertEqual(sg_output_make_private(controlFD, 0o600), 0); Darwin.close(controlFD)
+                try FileManager.default.removeItem(at: control)
+                var identity = stat(), io = SignumFileOutput.OutputIO()
+                io.staged = {
+                    let stage = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).first)
+                    XCTAssertEqual(try self.aclDescription(stage), "")
+                    XCTAssertEqual(try self.aclDescription(stage.appendingPathComponent("output")), "")
+                    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: stage.path), ["output"])
+                    XCTAssertEqual(lstat(stage.appendingPathComponent("output").path, &identity), 0)
+                }
+                try SignumFileOutput.writeNew(bytes, to: output, io: io) { staged in XCTAssertEqual(staged, self.bytes) }
+                XCTAssertEqual(try Data(contentsOf: output), bytes)
+                XCTAssertEqual(try aclDescription(output), expected)
+                XCTAssertEqual(try aclDescription(folder), parentACL)
+                var published = stat(); XCTAssertEqual(lstat(output.path, &published), 0)
+                XCTAssertEqual(published.st_ino, identity.st_ino)
+                XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [output.lastPathComponent])
+            }
+        }
+    }
+
+    func testProbeCapturesDeleteAndDeleteChildDenialsWithoutDiscardingFinalACL() throws {
+        let scenarios: [([acl_perm_t], [acl_flag_t])] = [
+            ([ACL_DELETE], []), ([ACL_DELETE_CHILD], []),
+            ([ACL_DELETE], [ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT]),
+            ([ACL_DELETE, ACL_DELETE_CHILD], [ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT])]
+        for (denials, flags) in scenarios {
+            try inFolder { folder, _ in
+                let control = folder.appendingPathComponent("control"), stage = folder.appendingPathComponent("private")
+                let payload = stage.appendingPathComponent("payload")
+                defer { clearFixtureACL(control); clearFixtureACL(payload); clearFixtureACL(folder, directory: true) }
+                try setInheritedACL(folder, write: true)
+                try setInheritedACL(folder, write: false, inheritance: flags, deny: true, permissions: denials, append: true)
+                let parentACL = try aclDescription(folder)
+                let controlFD = Darwin.open(control.path, O_CREAT | O_EXCL | O_RDWR, 0o600)
+                XCTAssertGreaterThanOrEqual(controlFD, 0); Darwin.close(controlFD)
+                let expected = try aclDescription(control)
+                try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false)
+                let parentFD = Darwin.open(folder.path, O_RDONLY | O_DIRECTORY), stageFD = Darwin.open(stage.path, O_RDONLY | O_DIRECTORY)
+                defer { Darwin.close(parentFD); Darwin.close(stageFD) }
+                XCTAssertEqual(sg_output_make_private(stageFD, 0o700), 0)
+                let final = try XCTUnwrap(sg_output_inherited_acl(parentFD, stageFD))
+                defer { acl_free(UnsafeMutableRawPointer(final)) }
+                XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: stage.path), [])
+                XCTAssertEqual(sg_output_is_private(stageFD, 0o700), 0)
+                let payloadFD = Darwin.open(payload.path, O_CREAT | O_EXCL | O_RDWR, 0o600)
+                XCTAssertGreaterThanOrEqual(payloadFD, 0); defer { Darwin.close(payloadFD) }
+                XCTAssertEqual(sg_output_apply_acl(payloadFD, final), 0)
+                XCTAssertEqual(try aclDescription(payload), expected)
+                XCTAssertEqual(try aclDescription(folder), parentACL)
+            }
+        }
+    }
+
+    func testRecoveryCleansEmptyProbeWithDenyDeleteButPreservesUnknownLayouts() throws {
+        for layout in 0..<3 {
+            let unknown = layout == 1
+            try inFolder { folder, output in
+                let abandoned = folder.appendingPathComponent(".signum-staging-" + UUID().uuidString)
+                let chamber = abandoned.appendingPathComponent(".permissions")
+                try FileManager.default.createDirectory(at: chamber, withIntermediateDirectories: true)
+                XCTAssertEqual(chmod(abandoned.path, 0o700), 0)
+                try setInheritedACL(chamber, write: false, inheritance: [ACL_ENTRY_FILE_INHERIT], deny: true,
+                                    permissions: [ACL_DELETE, ACL_DELETE_CHILD])
+                let empty = chamber.appendingPathComponent("empty")
+                try (layout == 2 ? Data("Foreign nonempty probe".utf8) : Data()).write(to: empty)
+                defer { clearFixtureACL(chamber.appendingPathComponent("foreign")); clearFixtureACL(empty); clearFixtureACL(chamber, directory: true) }
+                let originalACL = try aclDescription(chamber)
+                if unknown { try Data("Foreign synthetic entry".utf8).write(to: chamber.appendingPathComponent("foreign")) }
+                try SignumFileOutput.writeNew(bytes, to: output)
+                if layout != 0 {
+                    XCTAssertEqual(try aclDescription(chamber), originalACL)
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: empty.path))
+                    if unknown {
+                        XCTAssertEqual(try Data(contentsOf: chamber.appendingPathComponent("foreign")), Data("Foreign synthetic entry".utf8))
+                    } else {
+                        XCTAssertEqual(try Data(contentsOf: empty), Data("Foreign nonempty probe".utf8))
+                    }
+                } else {
+                    XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
+                }
+            }
+        }
+    }
+
+    func testInheritanceFailureRetainsActualErrnoAndForeignFixture() throws {
+        try inFolder { folder, _ in
+            let stage = folder.appendingPathComponent("private")
+            try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            let foreign = stage.appendingPathComponent(".permissions")
+            try Data("Foreign synthetic object".utf8).write(to: foreign)
+            let parentFD = Darwin.open(folder.path, O_RDONLY | O_DIRECTORY), stageFD = Darwin.open(stage.path, O_RDONLY | O_DIRECTORY)
+            defer { Darwin.close(parentFD); Darwin.close(stageFD) }
+            errno = 0
+            XCTAssertNil(sg_output_inherited_acl(parentFD, stageFD))
+            XCTAssertEqual(errno, EEXIST)
+            XCTAssertEqual(try Data(contentsOf: foreign), Data("Foreign synthetic object".utf8))
         }
     }
 

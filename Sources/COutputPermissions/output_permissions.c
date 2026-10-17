@@ -15,8 +15,11 @@ static acl_t get_acl(int fd) {
 }
 static int same(int dir, const char *name, const struct stat *expected) {
     struct stat now;
-    return fstatat(dir, name, &now, AT_SYMLINK_NOFOLLOW) == 0 &&
-        now.st_dev == expected->st_dev && now.st_ino == expected->st_ino;
+    if (fstatat(dir, name, &now, AT_SYMLINK_NOFOLLOW)) return 0;
+    if (now.st_dev != expected->st_dev || now.st_ino != expected->st_ino) {
+        errno = ESTALE; return 0;
+    }
+    return 1;
 }
 int sg_output_is_private(int fd, mode_t mode) {
     struct stat info;
@@ -36,6 +39,11 @@ int sg_output_is_private(int fd, mode_t mode) {
     return 0;
 }
 int sg_output_make_private(int fd, mode_t mode) {
+    struct stat info;
+    if (mode != 0700 && mode != 0600) { errno = EINVAL; return -1; }
+    if (fstat(fd, &info)) return -1;
+    if (info.st_uid != getuid() || (mode == 0700 ? !S_ISDIR(info.st_mode) :
+        (!S_ISREG(info.st_mode) || info.st_nlink != 1))) { errno = EPERM; return -1; }
     acl_t empty = acl_init(0);
     if (!empty) return -1;
     int result = acl_set_fd(fd, empty), saved = errno;
@@ -59,14 +67,27 @@ int sg_output_cleanup_permissions(int stage) {
         if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..") && strcmp(entry->d_name, probe)) { known = 0; break; }
     }
     closedir(entries);
-    if (known && fstat(fd, &dir) == 0 && dir.st_uid == getuid()) {
-        if (fstatat(fd, probe, &file, AT_SYMLINK_NOFOLLOW) == 0) {
-            if (S_ISREG(file.st_mode) && file.st_uid == getuid() && file.st_nlink == 1 &&
-                file.st_size == 0 && same(fd, probe, &file)) unlinkat(fd, probe, 0);
+    int data = -1;
+    if (!known || fstat(fd, &dir) || dir.st_uid != getuid()) { errno = EPERM; goto done; }
+    if (fstatat(fd, probe, &file, AT_SYMLINK_NOFOLLOW) == 0) {
+        if (!S_ISREG(file.st_mode) || file.st_uid != getuid() || file.st_nlink != 1 || file.st_size != 0) {
+            errno = EPERM; goto done;
         }
-        if (same(stage, chamber, &dir)) result = unlinkat(stage, chamber, AT_REMOVEDIR);
-    }
-    int saved = errno; close(fd); errno = saved;
+        data = openat(fd, probe, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+        struct stat pinned;
+        if (data < 0 || fstat(data, &pinned)) goto done;
+        if (pinned.st_dev != file.st_dev || pinned.st_ino != file.st_ino || !S_ISREG(pinned.st_mode) ||
+            pinned.st_uid != getuid() || pinned.st_nlink != 1 || pinned.st_size != 0) { errno = ESTALE; goto done; }
+    } else if (errno != ENOENT) goto done;
+    /* A crash can leave the destination's deny-delete ACE on either empty
+     * fixture. Neutralize it only after layout, ownership and identity checks. */
+    if (sg_output_make_private(fd, 0700)) goto done;
+    if (data >= 0 && (sg_output_make_private(data, 0600) || !same(fd, probe, &file) || unlinkat(fd, probe, 0))) goto done;
+    if (same(stage, chamber, &dir)) result = unlinkat(stage, chamber, AT_REMOVEDIR);
+done:;
+    int saved = errno;
+    if (data >= 0) close(data);
+    close(fd); errno = saved;
     return result;
 }
 acl_t sg_output_inherited_acl(int parent, int stage) {
@@ -87,14 +108,23 @@ acl_t sg_output_inherited_acl(int parent, int stage) {
     have_file = 1;
     result = get_acl(file);
 done:;
-    int saved = errno, clean = 1;
-    if (have_file && (!same(directory, probe, &file_info) || unlinkat(directory, probe, 0))) clean = 0;
-    if (file >= 0 && close(file)) clean = 0;
-    if (have_dir && (!same(stage, chamber, &dir_info) || unlinkat(stage, chamber, AT_REMOVEDIR))) clean = 0;
-    if (directory >= 0 && close(directory)) clean = 0;
+    int capture_error = result ? 0 : errno, cleanup_error = 0;
+    /* The destination ACL may deny deletion of this directory or its children.
+     * These are empty, owned fixtures behind a private ancestor, not the final
+     * payload. Capture first, then harden the directory before removing entries;
+     * also clear an inherited deny-delete ACE on the empty file itself. */
+    if (have_dir && sg_output_make_private(directory, 0700)) cleanup_error = errno;
+    if (have_file) {
+        if (sg_output_make_private(file, 0600) && !cleanup_error) cleanup_error = errno;
+        if ((!same(directory, probe, &file_info) || unlinkat(directory, probe, 0)) && !cleanup_error) cleanup_error = errno;
+    }
+    if (file >= 0 && close(file) && !cleanup_error) cleanup_error = errno;
+    if (have_dir && (!same(stage, chamber, &dir_info) || unlinkat(stage, chamber, AT_REMOVEDIR)) && !cleanup_error) cleanup_error = errno;
+    if (directory >= 0 && close(directory) && !cleanup_error) cleanup_error = errno;
     acl_free(parent_acl);
-    if (!clean && result) { acl_free(result); result = NULL; saved = EIO; }
-    errno = saved;
+    if (cleanup_error && result) { acl_free(result); result = NULL; }
+    /* Keep the first real error; never disguise EACCES/EPERM/etc. as EIO. */
+    errno = capture_error ? capture_error : cleanup_error;
     return result;
 }
 int sg_output_apply_acl(int fd, acl_t acl) {
