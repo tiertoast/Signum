@@ -9,6 +9,24 @@ static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static MockStats stats;
 static CK_RV faults[M_COUNT];
 static unsigned delay_us;
+static unsigned char certificate_bytes[65536], replacement_bytes[65536];
+static size_t certificate_length, replacement_length;
+static unsigned certificate_reads, replace_after;
+void mock_certificate_der(const unsigned char *bytes, size_t length) {
+    pthread_mutex_lock(&mutex);
+    if (bytes && length && length <= sizeof(certificate_bytes)) {
+        memcpy(certificate_bytes, bytes, length); certificate_length = length;
+        certificate_reads = 0; replacement_length = 0;
+    }
+    pthread_mutex_unlock(&mutex);
+}
+void mock_replace_certificate(const unsigned char *bytes, size_t length, unsigned after_reads) {
+    pthread_mutex_lock(&mutex);
+    if (bytes && length && length <= sizeof(replacement_bytes)) {
+        memcpy(replacement_bytes, bytes, length); replacement_length = length; replace_after = after_reads;
+    }
+    pthread_mutex_unlock(&mutex);
+}
 static int blocked_operation = -1, blocked, released, always_auth, external_session;
 typedef struct { int active, delivered; CK_OBJECT_CLASS kind; } Session;
 static Session sessions[512];
@@ -122,7 +140,15 @@ static CK_RV attribute(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE obj, CK_ATTRIBUTE_P
         switch (attrs[i].type) {
         case CKA_LABEL: value = "Synthetic certificate"; n = 21; break;
         case CKA_ID: value = id; n = sizeof(id); break;
-        case CKA_VALUE: value = der; n = sizeof(der); break;
+        case CKA_VALUE:
+            if (replacement_length && certificate_reads >= replace_after) {
+                memcpy(certificate_bytes, replacement_bytes, replacement_length);
+                certificate_length = replacement_length; replacement_length = 0;
+            }
+            value = certificate_length ? certificate_bytes : der;
+            n = certificate_length ? certificate_length : sizeof(der);
+            if (attrs[i].pValue) ++certificate_reads;
+            break;
         case CKA_ALWAYS_AUTHENTICATE: value = &auth; n = sizeof(auth); break;
         default: return end(CKR_ATTRIBUTE_TYPE_INVALID);
         }

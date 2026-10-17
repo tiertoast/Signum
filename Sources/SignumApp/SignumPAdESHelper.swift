@@ -33,6 +33,7 @@ enum SignumPAdESHelper {
                      pin: String,
                      appearanceName: String,
                      field: Field?) throws {
+        try CertificateEligibility.requireEligible(certificateDER: expectedCertificate)
         guard available else {
             throw SignumError.module("Motore PAdES non installato nel bundle. Compila PoDoFo in locale.")
         }
@@ -96,7 +97,7 @@ enum SignumPAdESHelper {
         }
         defer { secret.resetBytes(in: 0..<secret.count) }
         let fingerprint = SHA256.hash(data: expectedCertificate).map { String(format: "%02x", $0) }.joined()
-        args += ["--expected-cert-sha256", fingerprint, "--verified-output-v1"]
+        args += ["--expected-cert-sha256", fingerprint, "--verified-output-v2"]
         switch PAdESHelperProcess.run(executable: executableURL, arguments: args,
                                       input: &secret, destination: output) {
         case .published: return

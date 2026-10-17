@@ -184,7 +184,7 @@ public final class PKCS11Module: @unchecked Sendable {
     /// Demonstration only: raw SHA256withRSA operation via the installed PKCS#11 module.
     /// Do not use this without reviewing the driver and its surrounding configuration.
     private func signRSASHA256(slot: UInt, certificate: SignumCertificate,
-                               pin: String, message: Data) throws -> Data {
+                               pin: String, message: Data, expectedCertificateDER: Data) throws -> Data {
         guard !pin.isEmpty, !message.isEmpty, message.count <= 1024 * 1024 else {
             throw SignumError.module("Invalid PIN or message size")
         }
@@ -195,17 +195,20 @@ public final class PKCS11Module: @unchecked Sendable {
         defer {
             for i in pinBytes.indices { pinBytes[i] = 0 }
         }
-        try certificate.identifier.withUnsafeBytes { id in
-            try pinBytes.withUnsafeBytes { secret in
-                try message.withUnsafeBytes { bytes in
-                    try execute { error in
-                        signature.withUnsafeMutableBufferPointer { output in
-                            sg_sign_test(context, slot,
-                                         id.bindMemory(to: UInt8.self).baseAddress, id.count,
-                                         secret.bindMemory(to: UInt8.self).baseAddress, secret.count,
-                                         bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
-                                         output.baseAddress, output.count, &length,
-                                         error.baseAddress, error.count)
+        try expectedCertificateDER.withUnsafeBytes { approved in
+            try certificate.identifier.withUnsafeBytes { id in
+                try pinBytes.withUnsafeBytes { secret in
+                    try message.withUnsafeBytes { bytes in
+                        try execute { error in
+                            signature.withUnsafeMutableBufferPointer { output in
+                                sg_sign_test_checked(context, slot,
+                                             id.bindMemory(to: UInt8.self).baseAddress, id.count,
+                                             approved.bindMemory(to: UInt8.self).baseAddress, approved.count,
+                                             secret.bindMemory(to: UInt8.self).baseAddress, secret.count,
+                                             bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
+                                             output.baseAddress, output.count, &length,
+                                             error.baseAddress, error.count)
+                            }
                         }
                     }
                 }
@@ -267,13 +270,15 @@ public final class PKCS11Module: @unchecked Sendable {
     }
 
     /// Existing synthetic-string test; the signature is verified using Security.framework.
-    public func signAndVerifyTest(slot: UInt, certificate: SignumCertificate, pin: String) throws -> Bool {
+    public func signAndVerifyTest(slot: UInt, certificate: SignumCertificate, pin: String,
+                                  expectedCertificateDER: Data? = nil) throws -> Bool {
         #if canImport(Security)
         let message = Data("Signum PKCS11 proof of concept v0.1\n".utf8)
         let cert = try certificateDER(slot: slot, certificate: certificate)
+        try CertificateEligibility.requireEligible(certificateDER: cert, expectedCertificateDER: expectedCertificateDER)
         guard let x509 = SecCertificateCreateWithData(nil, cert as CFData),
               let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
-        let signature = try signRSASHA256(slot: slot, certificate: certificate, pin: pin, message: message)
+        let signature = try signRSASHA256(slot: slot, certificate: certificate, pin: pin, message: message, expectedCertificateDER: cert)
         guard SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,
                                     message as CFData, signature as CFData, nil) else {
             throw SignumError.invalidSignature
@@ -287,14 +292,16 @@ public final class PKCS11Module: @unchecked Sendable {
     /// Experimental attached CMS/CAdES candidate. Validation by an independent
     /// CMS/ETSI implementation is mandatory before treating this as a usable document.
     public func createCAdES(document: Data, slot: UInt,
-                            certificate: SignumCertificate, pin: String) throws -> Data {
+                            certificate: SignumCertificate, pin: String,
+                            expectedCertificateDER: Data? = nil) throws -> Data {
         #if canImport(Security)
         let cert = try certificateDER(slot: slot, certificate: certificate)
+        try CertificateEligibility.requireEligible(certificateDER: cert, expectedCertificateDER: expectedCertificateDER)
         guard let x509 = SecCertificateCreateWithData(nil, cert as CFData),
               let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
         let prepared = try CAdES.Prepared(document: document, certificateDER: cert)
         let signature = try signRSASHA256(slot: slot, certificate: certificate,
-                                          pin: pin, message: prepared.attributesToSign)
+                                          pin: pin, message: prepared.attributesToSign, expectedCertificateDER: cert)
         guard SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,
                                     prepared.attributesToSign as CFData,
                                     signature as CFData, nil) else {

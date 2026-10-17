@@ -27,6 +27,7 @@ private enum SignumFormat: String, Hashable {
 private struct LoadedCertificates {
     var certificates: [SignumCertificate] = []
     var identities: [String: SignumCertificateIdentity] = [:]
+    var assessments: [String: CertificateEligibility.Assessment] = [:]
     var derByID: [String: Data] = [:]
 }
 
@@ -37,6 +38,7 @@ struct SignumWindow: View {
     @State private var tokens: [SignumToken] = []
     @State private var certificates: [SignumCertificate] = []
     @State private var certificateIdentities: [String: SignumCertificateIdentity] = [:]
+    @State private var certificateAssessments: [String: CertificateEligibility.Assessment] = [:]
     @State private var certificateDERs: [String: Data] = [:]
     @State private var selectedSlot: UInt?
     @State private var selectedCertificateID: String?
@@ -53,7 +55,7 @@ struct SignumWindow: View {
 
     private var canSign: Bool {
         guard !busy, !pin.isEmpty, selectedSlot != nil,
-              selectedCertificateID != nil, let file = inputFile else { return false }
+              let id = selectedCertificateID, certificateAssessments[id]?.permitsSigning == true, let file = inputFile else { return false }
         switch format {
         case .cades: return true
         case .pades:
@@ -227,12 +229,18 @@ struct SignumWindow: View {
                             .font(.caption.weight(.semibold)).lineLimit(2)
                         Text("\(certificate.label) · ID \(certificate.id)")
                             .font(.caption2).foregroundStyle(.secondary)
+                        Text(certificateAssessments[certificate.id]?.status.description ?? "Idoneità indeterminata")
+                            .font(.caption2)
                     }
                     .tag(certificate.id)
                 }
                 .frame(height: 130)
                 .disabled(busy)
-                Text("Seleziona un certificato idoneo alla firma, non soltanto all'autenticazione.")
+                if let id = selectedCertificateID, let assessment = certificateAssessments[id] {
+                    Text(assessment.explanation).font(.caption)
+                    Text(assessment.usageDescription).font(.caption2).foregroundStyle(.secondary)
+                }
+                Text(CertificateEligibility.scope)
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(5)
@@ -321,6 +329,7 @@ struct SignumWindow: View {
             // parsing can still fall back to the certificate label.
             let der = try module.certificateDER(slot: slot, certificate: certificate)
             result.derByID[certificate.id] = der
+            result.assessments[certificate.id] = CertificateEligibility.evaluate(certificateDER: der)
             if let identity = try? SignumCertificateIdentity(certificateDER: der) {
                 result.identities[certificate.id] = identity
             }
@@ -332,7 +341,8 @@ struct SignumWindow: View {
         certificates = loaded.certificates
         certificateIdentities = loaded.identities
         certificateDERs = loaded.derByID
-        selectedCertificateID = loaded.certificates.first?.id
+        certificateAssessments = loaded.assessments
+        selectedCertificateID = loaded.certificates.first(where: { loaded.assessments[$0.id]?.permitsSigning == true })?.id
         status = "\(loaded.certificates.count) certificati · \(loaded.identities.count) identità lette."
     }
 
@@ -394,6 +404,7 @@ struct SignumWindow: View {
         certificates = []
         certificateIdentities = [:]
         certificateDERs = [:]
+        certificateAssessments = [:]
         let request = UUID()
         discoveryID = request
         guard let module, let slot else { return }
@@ -458,8 +469,9 @@ struct SignumWindow: View {
     }
 
     private func signDocument() {
-        guard format == .cades, !busy, let module, let slot = selectedSlot,
+        guard format == .cades, canSign, let module, let slot = selectedSlot,
               let cert = certificates.first(where: { $0.id == selectedCertificateID }),
+              let approvedCertificate = certificateDERs[cert.id],
               let original = inputFile, !pin.isEmpty else { return }
 
         let save = NSSavePanel()
@@ -500,7 +512,8 @@ struct SignumWindow: View {
                     throw SignumError.module("Documento vuoto o troppo grande.")
                 }
                 let cms = try module.createCAdES(document: document,
-                                                  slot: slot, certificate: cert, pin: suppliedPIN)
+                                                  slot: slot, certificate: cert, pin: suppliedPIN,
+                                                  expectedCertificateDER: approvedCertificate)
                 try SignumFileOutput.writeNew(cms, to: destination) { staged in
                     try CAdESVerifier.verifyAttached(data: staged, expectedDocument: document)
                 }
@@ -523,7 +536,7 @@ struct SignumWindow: View {
 
 
     private func signPAdES() {
-        guard format == .pades, !busy, let original = inputFile,
+        guard format == .pades, canSign, let original = inputFile,
               let slot = selectedSlot,
               let cert = certificates.first(where: { $0.id == selectedCertificateID }),
               !pin.isEmpty else { return }

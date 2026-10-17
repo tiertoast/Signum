@@ -90,7 +90,12 @@ func run() throws {
     }
     let certificates = try module.certificates(slot: slot)
     if action == "certs" {
-        for cert in certificates { print("\(cert.label) — ID \(cert.id)") }
+        for cert in certificates {
+            let der = try module.certificateDER(slot: slot, certificate: cert)
+            let assessment = CertificateEligibility.evaluate(certificateDER: der)
+            print("\(cert.label) — ID \(cert.id): \(assessment.explanation) · \(assessment.usageDescription)")
+        }
+        print(CertificateEligibility.scope)
         return
     }
 
@@ -99,10 +104,15 @@ func run() throws {
         throw SignumError.module("Certificate ID not found in this slot")
     }
 
+    let approvedCertificate = try module.certificateDER(slot: slot, certificate: certificate)
+    let assessment = try CertificateEligibility.requireEligible(certificateDER: approvedCertificate)
+    print(assessment.explanation)
+    print(CertificateEligibility.scope)
+
     if action == "sign-test" {
         let pin = try inputPIN()
         print("Starting hardware signing test (not a PDF signature)...")
-        let verified = try module.signAndVerifyTest(slot: slot, certificate: certificate, pin: pin)
+        let verified = try module.signAndVerifyTest(slot: slot, certificate: certificate, pin: pin, expectedCertificateDER: approvedCertificate)
         print(verified ? "Verified OK — RSA/SHA-256" : "Verification failed")
         return
     }
@@ -131,7 +141,7 @@ func run() throws {
     print("This prototype DOES NOT validate certificate trust or legal qualification.")
     let pin = try inputPIN()
     let cms = try module.createCAdES(document: document, slot: slot,
-                                     certificate: certificate, pin: pin)
+                                     certificate: certificate, pin: pin, expectedCertificateDER: approvedCertificate)
     try SignumFileOutput.writeNew(cms, to: output) { staged in
         try CAdESVerifier.verifyAttached(data: staged, expectedDocument: document)
     }

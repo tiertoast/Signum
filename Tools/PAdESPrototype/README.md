@@ -9,6 +9,10 @@ not this C++ helper. This development branch requires **PoDoFo 1.1.2** and
 - PoDoFo incrementally signs an in-memory copy of a bounded PDF source.
 - The external service supplies SHA-256 DigestInfo to PKCS#11 CKM_RSA_PKCS;
   the token's private key is never exported.
+- The shared SignumCore local certificate policy runs before the PIN is read;
+  a second DER binding/policy check precedes authentication under the provider lock.
+  Only eligible RSA 2048–8192-bit keys are accepted; the reservation uses key size.
+  Unknown usage/critical-extension semantics fail closed as indeterminate.
 - The text-only appearance stream and page coordinates are preserved.
 - Complete output is written to private staging on the destination volume.
 - CoreGraphics parses the PDF independently of PoDoFo. OpenSSL verifies the
@@ -35,8 +39,10 @@ scripts/test-pades-local.sh
 The script also detects the private CMake wheel under `.build/native-tools`.
 `SIGNUM_CMAKE`, `SIGNUM_CTEST`, `SIGNUM_NATIVE_PREFIX` and
 `SIGNUM_PADES_TEST_BUILD` can override the local paths. The test executable uses
-only generated PDF/certificate/software-key fixtures. It never loads a PKCS#11
-provider, uses a PIN or accesses a physical token. No CI is configured or invoked.
+only generated PDF/certificate/software-key fixtures. One subprocess case launches
+the real helper against the test-only PKCS#11 mock with malformed DER, keeping stdin
+open and empty to prove rejection before a PIN read. No installed provider, PIN or
+physical token is used. No CI is configured or invoked.
 
 For a separate Release helper:
 
@@ -50,8 +56,8 @@ cmake --build .build/signum-pades-release --parallel 6
 ## App bridge and manual hardware checks
 
 The GUI supplies PIN/name through a private stdin pipe, never argv/environment.
-It requires `--verified-output-v1`; older helpers fail rather than reporting an
-unverified success. Stderr is drained while the process runs and retained at a
+It requires `--verified-output-v2`; older helpers fail rather than reporting an
+success without the current certificate policy and integrity verification. Stderr is drained while the process runs and retained at a
 bounded size. Timeout/abnormal exit with a possible committed file produces an
 uncertain result and never an automatic retry or deletion of that file.
 

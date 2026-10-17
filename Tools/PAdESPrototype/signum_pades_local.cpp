@@ -1,3 +1,4 @@
+#include "SignumCertificatePolicy.h"
 // Experimental local PAdES-B proof of concept.
 // Uses PoDoFo for incremental PDF signing, Bit4id/OpenSC PKCS#11 for RSA.
 // Does NOT export the private key or validate trust; visible AP is an experimental text-only stream.
@@ -134,12 +135,13 @@ struct PKCS11 {
     }
 
     void sign_encoded_digest(unsigned long slot, const std::vector<uint8_t>& id,
-                             const std::vector<uint8_t>& pin, bufferview digestInfo,
+                             const std::vector<uint8_t>& pin, const std::string& approved, bufferview digestInfo,
                              charbuff& signedHash) {
         std::array<uint8_t, 8192> signature{};
         size_t length = 0;
         const auto* message = reinterpret_cast<const uint8_t*>(digestInfo.data());
-        if (sg_sign_encoded_digest(context, slot, id.data(), id.size(),
+        if (sg_sign_encoded_digest_checked(context, slot, id.data(), id.size(),
+                                   reinterpret_cast<const uint8_t*>(approved.data()), approved.size(),
                                    pin.data(), pin.size(), message, digestInfo.size(),
                                    signature.data(), signature.size(), &length,
                                    error.data(), error.size()) != 0)
@@ -185,7 +187,7 @@ static std::string read_appearance_name() {
 
 int main(int argc, char** argv) {
     // GUI requires this protocol marker, so an older bundled helper fails closed.
-    const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v1") == 0;
+    const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v2") == 0;
     int protocolCount = argc - (verifiedProtocol ? 1 : 0);
     std::string expectedFingerprint;
     if (protocolCount >= 3 && std::strcmp(argv[protocolCount - 2], "--expected-cert-sha256") == 0) {
@@ -228,8 +230,15 @@ int main(int argc, char** argv) {
         PKCS11 token(middleware.c_str());
         const auto der = token.certificate(slot, certificateID);
         // Bind to the exact certificate shown by the GUI, before any PIN read
-        // or private-key operation. Full certificate policy remains SG-04.
+        // or private-key operation.
         if (!expectedFingerprint.empty()) signum::requireExpectedCertificate(der, expectedFingerprint);
+        const auto assessment = sg_certificate_assess(reinterpret_cast<const uint8_t*>(der.data()), der.size(), sg_certificate_now());
+        if (assessment.status != SG_CERT_ELIGIBLE) {
+            std::string reason = assessment.status == SG_CERT_INELIGIBLE ? "Non idoneo: " : "Idoneità indeterminata: ";
+            for (unsigned bit = 0; bit < 32; ++bit)
+                if (assessment.reasons & (1u << bit)) reason += std::string(sg_certificate_reason_message(1u << bit)) + " ";
+            throw std::runtime_error(reason);
+        }
         std::vector<uint8_t> pin;
         if (pinFromPipe) {
             pin = read_stdin_pin();
@@ -279,10 +288,10 @@ int main(int argc, char** argv) {
             params.Flags = PdfSignerCmsFlags::ServiceDoWrapDigest;
             params.SigningService = [&](bufferview digestInfo, bool dryrun, charbuff& signedHash) {
                 if (dryrun) {
-                    signedHash.resize(256);
+                    signedHash.resize(static_cast<size_t>((assessment.public_key_bits + 7) / 8));
                     return;
                 }
-                token.sign_encoded_digest(slot, certificateID, pin, digestInfo, signedHash);
+                token.sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash);
             };
             PdfSignerCms signer(der, params);
             PoDoFo::SignDocument(doc, *io, signer, field);

@@ -1,3 +1,4 @@
+#include "SignumCertificatePolicy.h"
 #include "SignumPKCS11.h"
 #include "pkcs11.h" // p11-kit: upstream copyright and permission notice retained.
 #include <dlfcn.h>
@@ -557,3 +558,39 @@ int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot, const uint8_t *id
     pthread_mutex_unlock(&ctx->provider->operations);
     return status;
 }
+
+/* Caller holds provider->operations. No extra lock or recursive public call. */
+static int check_signing_certificate(SGContext *ctx, unsigned long slot, const uint8_t *id,
+    size_t id_length, const uint8_t *expected, size_t expected_length, char *error, size_t error_size) {
+    if (!expected || !expected_length || expected_length > 65536)
+        return invalid(error, error_size, "Missing approved certificate DER");
+    uint8_t *der = malloc(65536);
+    if (!der) return invalid(error, error_size, "Cannot allocate certificate buffer");
+    size_t length = 0;
+    int status = sg_certificate_der_impl(ctx, slot, id, id_length, der, 65536, &length, error, error_size);
+    if (!status && (length != expected_length || memcmp(der, expected, length)))
+        status = invalid(error, error_size, "Il certificato è cambiato. Ricarica i certificati prima di firmare.");
+    if (!status) {
+        SGCertificateAssessment assessment = sg_certificate_assess(der, length, sg_certificate_now());
+        if (assessment.status != SG_CERT_ELIGIBLE) {
+            uint32_t first = assessment.reasons & (0u - assessment.reasons);
+            status = invalid(error, error_size, sg_certificate_reason_message(first));
+        }
+    }
+    free(der); return status;
+}
+#define CHECKED_SIGN(name, implementation) \
+int name(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, \
+    const uint8_t *expected, size_t expected_length, const uint8_t *pin, size_t pin_length, \
+    const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity, \
+    size_t *length, char *error, size_t error_size) { \
+    if (length) *length = 0; \
+    if (enter(ctx, error, error_size)) return -1; \
+    int status = check_signing_certificate(ctx, slot, id, id_length, expected, expected_length, error, error_size); \
+    if (!status) status = implementation(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, capacity, length, error, error_size); \
+    if (status && signature && capacity) memset(signature, 0, capacity); \
+    pthread_mutex_unlock(&ctx->provider->operations); \
+    return status; \
+}
+CHECKED_SIGN(sg_sign_test_checked, sg_sign_test_impl)
+CHECKED_SIGN(sg_sign_encoded_digest_checked, sg_sign_encoded_digest_impl)

@@ -36,6 +36,16 @@ if(SIGNUM_BUILD_OFFLINE_TESTS)
     enable_testing()
     add_executable(signum-pades-tests tests/reliability_tests.cpp)
     target_link_libraries(signum-pades-tests PRIVATE signum-pades-reliability podofo::podofo OpenSSL::Crypto)
-    add_test(NAME signum-pades-reliability COMMAND signum-pades-tests)
+    add_library(signum-pades-policy-mock MODULE ../PKCS11Tests/mock_provider.c)
+    target_include_directories(signum-pades-policy-mock PRIVATE ../../Sources/CPKCS11)
+    add_test(NAME signum-pades-reliability COMMAND signum-pades-tests --helper-integration
+        $<TARGET_FILE:signum-pades-local> $<TARGET_FILE:signum-pades-policy-mock>)
     set_tests_properties(signum-pades-reliability PROPERTIES TIMEOUT 60)
 endif()
+
+# One policy implementation, exercised by native tests and the helper.
+add_library(signum-certificate-policy STATIC ../../Sources/CCertificatePolicy/certificate_policy.c)
+target_include_directories(signum-certificate-policy PUBLIC ../../Sources/CCertificatePolicy/include)
+target_link_libraries(signum-certificate-policy PUBLIC "-framework Security" "-framework CoreFoundation")
+target_compile_options(signum-certificate-policy PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(signum-pades-reliability PUBLIC signum-certificate-policy)

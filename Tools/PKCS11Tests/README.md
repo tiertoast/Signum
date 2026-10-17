@@ -39,3 +39,11 @@ ctest --test-dir .build/pkcs11-tests-tsan --output-on-failure -V
 The Swift suite separately compiles the same fixture under its private `.build/`
 folder and tests the public Swift facade and asynchronous retirement. It has no
 optional environment switch or skipped mock prerequisite.
+
+SG-04 adds test-only public DER injection and deterministic certificate replacement.
+The Swift certificate suites exercise both checked native signing entry points,
+ensuring rejected/replaced certificates cause no C_Login or C_Sign, while an
+eligible fixture reaches one synthetic signing attempt and fails final verification
+of the mock's deliberately invalid signature. The 40 lifecycle cases are preserved.
+The checked entry points link the same Security.framework-backed local policy as
+SignumCore and the standalone PAdES helper; raw primitives remain internal test tools.

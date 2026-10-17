@@ -40,6 +40,18 @@ int sg_sign_encoded_digest(SGContext *context, unsigned long slot,
                            const uint8_t *digestinfo, size_t digestinfo_length,
                            uint8_t *signature, size_t signature_capacity,
                            size_t *signature_length, char *error, size_t error_size);
+/* Signum signing entry points: re-read and bind the certificate under the provider
+ * transaction lock, and enforce the shared local policy before C_Login.
+ * Legacy raw entry points above remain low-level primitives for synthetic tests. */
+int sg_sign_test_checked(SGContext *context, unsigned long slot, const uint8_t *id, size_t id_length,
+    const uint8_t *expected_der, size_t expected_length, const uint8_t *pin, size_t pin_length,
+    const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity,
+    size_t *length, char *error, size_t error_size);
+int sg_sign_encoded_digest_checked(SGContext *context, unsigned long slot, const uint8_t *id, size_t id_length,
+    const uint8_t *expected_der, size_t expected_length, const uint8_t *pin, size_t pin_length,
+    const uint8_t *digestinfo, size_t digestinfo_length, uint8_t *signature, size_t capacity,
+    size_t *length, char *error, size_t error_size);
+
 #ifdef __cplusplus
 }
 #endif

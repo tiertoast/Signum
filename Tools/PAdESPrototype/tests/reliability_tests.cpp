@@ -1,8 +1,10 @@
+#include "SignumCertificatePolicy.h"
 #include "TransactionalOutput.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include "PAdESAppearance.h"
 #include <openssl/evp.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <openssl/cms.h>
 #include <openssl/rsa.h>
 #include <filesystem>
@@ -11,6 +13,8 @@
 #include <memory>
 #include <functional>
 #include <map>
+#include <chrono>
+#include <thread>
 #include <regex>
 #include <spawn.h>
 #include <sys/wait.h>
@@ -31,14 +35,18 @@ static void test(const std::string& name, const std::function<void()>& body) {
 }
 struct Folder {
     fs::path path;
-    Folder() { char name[] = "/tmp/signum-pades-tests-XXXXXX"; auto p = mkdtemp(name); expect(p, "mkdtemp failed"); path = p; }
+    explicit Folder(const fs::path& parent = "/tmp") {
+        auto pattern = (parent / "signum-pades-tests-XXXXXX").string();
+        auto p = mkdtemp(pattern.data()); expect(p, "mkdtemp failed"); path = p;
+    }
     ~Folder() { std::error_code error; fs::remove_all(path, error); }
 };
 struct Identity {
-    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key{EVP_PKEY_Q_keygen(nullptr, nullptr, "RSA", size_t(2048)), EVP_PKEY_free};
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key{nullptr, EVP_PKEY_free};
     std::unique_ptr<X509, decltype(&X509_free)> certificate{X509_new(), X509_free};
     std::string der, privateDER;
-    Identity() {
+    explicit Identity(size_t bits = 2048, bool signingUsage = false) {
+        key.reset(EVP_PKEY_Q_keygen(nullptr, nullptr, "RSA", bits));
         expect(key && certificate, "Cannot create synthetic identity");
         X509_set_version(certificate.get(), 2);
         ASN1_INTEGER_set(X509_get_serialNumber(certificate.get()), 1);
@@ -49,6 +57,11 @@ struct Identity {
         X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
             reinterpret_cast<const unsigned char*>("Signum synthetic signer"), -1, -1, 0);
         X509_set_issuer_name(certificate.get(), name);
+        if (signingUsage) {
+            auto extension = X509V3_EXT_conf_nid(nullptr, nullptr, NID_key_usage, "critical,digitalSignature,nonRepudiation");
+            expect(extension && X509_add_ext(certificate.get(), extension, -1) == 1, "Cannot set fixture KeyUsage");
+            X509_EXTENSION_free(extension);
+        }
         expect(X509_sign(certificate.get(), key.get(), EVP_sha256()) > 0, "Cannot sign synthetic certificate");
         unsigned char* bytes = nullptr;
         int count = i2d_X509(certificate.get(), &bytes);
@@ -91,7 +104,7 @@ static Bytes signedPDF(const Bytes& source, const Identity& identity, bool visib
     params.Flags = PdfSignerCmsFlags::ServiceDoWrapDigest;
     params.SigningService = [&](bufferview digestInfo, bool dryrun, charbuff& result) {
         if (killInCallback) { kill(getpid(), SIGKILL); _exit(90); }
-        if (dryrun || corrupt) { result.assign(256, 'x'); return; }
+        if (dryrun || corrupt) { result.assign(static_cast<size_t>(EVP_PKEY_get_size(identity.key.get())), 'x'); return; }
         std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> context(EVP_PKEY_CTX_new(identity.key.get(), nullptr), EVP_PKEY_CTX_free);
         expect(context && EVP_PKEY_sign_init(context.get()) == 1 &&
                EVP_PKEY_CTX_set_rsa_padding(context.get(), RSA_PKCS1_PADDING) == 1, "Software RSA setup failed");
@@ -295,6 +308,52 @@ int main(int argc, char** argv) {
             expect(!fs::exists(output) && !fs::is_empty(f.path), "Crash exposed final or did not exercise staging");
             { TransactionalOutput recovery(output.string()); }
             expect(fs::is_empty(f.path), "Abandoned staging not recovered");
+        });
+        test("standalone helper rejects malformed mock certificate before reading PIN", [&] {
+            expect(argc == 4 && std::string(argv[1]) == "--helper-integration", "Pass helper and synthetic provider paths to this suite");
+            Folder f(fs::absolute(argv[0]).parent_path());
+            auto input = f.path / "source.pdf", output = f.path / "result.pdf", log = f.path / "diagnostic";
+            auto mock = f.path / "mock.dylib";
+            fs::copy_file(argv[3], mock); chmod(mock.c_str(), 0700); put(input, source);
+            int channel[2]; expect(pipe(channel) == 0, "Cannot create synthetic stdin");
+            const int diagnostics = open(log.c_str(), O_CREAT | O_WRONLY | O_EXCL, 0600);
+            expect(diagnostics >= 0, "Cannot capture helper diagnostics");
+            posix_spawn_file_actions_t actions; posix_spawn_file_actions_init(&actions);
+            posix_spawn_file_actions_adddup2(&actions, channel[0], STDIN_FILENO);
+            posix_spawn_file_actions_addclose(&actions, channel[0]);
+            posix_spawn_file_actions_addclose(&actions, channel[1]);
+            posix_spawn_file_actions_adddup2(&actions, diagnostics, STDERR_FILENO);
+            posix_spawn_file_actions_adddup2(&actions, diagnostics, STDOUT_FILENO);
+            posix_spawn_file_actions_addclose(&actions, diagnostics);
+            std::string executable = argv[2], sourcePath = input.string(), destination = output.string(), middleware = mock.string();
+            char* args[] = {executable.data(), sourcePath.data(), destination.data(), middleware.data(),
+                            const_cast<char*>("7"), const_cast<char*>("53"), const_cast<char*>("--pin-stdin"), nullptr};
+            pid_t pid; const int spawned = posix_spawn(&pid, executable.c_str(), &actions, nullptr, args, environ);
+            posix_spawn_file_actions_destroy(&actions); close(channel[0]); close(diagnostics);
+            if (spawned) { close(channel[1]); throw std::runtime_error("Cannot spawn helper fixture"); }
+            // Keep stdin's writer open without writing credentials. A helper
+            // that attempts to read a PIN will block and fail this deadline.
+            int status = 0; pid_t result = 0;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while ((result = waitpid(pid, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (result == 0) { kill(pid, SIGKILL); waitpid(pid, &status, 0); }
+            close(channel[1]);
+            expect(result == pid && WIFEXITED(status) && WEXITSTATUS(status) == 1, "Helper waited for PIN or failed unexpectedly");
+            auto bytes = fileBytes(log); std::string reason(bytes.begin(), bytes.end());
+            expect(reason.find("malformato") != std::string::npos, "Missing shared policy diagnostic: " + reason);
+            expect(!fs::exists(output), "Rejected certificate exposed output");
+            expect(std::distance(fs::directory_iterator(f.path), fs::directory_iterator{}) == 3, "Rejected helper leaked staging");
+        });
+        test("shared certificate policy keeps missing KeyUsage indeterminate", [&] {
+            const auto a = sg_certificate_assess(reinterpret_cast<const uint8_t*>(identity.der.data()), identity.der.size(), sg_certificate_now());
+            expect(a.status == SG_CERT_INDETERMINATE && (a.reasons & SG_CERT_MISSING_KEY_USAGE), "Missing usage accepted");
+        });
+        for (size_t bits : {size_t(3072), size_t(4096)}) test("eligible RSA " + std::to_string(bits) + " PDF with matching signature reservation", [&] {
+            Identity signer(bits, true);
+            const auto a = sg_certificate_assess(reinterpret_cast<const uint8_t*>(signer.der.data()), signer.der.size(), sg_certificate_now());
+            expect(a.status == SG_CERT_ELIGIBLE && a.public_key_bits == static_cast<int>(bits), "RSA policy mismatch");
+            verifyPDF(signedPDF(source, signer), source, signer.der);
         });
         std::cout << checks << " native cases passed; no token or PIN used\n";
         return 0;

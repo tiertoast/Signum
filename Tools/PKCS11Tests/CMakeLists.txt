@@ -18,3 +18,8 @@ add_test(NAME signum-provider-lifecycle COMMAND signum-pkcs11-tests $<TARGET_FIL
 set_tests_properties(signum-provider-lifecycle PROPERTIES TIMEOUT 60)
 
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mock-provider-path.txt" CONTENT "$<TARGET_FILE:signum-pkcs11-mock>")
+
+# Shared SignumCore certificate policy, also enforced by native signing entry points.
+target_sources(signum-pkcs11-tests PRIVATE ../../Sources/CCertificatePolicy/certificate_policy.c)
+target_include_directories(signum-pkcs11-tests PRIVATE ../../Sources/CCertificatePolicy/include)
+target_link_libraries(signum-pkcs11-tests PRIVATE "-framework Security" "-framework CoreFoundation")

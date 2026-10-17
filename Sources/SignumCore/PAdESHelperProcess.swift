@@ -2,7 +2,7 @@
 import Foundation
 import Darwin
 
-/// Transport for the verified-output-v1 helper. The native helper owns staging,
+/// Transport for the verified-output-v2 helper. The native helper owns staging,
 /// verification and atomic commit. Never retry a signing request automatically.
 public enum PAdESHelperProcess {
     public enum Outcome: Equatable {

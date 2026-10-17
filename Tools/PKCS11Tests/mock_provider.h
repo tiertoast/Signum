@@ -14,6 +14,8 @@ typedef struct {
     CK_FLAGS initialize_flags;
     CK_MECHANISM_TYPE last_mechanism;
 } MockStats;
+void mock_certificate_der(const unsigned char *bytes, size_t length);
+void mock_replace_certificate(const unsigned char *bytes, size_t length, unsigned after_reads);
 void mock_stats(MockStats *stats);
 unsigned mock_call_count(int operation);
 unsigned mock_finalize_on_main(void);

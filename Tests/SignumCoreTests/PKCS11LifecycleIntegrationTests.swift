@@ -5,10 +5,12 @@ import Darwin
 @testable import SignumCore
 
 // Compiles only our synthetic provider, never loads installed middleware.
-private final class MockModule: @unchecked Sendable {
+final class MockModule: @unchecked Sendable {
     let folder: URL
     let path: URL
     let library: UnsafeMutableRawPointer
+    let setCertificate: @convention(c) (UnsafePointer<UInt8>?, Int) -> Void
+    let replaceCertificate: @convention(c) (UnsafePointer<UInt8>?, Int, UInt32) -> Void
     let count: @convention(c) (Int32) -> UInt32
     let finalizeOnMain: @convention(c) () -> UInt32
     let block: @convention(c) (Int32) -> Void
@@ -37,6 +39,8 @@ private final class MockModule: @unchecked Sendable {
             guard let value = dlsym(handle, name) else { throw SignumError.module("Missing mock control") }
             return unsafeBitCast(value, to: T.self)
         }
+        setCertificate = try symbol("mock_certificate_der", (@convention(c) (UnsafePointer<UInt8>?, Int) -> Void).self)
+        replaceCertificate = try symbol("mock_replace_certificate", (@convention(c) (UnsafePointer<UInt8>?, Int, UInt32) -> Void).self)
         count = try symbol("mock_call_count", (@convention(c) (Int32) -> UInt32).self)
         finalizeOnMain = try symbol("mock_finalize_on_main", (@convention(c) () -> UInt32).self)
         block = try symbol("mock_block", (@convention(c) (Int32) -> Void).self)
