@@ -36,3 +36,22 @@ mappati all'errore finale usato dall'app; nessun output sugli errori, originale
 invariato e snapshot eliminato. Suite PAdES Debug **63/63**, positivo nativo ora
 verifica anche published e UUID v4. Log locali `pr2-pades-debug.log` e
 `pr2-pades-mapping-swift.log` in `.build/reliability/evidence`.
+
+## P2 — Provider visibile e selezione attiva
+
+**IMPLEMENTATO:** `ProviderSelection` contiene in un unico valore percorso,
+provider canonico accettato, generazione discovery, token, slot, certificati,
+DER/assessment/identità e PIN. La Binding del percorso sostituisce immediatamente
+il valore, richiede cancellazione della vecchia discovery e rende inapplicabili
+i suoi callback. Anche un nuovo Carica svuota la selezione prima dell'avvio:
+annullarlo non ripristina il vecchio provider. Il percorso canonico viene
+accettato soltanto per la stessa generazione e lo stesso testo visibile.
+`canSign` e la creazione del job usano entrambi questa provenienza validata;
+nessuna risoluzione filesystem o chiamata vendor viene aggiunta al main thread.
+
+**TESTATO:** quattro test del modello effettivamente usato dalla View: cambio A→B
+seguito da discovery annullata; risposta vecchia dopo A→B→A; binding fra percorso
+alias visibile e canonico solo con richiesta fresca; cambio slot che cancella
+cache certificati/PIN. **4/4** riusciti (`pr2-provider-swift.log`). La GUI non viene
+avviata automaticamente: questi sono test della logica della selezione, non click
+registrati sulla View. Gli input di un job già approvato rimangono immutabili.
