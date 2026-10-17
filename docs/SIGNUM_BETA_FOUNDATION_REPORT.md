@@ -124,3 +124,41 @@ Release **61/61**, build SignumApp Debug/Release riuscite. Log locali ignorati:
 `.build/reliability/evidence/beta-unit1-{swift,pkcs11,pades-debug,pades-release,app-debug,app-release}.log`.
 Nessuna modifica al codice in questa unità; niente percentuali di coverage dedotte
 dal numero di casi. Le build native restano build di sviluppo, non distribuzione.
+
+## Unità 2 — Worker PKCS#11 e trasporto minimo
+
+**IMPLEMENTATO e TESTATO:** eseguibile `SignumPKCS11Worker`, client Core
+`IsolatedPKCS11Client`, protocollo JSON interno a richiesta singola e
+`SupervisedProcess`. Richiesta massima 128 KiB, risposta massima 2 MiB, certificati
+aggregati entro 1 MiB; UUID/versione/azione controllati. PIN solo nella pipe stdin;
+stdout/stderr vendor deviati a `/dev/null`, risposta sul descriptor riservato
+CLOEXEC. Core dump disabilitato nel worker. Nessuna diagnostica vendor propagata.
+
+Deadline 30 s per operazioni pubbliche e 120 s per firma, monotona, configurabile
+solo dal chiamante Core. Pipe nonblocking bidirezionali; TERM poi KILL dopo 250 ms.
+Se il sistema non conferma la morte entro altri due secondi, il chiamante ritorna
+`terminationPending`, conserva il processo per reaping e ne mantiene occupato uno
+degli otto slot: niente attesa illimitata del chiamante o crescita illimitata di
+worker. Il codice usa un solo tentativo. Finalizzazione verificata prima della
+risposta: anche un Finalize bloccato resta nel figlio, sotto la stessa deadline.
+Il modulo può essere chiuso sincronicamente solo dal dispatcher a proprietario
+singolo; l'API ordinaria conserva il lifetime SG-02 precedente.
+
+La firma ricevuta è verificata con Security sugli attributi e DER approvati nel
+parent. Una firma falsa o un reply con identità diversa non è un successo.
+I mock aggiuntivi sono compilati con macro di test, mai controllati da env/argv
+nel prodotto; l'audit sintetico contiene solo numeri delle operazioni. La prova
+negativa verifica un solo Login e un solo Sign nel figlio, nessuno nel parent.
+
+Nuovi test: **15**, inclusi firma RSA/CMS software valida, discovery, certificati,
+Init/Finalize/Login/Sign che non ritornano, ritardi, crash/errori, rumore vendor,
+versioni/bounds/UUID errati, pipe piena, figlio che ignora TERM, cancel e SIGKILL.
+Regressioni: Swift **131/131**, PKCS#11 **40/40**, PAdES Debug/Release **61/61**;
+build di tutti i prodotti Swift Debug/Release riuscite.
+Log: `.build/reliability/evidence/beta-unit2-*.log`.
+
+**NON ANCORA ATTIVATO a questo checkpoint:** instradamento della GUI/CLI verso
+il worker. L'esistenza dell'infrastruttura non chiude SG-06; il processo GUI usa
+ancora il percorso precedente finché l'unità 3 non viene completata e provata.
+Cancellazione del trasporto non equivale ancora alla policy di cancellazione
+prima/dopo il commit del job. Multiprocesso e packaging portabile restano pianificati.

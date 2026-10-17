@@ -6,7 +6,7 @@ import PDFKit
 import CoreGraphics
 @testable import SignumCore
 
-private final class SoftwareSigner {
+final class SoftwareSigner {
     let folder: URL
     let der: Data
     init(folder: URL) throws {
@@ -25,6 +25,10 @@ private final class SoftwareSigner {
                       "-subj", "/CN=Signum Synthetic Job", "-config", "certificate.cnf"], in: folder)
         try Self.run(["x509", "-in", "certificate.pem", "-outform", "DER", "-out", "certificate.der"], in: folder)
         der = try Data(contentsOf: folder.appendingPathComponent("certificate.der"))
+    }
+    func rsaPrivateDER() throws -> Data {
+        try Self.run(["rsa", "-in", "key.pem", "-outform", "DER", "-out", "key.der"], in: folder)
+        return try Data(contentsOf: folder.appendingPathComponent("key.der"))
     }
     func cms(for data: Data) throws -> Data {
         let prepared = try CAdES.Prepared(document: data, certificateDER: der)
