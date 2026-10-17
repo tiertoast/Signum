@@ -23,7 +23,8 @@ enum SignumPAdESHelper {
         let height: Double
     }
 
-    static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?) throws {
+    static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?, operation: SigningOperation? = nil,
+                     executable: URL? = nil, timeout: TimeInterval = 120) throws {
         defer { job.snapshot.close() }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
         _ = try job.verifiedBytes()
@@ -31,7 +32,8 @@ enum SignumPAdESHelper {
         let modulePath = job.providerPath, slot = job.slot, certificateID = job.certificate.id
         let expectedCertificate = job.certificateDER
         try CertificateEligibility.requireEligible(certificateDER: expectedCertificate)
-        guard available else {
+        let engine = executable ?? executableURL
+        guard FileManager.default.isExecutableFile(atPath: engine.path) else {
             throw SignumError.module("Motore PAdES non installato nel bundle. Compila PoDoFo in locale.")
         }
         guard input.isFileURL, output.isFileURL,
@@ -92,16 +94,18 @@ enum SignumPAdESHelper {
             secret.append(0x0A)
         }
         defer { secret.resetBytes(in: 0..<secret.count) }
+        if operation?.isCancellationRequested == true { throw SupervisedProcess.Failure.cancelled }
+        operation?.transition(to: .waitingForAuthentication)
+        operation?.transition(to: .signing)
         let fingerprint = job.certificateSHA256
         args += ["--job-id", job.id.uuidString, "--snapshot-id", job.snapshotIdentity.id.uuidString,
                  "--expected-document-sha256", job.contentSHA256,
-                 "--expected-cert-sha256", fingerprint, "--verified-output-v3"]
-        switch PAdESHelperProcess.run(executable: executableURL, arguments: args,
-                                      input: &secret, destination: output) {
-        case .published: return
-        case .failed(let diagnostic): throw SignumError.module("PAdES non riuscita: \(diagnostic)")
-        case .uncertain(let diagnostic): throw SignumError.outputUncertain(diagnostic)
-        }
+                 "--expected-cert-sha256", fingerprint, "--verified-output-v4"]
+        let outcome = PAdESHelperProcess.run(executable: engine, arguments: args, input: &secret,
+            destination: output, timeout: timeout, expectedJobID: job.id,
+            isCancelled: { operation?.isCancellationRequested ?? false })
+        try PAdESHelperProcess.requirePublished(outcome)
+        operation?.transition(to: .verifying); operation?.recordPublished()
     }
 }
 #endif

@@ -26,6 +26,7 @@ public enum SignumFileOutput {
         var close: (Int32) -> Int32 = { Darwin.close($0) }
         var harden: (Int32, mode_t) -> Int32 = { sg_output_make_private($0, $1) }
         var applyACL: (Int32, acl_t) -> Int32 = { sg_output_apply_acl($0, $1) }
+        var publish: (Int32, String, Int32, String) -> Int32 = { renameatx_np($0, $1, $2, $3, UInt32(RENAME_EXCL)) }
         var staged: () throws -> Void = {}
         var beforePublish: () throws -> Void = {}
     }
@@ -118,7 +119,7 @@ public enum SignumFileOutput {
         }
         // macOS exclusive rename is the commit point. Existing files, directories
         // and dangling symlinks are all refused atomically, without a check/use gap.
-        guard renameatx_np(stage, payload, parent, url.lastPathComponent, UInt32(RENAME_EXCL)) == 0 else {
+        guard io.publish(stage, payload, parent, url.lastPathComponent) == 0 else {
             if errno == EEXIST {
                 throw SignumError.module("Il file di destinazione esiste già: scegli un altro nome.")
             }

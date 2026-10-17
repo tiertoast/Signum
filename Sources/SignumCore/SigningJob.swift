@@ -52,7 +52,7 @@ public struct SigningJob: Sendable {
 
     // Injection is per-job and test-only. Production always uses CMS integrity
     // verification and the existing exclusive transactional output implementation.
-    func executeCAdES(io: SignumFileOutput.OutputIO = .init(), sign: (Data) throws -> Data) throws {
+    func executeCAdES(io: SignumFileOutput.OutputIO = .init(), isCancelled: () -> Bool = { false }, sign: (Data) throws -> Data) throws {
         defer { snapshot.close() }
         guard format == .cades else { throw SignumError.module("Formato del job non compatibile.") }
         let approved = try verifiedBytes()
@@ -61,7 +61,7 @@ public struct SigningJob: Sendable {
         _ = try verifiedBytes()
         try SignumFileOutput.writeNew(cms, to: destination, io: io) { staged in
             _ = try verifiedBytes()
-            try CAdESVerifier.verifyAttached(data: staged, expectedDocument: approved)
+            try CAdESVerifier.verifyAttached(data: staged, expectedDocument: approved, isCancelled: isCancelled)
         }
     }
 }

@@ -3,7 +3,18 @@
 #include <pthread.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef SIGNUM_MOCK_AUDIT_PATH
+#include <fcntl.h>
+#include <stdio.h>
+#endif
 #include <time.h>
+#ifdef SIGNUM_MOCK_SOFTWARE_KEY
+#include <Security/Security.h>
+#endif
+#ifdef SIGNUM_MOCK_WORKER_PHASE
+#include <signal.h>
+#include <stdio.h>
+#endif
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static MockStats stats;
@@ -48,6 +59,35 @@ int mock_wait_blocked(void) {
 }
 void mock_release(void) { pthread_mutex_lock(&mutex); released = 1; blocked_operation = -1; pthread_cond_broadcast(&condition); pthread_mutex_unlock(&mutex); }
 static CK_RV begin(int op) {
+#ifdef SIGNUM_MOCK_AUDIT_PATH
+    /* Test audit contains operation numbers only, never arguments/credentials. */
+    int audit = open(SIGNUM_MOCK_AUDIT_PATH, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    char pidpath[4096]; snprintf(pidpath, sizeof(pidpath), "%s.pid", SIGNUM_MOCK_AUDIT_PATH);
+    int pidfd = open(pidpath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (pidfd >= 0) { char line[32]; int n = snprintf(line, sizeof(line), "%d", getpid()); write(pidfd, line, n); close(pidfd); }
+    if (audit >= 0) { char line[32]; int n = snprintf(line, sizeof(line), "%d\n", op); write(audit, line, n); close(audit); }
+#endif
+#ifdef SIGNUM_MOCK_WORKER_PHASE
+    /* Compile-time synthetic subprocess fixtures only; never runtime toggles. */
+    if (op == SIGNUM_MOCK_WORKER_PHASE) {
+#if SIGNUM_MOCK_WORKER_EFFECT == 1
+        usleep(50000);
+#elif SIGNUM_MOCK_WORKER_EFFECT == 2
+        for (;;) pause();
+#elif SIGNUM_MOCK_WORKER_EFFECT == 3
+        raise(SIGABRT);
+#elif SIGNUM_MOCK_WORKER_EFFECT == 4
+        faults[op] = CKR_GENERAL_ERROR;
+#elif SIGNUM_MOCK_WORKER_EFFECT == 7
+#ifdef SIGNUM_MOCK_AUDIT_PATH
+        int claim = open(SIGNUM_MOCK_AUDIT_PATH ".once", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (claim >= 0) { close(claim); for (;;) pause(); }
+#endif
+#elif SIGNUM_MOCK_WORKER_EFFECT == 5
+        for (int i = 0; i < 30000; ++i) { fputs("synthetic vendor stdout\n", stdout); fputs("synthetic vendor stderr\n", stderr); }
+#endif
+    }
+#endif
     pthread_mutex_lock(&mutex);
     ++stats.calls[op]; ++stats.active_calls;
     if (op == M_FINALIZE) stats.finalize_on_main = pthread_main_np() ? 1 : 0;
@@ -171,6 +211,30 @@ static CK_RV sign_init(CK_SESSION_HANDLE h, CK_MECHANISM_PTR mechanism, CK_OBJEC
 }
 static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PTR signature, CK_ULONG_PTR length) {
     (void)bytes; (void)n; BEGIN(M_SIGN); VALID(h);
+#ifdef SIGNUM_MOCK_SOFTWARE_KEY
+    SecKeyAlgorithm algorithm = kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256;
+    if (stats.last_mechanism == CKM_RSA_PKCS) {
+        if (n != 51) return end(CKR_ARGUMENTS_BAD);
+        bytes += 19; n -= 19; algorithm = kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256;
+    } else if (stats.last_mechanism != CKM_SHA256_RSA_PKCS) return end(CKR_MECHANISM_INVALID);
+    CFDataRef keyData = CFDataCreate(NULL, bootstrap_private_key, sizeof(bootstrap_private_key));
+    const void *keys[] = {kSecAttrKeyType, kSecAttrKeyClass};
+    const void *values[] = {kSecAttrKeyTypeRSA, kSecAttrKeyClassPrivate};
+    CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    SecKeyRef key = SecKeyCreateWithData(keyData, attrs, NULL);
+    CFDataRef message = CFDataCreate(NULL, bytes, n);
+    CFDataRef result = key ? SecKeyCreateSignature(key, algorithm, message, NULL) : NULL;
+    CK_RV rv = CKR_GENERAL_ERROR;
+    if (result) {
+        const CFIndex count = CFDataGetLength(result);
+        if (*length >= (CK_ULONG)count) { memcpy(signature, CFDataGetBytePtr(result), count); *length = count; rv = CKR_OK; }
+        else { *length = count; rv = CKR_BUFFER_TOO_SMALL; }
+        CFRelease(result);
+    }
+    if (key) CFRelease(key);
+    CFRelease(message); CFRelease(attrs); CFRelease(keyData);
+    return end(rv);
+#endif
     if (*length < 32) return end(CKR_BUFFER_TOO_SMALL);
     memset(signature, 0x53, 32); *length = 32; return end(CKR_OK);
 }

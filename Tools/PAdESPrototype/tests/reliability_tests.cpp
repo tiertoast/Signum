@@ -1,5 +1,6 @@
 #include "SignumCertificatePolicy.h"
 #include "TransactionalOutput.h"
+#include "process_coordination.h"
 #include <uuid/uuid.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include "PAdESAppearance.h"
@@ -178,6 +179,51 @@ struct ACLFixtureCleanup {
         }
     }
 };
+static pid_t spawnFixture(std::vector<std::string> arguments, const fs::path& log, const std::string& input = "") {
+    int pipeFD[2]; expect(pipe(pipeFD) == 0, "Cannot create synthetic stdin");
+    fcntl(pipeFD[0], F_SETFD, FD_CLOEXEC); fcntl(pipeFD[1], F_SETFD, FD_CLOEXEC);
+    fcntl(pipeFD[1], F_SETNOSIGPIPE, 1);
+    int output = open(log.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    expect(output >= 0, "Cannot create synthetic log");
+    posix_spawn_file_actions_t actions; posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, pipeFD[0], STDIN_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, output, STDERR_FILENO);
+    std::vector<char*> argv; for (auto& a : arguments) argv.push_back(a.data()); argv.push_back(nullptr);
+    pid_t pid; int result = posix_spawn(&pid, argv[0], &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions); close(output); close(pipeFD[0]);
+    expect(result == 0, "Cannot spawn synthetic fixture");
+    if (!input.empty()) expect(write(pipeFD[1], input.data(), input.size()) == static_cast<ssize_t>(input.size()), "Cannot send fixture credential");
+    close(pipeFD[1]); return pid;
+}
+static int waitFixture(pid_t pid) {
+    int status = 0; auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    for (;;) {
+        auto result = waitpid(pid, &status, WNOHANG);
+        if (result == pid) break;
+        if (result < 0 && errno == EINTR) continue;
+        expect(result >= 0, "Cannot reap fixture");
+        if (std::chrono::steady_clock::now() > deadline) { kill(pid, SIGKILL); waitpid(pid, &status, 0); throw std::runtime_error("Fixture timed out"); }
+        usleep(10000);
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+static fs::path softwareProvider(const Folder& folder, const Identity& identity) {
+    const auto header = folder.path / "fixture.h", module = folder.path / "software-mock.dylib";
+    std::ofstream file(header);
+    auto array = [&](const std::string& name, const std::string& bytes) {
+        file << "static const unsigned char " << name << "[]={";
+        for (unsigned char byte : bytes) file << static_cast<unsigned>(byte) << ',';
+        file << "};\n";
+    };
+    file << "#define SIGNUM_MOCK_BOOTSTRAP_CERTIFICATE 1\n#define SIGNUM_MOCK_SOFTWARE_KEY 1\n";
+    file << "#define SIGNUM_MOCK_AUDIT_PATH \"" << (folder.path / "operations").string() << "\"\n";
+    array("bootstrap_certificate", identity.der); array("bootstrap_private_key", identity.privateDER); file.close();
+    const auto pid = spawnFixture({"/usr/bin/cc", "-dynamiclib", "-pthread", "-I", SIGNUM_MOCK_HEADERS,
+        "-include", header.string(), SIGNUM_MOCK_SOURCE, "-framework", "Security", "-framework", "CoreFoundation", "-o", module.string()}, folder.path / "compiler.log");
+    expect(waitFixture(pid) == 0, "Cannot compile software-only provider");
+    return module;
+}
 static void rejects(const std::string& name, const Bytes& candidate, const Bytes& source, const std::string& certificate) {
     test(name, [&] {
         Folder folder; auto original = folder.path / "source.pdf", output = folder.path / "signed.pdf";
@@ -571,6 +617,32 @@ int main(int argc, char** argv) {
             const auto a = sg_certificate_assess(reinterpret_cast<const uint8_t*>(signer.der.data()), signer.der.size(), sg_certificate_now());
             expect(a.status == SG_CERT_ELIGIBLE && a.public_key_bits == static_cast<int>(bits), "RSA policy mismatch");
             verifyPDF(signedPDF(source, signer), source, signer.der);
+        });
+        for (bool busy : {false, true}) test(busy ? "native helper waits for same token lease before Initialize" : "native helper v3 end-to-end software signature and verified publication", [&] {
+            Folder f(fs::absolute(argv[0]).parent_path()); Identity signer(2048, true);
+            auto module = softwareProvider(f, signer), input = f.path / "source.pdf", output = f.path / "signed.pdf";
+            put(input, source);
+            std::vector<std::string> args = {argv[2], input.string(), output.string(), module.string(), "7", "01", "--pin-stdin",
+                "--job-id", "11111111-1111-4111-8111-111111111111", "--snapshot-id", "22222222-2222-4222-8222-222222222222",
+                "--expected-document-sha256", sha256(source), "--expected-cert-sha256", sha256(Bytes(signer.der.begin(), signer.der.end())), "--verified-output-v4"};
+            std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(nullptr, sg_token_lease_release);
+            if (busy) { lease.reset(sg_token_lease_acquire(module.c_str(), 7, 0, 0)); expect(lease != nullptr, "Cannot hold fixture token"); }
+            auto pid = spawnFixture(args, f.path / "helper.log", busy ? "" : "synthetic-fixture\n");
+            if (busy) {
+                usleep(150000);
+                expect(!fs::exists(f.path / "operations") && !fs::exists(output), "Blocked helper accessed provider or output");
+                kill(pid, SIGKILL); expect(waitFixture(pid) != 0, "Killed helper claimed success");
+            } else {
+                expect(waitFixture(pid) == 0, "Real native helper failed software fixture");
+                auto status = fileBytes(f.path / "helper.log");
+                auto text = std::string(status.begin(), status.end());
+                expect(text.find("\"outcome\":\"published\"") != std::string::npos && text.find("11111111-1111-4111-8111-111111111111") != std::string::npos,
+                       "Missing job-bound v4 status");
+                verifyPDF(fileBytes(output), source, signer.der);
+                std::ifstream audit(f.path / "operations"); int op, logins = 0, signs = 0;
+                while (audit >> op) { if (op == 8) ++logins; if (op == 16) ++signs; }
+                expect(logins == 1 && signs == 1 && fileBytes(input) == source, "Helper retried PIN/sign or changed source");
+            }
         });
         std::cout << checks << " native cases passed; no token or PIN used\n";
         return 0;

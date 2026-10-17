@@ -17,7 +17,7 @@ final class MockModule: @unchecked Sendable {
     let waitBlocked: @convention(c) () -> Int32
     let release: @convention(c) () -> Void
 
-    init(certificate: Data? = nil) throws {
+    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         folder = root.appendingPathComponent(".build/swift-provider-tests/" + UUID().uuidString)
@@ -28,10 +28,22 @@ final class MockModule: @unchecked Sendable {
         compiler.executableURL = URL(fileURLWithPath: "/usr/bin/cc")
         compiler.arguments = ["-dynamiclib", "-pthread", "-I", root.appendingPathComponent("Sources/CPKCS11").path,
                               root.appendingPathComponent("Tools/PKCS11Tests/mock_provider.c").path, "-o", path.path]
+        if audit {
+            compiler.arguments! += ["-DSIGNUM_MOCK_AUDIT_PATH=" + String(reflecting: folder.appendingPathComponent("operations").path)]
+        }
+        if let workerPhase {
+            compiler.arguments! += ["-DSIGNUM_MOCK_WORKER_PHASE=\(workerPhase)", "-DSIGNUM_MOCK_WORKER_EFFECT=\(workerEffect)"]
+        }
         if let certificate {
             let header = folder.appendingPathComponent("public-certificate.h")
             let encoded = certificate.map { String($0) }.joined(separator: ",")
             try Data(("#define SIGNUM_MOCK_BOOTSTRAP_CERTIFICATE 1\nstatic const unsigned char bootstrap_certificate[] = {" + encoded + "};\n").utf8).write(to: header)
+            if let privateKey {
+                let encodedKey = privateKey.map { String($0) }.joined(separator: ",")
+                let addition = "#define SIGNUM_MOCK_SOFTWARE_KEY 1\nstatic const unsigned char bootstrap_private_key[] = {" + encodedKey + "};\n"
+                let handle = try FileHandle(forWritingTo: header); try handle.seekToEnd(); try handle.write(contentsOf: Data(addition.utf8)); try handle.close()
+                compiler.arguments! += ["-framework", "Security", "-framework", "CoreFoundation"]
+            }
             compiler.arguments! += ["-include", header.path]
         }
         compiler.standardOutput = FileHandle.nullDevice

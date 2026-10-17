@@ -22,7 +22,7 @@ public enum SignumError: Error, LocalizedError {
     }
 }
 
-public struct SignumToken: Identifiable, Hashable {
+public struct SignumToken: Identifiable, Hashable, Sendable {
     public let slot: UInt
     public let label: String
     public let manufacturer: String
@@ -84,6 +84,7 @@ public struct SignumTokenScan {
 public final class PKCS11Module: @unchecked Sendable {
     // Immutable Swift state; each C entry point serializes the shared provider.
     private let context: OpaquePointer
+    private var closedInWorker = false // Used only by the single-owner worker entry point.
     public let modulePath: String
 
     public init(path: String) throws {
@@ -108,10 +109,21 @@ public final class PKCS11Module: @unchecked Sendable {
     private static let releaseQueue = DispatchQueue(label: "Signum.provider.release", qos: .utility, attributes: .concurrent)
 
     deinit {
+        guard !closedInWorker else { return }
         // Finalization may block in vendor code. Never run it while SwiftUI
         // releases a View's last reference on the main thread.
         let retired = RetiredContext(context)
         Self.releaseQueue.async { sg_close(retired.pointer) }
+    }
+
+    // Internal worker-only disposal: no concurrent calls or escaped references.
+    // Ordinary callers retain the original asynchronous lifecycle behavior.
+    func closeInWorker() throws {
+        precondition(!closedInWorker)
+        closedInWorker = true
+        var diagnostics = [CChar](repeating: 0, count: 512)
+        let status = sg_close_checked(context, &diagnostics, diagnostics.count)
+        guard status == 0 else { throw SignumError.module("Provider teardown failed") }
     }
 
     public func tokens() throws -> [SignumToken] {
@@ -183,7 +195,7 @@ public final class PKCS11Module: @unchecked Sendable {
 
     /// Demonstration only: raw SHA256withRSA operation via the installed PKCS#11 module.
     /// Do not use this without reviewing the driver and its surrounding configuration.
-    private func signRSASHA256(slot: UInt, certificate: SignumCertificate,
+    func signRSASHA256(slot: UInt, certificate: SignumCertificate,
                                pin: String, message: Data, expectedCertificateDER: Data) throws -> Data {
         guard !pin.isEmpty, !message.isEmpty, message.count <= 1024 * 1024 else {
             throw SignumError.module("Invalid PIN or message size")
