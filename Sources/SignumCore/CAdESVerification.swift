@@ -1,4 +1,7 @@
 import Foundation
+#if os(macOS)
+import Darwin
+#endif
 
 public struct CAdESVerificationLevel: Identifiable {
     public let level: Int
@@ -23,15 +26,69 @@ public enum CAdESVerifier {
     public static let maximumNestingDepth = 5
 
     public static func verify(file: URL) throws -> CAdESVerificationResult {
-        guard file.isFileURL else { throw SignumError.module("Seleziona un file locale.") }
-        let attrs = try FileManager.default.attributesOfItem(atPath: file.path)
-        guard let n = attrs[.size] as? NSNumber, n.intValue > 0,
-              n.intValue <= maximumInputBytes else {
-            throw SignumError.module("Il file deve contenere tra 1 byte e 64 MiB.")
-        }
-        let data = try Data(contentsOf: file)
-        return try verify(data: data, filename: file.lastPathComponent)
+        #if os(macOS)
+        return try verify(data: readInput(file: file), filename: file.lastPathComponent)
+        #else
+        throw SignumError.unsupportedPlatform
+        #endif
     }
+
+    #if os(macOS)
+    struct InputIO {
+        var opened: (Int32) throws -> Void = { _ in }
+        var read: (Int32, UnsafeMutableRawPointer, Int) -> Int = { Darwin.read($0, $1, $2) }
+    }
+
+    /// External verification input: pin the resolved parent once, reject a leaf
+    /// symlink/nonregular object, and never reopen the input for content reads.
+    /// Ancestor aliases (including macOS /var and /tmp) resolve only at open.
+    static func readInput(file: URL, io: InputIO = InputIO()) throws -> Data {
+        guard file.isFileURL else { throw SignumError.module("Seleziona un file locale.") }
+        let directoryURL = file.deletingLastPathComponent()
+        let parent = Darwin.open(directoryURL.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard parent >= 0 else { throw inputError("Cartella di origine non disponibile.") }
+        defer { Darwin.close(parent) }
+        var parentIdentity = stat()
+        guard fstat(parent, &parentIdentity) == 0 else { throw inputError("Cartella non identificabile.") }
+        let fd = openat(parent, file.lastPathComponent, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { throw inputError("File non disponibile o collegamento simbolico.") }
+        defer { Darwin.close(fd) }
+        var before = stat()
+        guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG,
+              before.st_size > 0, before.st_size <= maximumInputBytes else {
+            throw inputError("Serve un file regolare tra 1 byte e 64 MiB.")
+        }
+        try io.opened(fd)
+        var data = Data(), chunk = [UInt8](repeating: 0, count: 65536)
+        while true {
+            // At the boundary, read at most one extra byte to distinguish EOF
+            // from growth. That byte is never appended to the bounded result.
+            let remaining = maximumInputBytes - data.count
+            let requested = min(chunk.count, remaining + 1)
+            let count = chunk.withUnsafeMutableBytes { io.read(fd, $0.baseAddress!, requested) }
+            if count < 0 && errno == EINTR { continue }
+            guard count >= 0, count <= requested else { throw inputError("Lettura del file non riuscita.") }
+            if count == 0 { break }
+            guard count <= remaining else { throw inputError("Il file supera il limite di 64 MiB durante la lettura.") }
+            data.append(contentsOf: chunk.prefix(count))
+        }
+        var after = stat(), entry = stat(), currentParent = stat()
+        guard fstat(fd, &after) == 0, before.st_dev == after.st_dev, before.st_ino == after.st_ino,
+              before.st_size == after.st_size, data.count == before.st_size,
+              before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+              before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
+              before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec,
+              before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec,
+              fstatat(parent, file.lastPathComponent, &entry, AT_SYMLINK_NOFOLLOW) == 0,
+              entry.st_dev == before.st_dev, entry.st_ino == before.st_ino,
+              stat(directoryURL.path, &currentParent) == 0,
+              currentParent.st_dev == parentIdentity.st_dev, currentParent.st_ino == parentIdentity.st_ino else {
+            throw inputError("File o percorso modificato durante la lettura. Selezionalo nuovamente.")
+        }
+        return data
+    }
+    private static func inputError(_ message: String) -> SignumError { .module(message) }
+    #endif
 
     public static func verify(data: Data, filename: String = "documento.p7m") throws -> CAdESVerificationResult {
         guard !data.isEmpty, data.count <= maximumInputBytes else {
