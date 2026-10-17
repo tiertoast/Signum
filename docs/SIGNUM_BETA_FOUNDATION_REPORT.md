@@ -162,3 +162,52 @@ il worker. L'esistenza dell'infrastruttura non chiude SG-06; il processo GUI usa
 ancora il percorso precedente finché l'unità 3 non viene completata e provata.
 Cancellazione del trasporto non equivale ancora alla policy di cancellazione
 prima/dopo il commit del job. Multiprocesso e packaging portabile restano pianificati.
+
+## Unità 3 — Flussi attivi, stati e cancellazione
+
+**IMPLEMENTATO:** GUI e CLI non costruiscono più `PKCS11Module`. Discovery,
+lettura DER e operazioni private passano dal worker. Il parent crea gli attributi
+CAdES, verifica la firma RSA col DER approvato, costruisce/verifica CMS e conserva
+l'atomic commit. Il worker non riceve documenti o destinazione. Il metodo Core
+in-process precedente resta disponibile per test/compatibilità: non è la via dei
+client GUI/CLI e non acquisisce magicamente l'isolamento.
+
+`SigningOperation` è distinto da `SigningJob`: stato e cancellazione protetti da
+lock, callback fuori dal lock e stati terminali senza transizioni tardive. Prima
+il job può essere annullato senza autenticazione; dopo la risposta verificata
+può essere annullata la pubblicazione. La breve barriera prima del rename rende
+non più accettabile la cancellazione quando il commit comincia, senza mantenere
+un lock durante chiamate vendor, verifica o fsync. Un'interruzione dopo l'invio
+di una richiesta privata e prima di una firma verificabile è conservativamente
+`outcomeUncertain`, senza output pubblicato dal job e senza retry. Gli stati
+rappresentano fasi del client, non telemetria precisa interna a ogni C_Login/C_Sign.
+
+GUI: pulsante Annulla per discovery/firma, stato leggibile e nessun risultato
+pubblico tardivo dopo cancel. Chiusura della vista richiede cancel. CLI: SIGINT
+cooperativo durante le chiamate worker; approvazione/PIN interattivi mantengono
+la gestione terminale precedente. Se il parent muore, il worker rileva il cambio
+di parent e termina senza tentare di interrompere una chiamata vendor con Finalize.
+
+PAdES usa il supervisore comune: deadline/cancel/TERM/KILL e diagnostica scartata.
+Il helper nativo conserva SG-03/14 e il proprio commit; un file presente dopo
+interruzione rimane incerto e preservato. Un successo verificato già pubblicato
+prevale su una cancellazione tardiva. Il parent non può impedire retroattivamente
+il commit del helper. Il watchdog di parent death introdotto qui riguarda il
+worker Swift: l'equivalente nativo e il coordinamento vanno consolidati nell'unità 4.
+
+OpenSSL CAdES è ora supervisionato con deadline 30 s per livello e cancellazione,
+senza file diagnostici o log vendor; verificatore GUI con Annulla. I limiti del
+filesystem e chiamate kernel non interrompibili non vengono dichiarati risolti
+con un timeout di processo. La rimozione fisica del token e la sua eventuale
+operazione già eseguita restano fatti da collaudare manualmente.
+
+**TESTATO:** sette nuovi test di job/stato/main queue/CLI parent death e due nuovi
+casi PAdES di cancel pre-avvio/post-commit. Swift **140/140**; PKCS#11 **40/40**,
+PAdES Debug/Release **61/61**; TSAN PKCS#11 **40/40**. Build di tutti i prodotti
+Swift Debug/Release riuscite. Log `.build/reliability/evidence/beta-unit3-*.log`.
+Il test positivo usa un vero CMS software; quello negativo conta un solo Login e
+Sign nel figlio, senza output finale e con snapshot eliminato. Non è un test della
+GUI manuale né un collaudo del middleware installato.
+ASAN Swift completo: **140/140**, nessuna segnalazione nel runner; leak detection
+disabilitata (`ASAN_OPTIONS=detect_leaks=0`). I canali diagnostici dei figli sono
+intenzionalmente scartati; i casi positivi richiedono risposta/uscita valide.

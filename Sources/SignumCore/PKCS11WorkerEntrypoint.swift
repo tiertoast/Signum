@@ -7,6 +7,13 @@ public enum PKCS11WorkerEntrypoint {
     public static func serve() -> Int32 {
         var coreLimit = rlimit(rlim_cur: 0, rlim_max: 0)
         guard setrlimit(RLIMIT_CORE, &coreLimit) == 0 else { return 2 }
+        let parent = getppid()
+        guard parent > 1 else { return 2 }
+        let watchdog = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        watchdog.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(250))
+        watchdog.setEventHandler { if getppid() != parent { _exit(74) } }
+        watchdog.resume()
+        defer { watchdog.cancel() }
         // Reserve a reply fd, then silence incidental/vendor stdout and stderr.
         let reply = dup(STDOUT_FILENO), sink = Darwin.open("/dev/null", O_WRONLY | O_CLOEXEC)
         guard reply >= 0, sink >= 0, fcntl(reply, F_SETFD, FD_CLOEXEC) == 0,

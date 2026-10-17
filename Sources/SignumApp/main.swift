@@ -4,6 +4,10 @@ import AppKit
 import UniformTypeIdentifiers
 import SignumCore
 
+private extension Result {
+    var isSuccess: Bool { if case .success = self { return true }; return false }
+}
+
 func signingApprovalMessage(holder: String, job: SigningJob) -> String {
     "Firmatario: \(holder)\n" + job.approvalDescription
 }
@@ -38,7 +42,8 @@ private struct LoadedCertificates {
 
 struct SignumWindow: View {
     @State private var modulePath = "/Library/bit4id/pkcs11/libbit4xpki.dylib"
-    @State private var module: PKCS11Module?
+    @State private var work: SigningOperation?
+    @State private var workPhase: SigningOperationPhase = .idle
     @State private var activeModulePath: String?
     @State private var tokens: [SignumToken] = []
     @State private var certificates: [SignumCertificate] = []
@@ -152,6 +157,7 @@ struct SignumWindow: View {
             }
         }
         .onDisappear {
+            work?.requestCancellation()
             selectionRequestID = UUID()
             documentSnapshot = nil // An active immutable job retains its own snapshot.
         }
@@ -291,7 +297,13 @@ struct SignumWindow: View {
                         else { signDocument() }
                     }
                     .disabled(!canSign)
+                    if busy, let work {
+                        Button("Annulla") {
+                            status = work.requestCancellation() ? "Annullamento richiesto…" : "La pubblicazione è già iniziata. Attendi l'esito."
+                        }
+                    }
                 }
+                if busy, work != nil { Text(workPhase.message).font(.caption).foregroundStyle(.secondary) }
                 Text("Solo test con documenti fittizi. Validazione normativa eIDAS e revoche non implementate.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -351,20 +363,28 @@ struct SignumWindow: View {
         }
     }
 
-    private static func readCertificates(_ module: PKCS11Module, slot: UInt?) throws -> LoadedCertificates {
+    private func beginWork() -> SigningOperation {
+        let id = UUID()
+        let operation = SigningOperation(id: id) { phase in
+            DispatchQueue.main.async { if self.work?.id == id { self.workPhase = phase } }
+        }
+        work = operation; workPhase = .preparing
+        operation.transition(to: .preparing)
+        return operation
+    }
+
+    private static func readCertificates(_ worker: IsolatedPKCS11Client, provider: String,
+                                         slot: UInt?, operation: SigningOperation) throws -> LoadedCertificates {
         dispatchPrecondition(condition: .notOnQueue(.main))
         guard let slot else { return LoadedCertificates() }
         var result = LoadedCertificates()
-        result.certificates = try module.certificates(slot: slot)
-        for certificate in result.certificates {
-            // A DER failure must not leave a stale signer selectable. Display
-            // parsing can still fall back to the certificate label.
-            let der = try module.certificateDER(slot: slot, certificate: certificate)
+        for row in try worker.certificates(provider: provider, slot: slot,
+                                           isCancelled: { operation.isCancellationRequested }) {
+            let certificate = row.certificate, der = row.der
+            result.certificates.append(certificate)
             result.derByID[certificate.id] = der
             result.assessments[certificate.id] = CertificateEligibility.evaluate(certificateDER: der)
-            if let identity = try? SignumCertificateIdentity(certificateDER: der) {
-                result.identities[certificate.id] = identity
-            }
+            if let identity = try? SignumCertificateIdentity(certificateDER: der) { result.identities[certificate.id] = identity }
         }
         return result
     }
@@ -380,51 +400,39 @@ struct SignumWindow: View {
 
     private func load(allowRetry: Bool = true) {
         guard !busy else { return }
-        let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let previous = activeModulePath == path ? module : nil
-        let previousSlot = selectedSlot
-        let request = UUID()
-        discoveryID = request
-        selectedCertificateID = nil
-        busy = true
-        status = "Lettura del dispositivo in corso…"
+        let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines), previousSlot = selectedSlot
+        let request = UUID(), operation = beginWork(), worker = IsolatedPKCS11Client()
+        discoveryID = request; selectedCertificateID = nil; busy = true
+        status = "Lettura del dispositivo in processo separato…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { () -> (PKCS11Module, SignumTokenScan, UInt?, LoadedCertificates) in
-                let loaded = try previous ?? PKCS11Module(path: path)
-                let scan = try loaded.scanTokens()
+            let result = Result { () -> (IsolatedPKCS11Client.Scan, UInt?, LoadedCertificates) in
+                let scan = try worker.scan(provider: path, isCancelled: { operation.isCancellationRequested })
                 let next = scan.tokens.first(where: { $0.slot == previousSlot })?.slot ?? scan.tokens.first?.slot
-                return (loaded, scan, next, try Self.readCertificates(loaded, slot: next))
+                let cache = try Self.readCertificates(worker, provider: scan.provider, slot: next, operation: operation)
+                return (scan, next, cache)
             }
+            operation.transition(to: operation.isCancellationRequested ? .cancelled : (result.isSuccess ? .completed : .failed))
             DispatchQueue.main.async {
                 guard self.discoveryID == request else { return }
-                self.busy = false
+                self.busy = false; self.workPhase = operation.state; self.work = nil
+                if operation.isCancellationRequested { self.status = "Lettura annullata."; return }
                 switch result {
-                case .success(let (loaded, scan, slot, cache)):
-                    self.module = loaded
-                    self.activeModulePath = loaded.modulePath
-                    self.tokens = scan.tokens
-                    self.selectedSlot = slot
+                case .success(let (scan, slot, cache)):
+                    self.activeModulePath = scan.provider; self.tokens = scan.tokens; self.selectedSlot = slot
                     self.applyCertificates(cache)
                     if scan.unavailableSlots > 0 {
                         self.status = "\(scan.tokens.count) dispositivi pronti; \(scan.unavailableSlots) in inizializzazione."
                         if allowRetry {
-                            // Discovery retry only; never resubmit a signing/PIN request.
                             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(450)) {
-                                guard !self.busy, self.discoveryID == request,
+                                guard !self.busy, self.discoveryID == request, !operation.isCancellationRequested,
                                       self.modulePath.trimmingCharacters(in: .whitespacesAndNewlines) == path else { return }
-                                self.load(allowRetry: false)
+                                self.load(allowRetry: false) // Public discovery only: no PIN or signing retry.
                             }
                         }
-                    } else if scan.tokens.isEmpty {
-                        self.status = "Nessun dispositivo riconosciuto."
-                    }
+                    } else if scan.tokens.isEmpty { self.status = "Nessun dispositivo riconosciuto." }
                 case .failure(let error):
-                    self.module = nil
-                    self.activeModulePath = nil
-                    self.tokens = []
-                    self.selectedSlot = nil
-                    self.applyCertificates(LoadedCertificates())
-                    self.status = "Caricamento non riuscito: \(error.localizedDescription)"
+                    self.activeModulePath = nil; self.tokens = []; self.selectedSlot = nil
+                    self.applyCertificates(LoadedCertificates()); self.status = error.localizedDescription
                 }
             }
         }
@@ -432,25 +440,23 @@ struct SignumWindow: View {
 
     private func loadCertificates(slot: UInt?) {
         guard !busy else { return }
-        selectedCertificateID = nil
-        certificates = []
-        certificateIdentities = [:]
-        certificateDERs = [:]
-        certificateAssessments = [:]
-        let request = UUID()
-        discoveryID = request
-        guard let module, let slot else { return }
-        busy = true
-        status = "Lettura certificati in corso…"
+        selectedCertificateID = nil; certificates = []; certificateIdentities = [:]
+        certificateDERs = [:]; certificateAssessments = [:]
+        let request = UUID(); discoveryID = request
+        guard let path = activeModulePath, let slot else { return }
+        let operation = beginWork(), worker = IsolatedPKCS11Client()
+        busy = true; status = "Lettura certificati in processo separato…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try Self.readCertificates(module, slot: slot) }
+            let result = Result { try Self.readCertificates(worker, provider: path, slot: slot, operation: operation) }
+            operation.transition(to: operation.isCancellationRequested ? .cancelled : (result.isSuccess ? .completed : .failed))
             DispatchQueue.main.async {
                 guard self.discoveryID == request else { return }
-                self.busy = false
+                self.busy = false; self.workPhase = operation.state; self.work = nil
+                if operation.isCancellationRequested { self.status = "Lettura annullata."; return }
                 guard self.selectedSlot == slot else { return }
                 switch result {
                 case .success(let cache): self.applyCertificates(cache)
-                case .failure(let error): self.status = "Lettura certificati non riuscita: \(error.localizedDescription)"
+                case .failure(let error): self.status = error.localizedDescription
                 }
             }
         }
@@ -533,7 +539,7 @@ struct SignumWindow: View {
     private func signPAdES() { approveAndSign() }
 
     private func approveAndSign() {
-        guard canSign, let snapshot = documentSnapshot, let module, let slot = selectedSlot,
+        guard canSign, let snapshot = documentSnapshot, let provider = activeModulePath, let slot = selectedSlot,
               let certificate = certificates.first(where: { $0.id == selectedCertificateID }),
               let der = certificateDERs[certificate.id] else { return }
         // Freeze operation inputs before opening modal panels; the worker never
@@ -556,7 +562,7 @@ struct SignumWindow: View {
         }
         let job: SigningJob
         do {
-            job = try SigningJob(snapshot: snapshot, providerPath: module.modulePath, slot: slot,
+            job = try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot,
                                  certificate: certificate, certificateDER: der, destination: destination)
             guard !FileManager.default.fileExists(atPath: destination.path) else {
                 throw SignumError.module("La destinazione esiste già: scegli un altro nome.")
@@ -573,6 +579,7 @@ struct SignumWindow: View {
             discardDocument(); pin = ""; status = "Firma annullata. Copia privata scartata."; return
         }
         let secret = pin; pin = ""
+        let operation = beginWork(), worker = IsolatedPKCS11Client()
         launched = true
         lastSignedFile = nil
         status = "Firma della copia approvata in corso…"
@@ -580,13 +587,20 @@ struct SignumWindow: View {
             let outcome = Result {
                 defer { job.snapshot.close() }
                 if job.format == .cades {
-                    try job.signCAdES(using: module, pin: secret)
+                    try job.signCAdES(using: worker, pin: secret, operation: operation)
                 } else {
-                    try SignumPAdESHelper.sign(job: job, pin: secret, appearanceName: holder, field: field)
+                    try SignumPAdESHelper.sign(job: job, pin: secret, appearanceName: holder, field: field, operation: operation)
+                    operation.transition(to: .completed)
+                }
+            }
+            if !operation.state.isTerminal {
+                if case .failure(let error) = outcome {
+                    if case SignumError.outputUncertain = error { operation.transition(to: .outcomeUncertain) }
+                    else { operation.transition(to: operation.isCancellationRequested ? .cancelled : .failed) }
                 }
             }
             DispatchQueue.main.async {
-                busy = false
+                busy = false; workPhase = operation.state; work = nil
                 discardDocument()
                 switch outcome {
                 case .success:

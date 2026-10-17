@@ -58,6 +58,26 @@ final class PAdESHelperProcessTests: XCTestCase {
             XCTAssertEqual(try String(contentsOf: output), "Preserve")
         }
     }
+    func testCancellationBeforeLaunchDoesNotCreateOutput() throws {
+        try fixture { output in
+            var input = Data()
+            let outcome = PAdESHelperProcess.run(executable: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "printf unexpected > \"$1\"", "fixture", output.path], input: &input,
+                destination: output, isCancelled: { true })
+            guard case .cancelled = outcome else { return XCTFail("Pre-launch cancellation was not distinguished") }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+        }
+    }
+    func testCancellationAfterCommitPreservesUncertainOutput() throws {
+        try fixture { output in
+            var input = Data()
+            let outcome = PAdESHelperProcess.run(executable: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "printf synthetic > \"$1\"; while :; do :; done", "fixture", output.path], input: &input,
+                destination: output, isCancelled: { FileManager.default.fileExists(atPath: output.path) })
+            guard case .uncertain = outcome else { return XCTFail("Possible commit must stay uncertain") }
+            XCTAssertEqual(try String(contentsOf: output), "synthetic")
+        }
+    }
     func testLaunchFailureLeavesNoOutput() throws {
         try fixture { output in
             var message = Data()

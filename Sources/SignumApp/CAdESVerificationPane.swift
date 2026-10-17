@@ -10,6 +10,7 @@ struct CAdESVerificationPane: View {
     @State private var result: CAdESVerificationResult?
     @State private var extractedFile: URL?
     @State private var busy = false
+    @State private var operation: SigningOperation?
     @State private var isTargeted = false
     @State private var status = "Seleziona una busta .p7m da verificare."
 
@@ -40,6 +41,7 @@ struct CAdESVerificationPane: View {
 
                 HStack(spacing: 8) {
                     if busy { ProgressView().controlSize(.small) }
+                if busy, let operation { Button("Annulla") { operation.requestCancellation() } }
                     Text(status)
                         .font(.callout)
                         .lineLimit(2)
@@ -87,6 +89,7 @@ struct CAdESVerificationPane: View {
             }
             .padding(4)
         }
+        .onDisappear { operation?.requestCancellation() }
     }
 
     private func chooseFile() {
@@ -127,18 +130,24 @@ struct CAdESVerificationPane: View {
     private func verify() {
         guard let input = selectedFile, !busy else { return }
         busy = true
+        let control = SigningOperation(); operation = control; control.transition(to: .preparing); control.transition(to: .verifying)
         result = nil
         extractedFile = nil
         status = "Controllo delle firme CMS in corso…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let outcome = Result { try CAdESVerifier.verify(file: input) }
+            let outcome = Result { try CAdESVerifier.verify(file: input, isCancelled: { control.isCancellationRequested }) }
             DispatchQueue.main.async {
-                self.busy = false
+                self.busy = false; self.operation = nil
+                if control.isCancellationRequested {
+                    control.transition(to: .cancelled); self.status = "Verifica annullata."; return
+                }
                 switch outcome {
                 case .success(let verified):
+                    control.transition(to: .completed)
                     self.result = verified
                     self.status = "Integrità CMS verificata. Fiducia e qualificazione NON valutate."
                 case .failure(let error):
+                    control.transition(to: .failed)
                     self.status = "Verifica non riuscita: \(error.localizedDescription)"
                 }
             }

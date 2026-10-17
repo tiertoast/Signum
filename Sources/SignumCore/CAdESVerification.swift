@@ -25,9 +25,9 @@ public enum CAdESVerifier {
     public static let maximumInputBytes = 64 * 1024 * 1024
     public static let maximumNestingDepth = 5
 
-    public static func verify(file: URL) throws -> CAdESVerificationResult {
+    public static func verify(file: URL, isCancelled: () -> Bool = { false }) throws -> CAdESVerificationResult {
         #if os(macOS)
-        return try verify(data: readInput(file: file), filename: file.lastPathComponent)
+        return try verify(data: readInput(file: file), filename: file.lastPathComponent, isCancelled: isCancelled)
         #else
         throw SignumError.unsupportedPlatform
         #endif
@@ -90,7 +90,7 @@ public enum CAdESVerifier {
     private static func inputError(_ message: String) -> SignumError { .module(message) }
     #endif
 
-    public static func verify(data: Data, filename: String = "documento.p7m") throws -> CAdESVerificationResult {
+    public static func verify(data: Data, filename: String = "documento.p7m", isCancelled: () -> Bool = { false }) throws -> CAdESVerificationResult {
         guard !data.isEmpty, data.count <= maximumInputBytes else {
             throw SignumError.module("Dimensione busta CAdES non supportata.")
         }
@@ -104,12 +104,13 @@ public enum CAdESVerifier {
         var current = data
         var levels: [CAdESVerificationLevel] = []
         for depth in 1...maximumNestingDepth {
+            if isCancelled() { throw SupervisedProcess.Failure.cancelled }
             let signers = try CMSDescription.signers(in: current)
             let signed = directory.appendingPathComponent("layer-\(depth).p7m")
             let extracted = directory.appendingPathComponent("payload-\(depth).dat")
             try current.write(to: signed, options: .atomic)
 
-            try verifyCMS(input: signed, output: extracted, in: directory)
+            try verifyCMS(input: signed, output: extracted, in: directory, isCancelled: isCancelled)
             let payload = try Data(contentsOf: extracted)
             guard !payload.isEmpty, payload.count <= maximumInputBytes else {
                 throw SignumError.module("Contenuto CAdES vuoto o superiore al limite.")
@@ -128,7 +129,7 @@ public enum CAdESVerifier {
     /// Verify exactly the outer CMS layer against the bytes supplied to signing.
     /// Nested CMS is allowed as content and is compared without unwrapping it.
     /// This checks integrity only; certificate trust/qualification is not checked.
-    public static func verifyAttached(data: Data, expectedDocument: Data) throws {
+    public static func verifyAttached(data: Data, expectedDocument: Data, isCancelled: () -> Bool = { false }) throws {
         guard !data.isEmpty, data.count <= maximumInputBytes else {
             throw SignumError.module("Dimensione busta CAdES non supportata.")
         }
@@ -142,7 +143,7 @@ public enum CAdESVerifier {
         let signed = directory.appendingPathComponent("signed.p7m")
         let extracted = directory.appendingPathComponent("payload")
         try data.write(to: signed)
-        try verifyCMS(input: signed, output: extracted, in: directory)
+        try verifyCMS(input: signed, output: extracted, in: directory, isCancelled: isCancelled)
         guard try Data(contentsOf: extracted) == expectedDocument else {
             throw SignumError.module("Il contenuto CMS non corrisponde al documento firmato.")
         }
@@ -157,35 +158,15 @@ public enum CAdESVerifier {
         return result.isEmpty || result == "." ? "documento-estratto" : result
     }
 
-    private static func verifyCMS(input: URL, output: URL, in directory: URL) throws {
-        let errorFile = directory.appendingPathComponent(UUID().uuidString + ".log")
-        guard FileManager.default.createFile(atPath: errorFile.path, contents: Data(),
-                                            attributes: [.posixPermissions: 0o600]) else {
-            throw SignumError.module("Impossibile preparare la diagnostica temporanea.")
-        }
-        let log = try FileHandle(forWritingTo: errorFile)
-        defer {
-            try? log.close()
-            try? FileManager.default.removeItem(at: errorFile)
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
-        process.arguments = ["cms", "-verify", "-inform", "DER", "-binary", "-noverify",
-                             "-in", input.path, "-out", output.path]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = log
+    private static func verifyCMS(input: URL, output: URL, in directory: URL,
+                                  isCancelled: () -> Bool = { false }) throws {
+        var message = Data()
         do {
-            try process.run()
-            process.waitUntilExit()
+            _ = try SupervisedProcess.run(executable: URL(fileURLWithPath: "/usr/bin/openssl"),
+                arguments: ["cms", "-verify", "-inform", "DER", "-binary", "-noverify", "-in", input.path, "-out", output.path],
+                input: &message, timeout: 30, isCancelled: isCancelled)
         } catch {
-            throw SignumError.module("Impossibile avviare OpenSSL locale: \(error.localizedDescription)")
-        }
-        guard process.terminationStatus == 0 else {
-            let message = (try? Data(contentsOf: errorFile)).flatMap {
-                String(data: $0.prefix(2048), encoding: .utf8)
-            } ?? "Errore crittografico"
-            throw SignumError.module("Verifica crittografica fallita (OpenSSL): \(message)")
+            throw SignumError.module("Verifica crittografica non completata: \(error.localizedDescription)")
         }
     }
 }

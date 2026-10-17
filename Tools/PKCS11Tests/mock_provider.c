@@ -62,6 +62,9 @@ static CK_RV begin(int op) {
 #ifdef SIGNUM_MOCK_AUDIT_PATH
     /* Test audit contains operation numbers only, never arguments/credentials. */
     int audit = open(SIGNUM_MOCK_AUDIT_PATH, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    char pidpath[4096]; snprintf(pidpath, sizeof(pidpath), "%s.pid", SIGNUM_MOCK_AUDIT_PATH);
+    int pidfd = open(pidpath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (pidfd >= 0) { char line[32]; int n = snprintf(line, sizeof(line), "%d", getpid()); write(pidfd, line, n); close(pidfd); }
     if (audit >= 0) { char line[32]; int n = snprintf(line, sizeof(line), "%d\n", op); write(audit, line, n); close(audit); }
 #endif
 #ifdef SIGNUM_MOCK_WORKER_PHASE

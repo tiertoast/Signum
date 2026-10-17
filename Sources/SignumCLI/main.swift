@@ -34,6 +34,14 @@ func inputPIN() throws -> String {
     return String(cString: pointer)
 }
 
+func withCancellation<T>(_ operation: SigningOperation, _ body: () throws -> T) rethrows -> T {
+    let previous = signal(SIGINT, SIG_IGN)
+    let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global(qos: .userInitiated))
+    source.setEventHandler { operation.requestCancellation() }; source.resume()
+    defer { source.cancel(); signal(SIGINT, previous) }
+    return try body()
+}
+
 func run() throws {
     let arguments = Array(CommandLine.arguments.dropFirst())
     guard let action = arguments.first else { help(); return }
@@ -77,9 +85,11 @@ func run() throws {
         return
     }
 
-    let module = try PKCS11Module(path: modulePath)
+    let worker = IsolatedPKCS11Client(), operation = SigningOperation()
+    let provider = URL(fileURLWithPath: modulePath).resolvingSymlinksInPath().path
+    operation.transition(to: .preparing)
     if action == "list" {
-        for token in try module.tokens() {
+        for token in try withCancellation(operation, { try worker.scan(provider: provider, isCancelled: { operation.isCancellationRequested }).tokens }) {
             print("Slot \(token.slot): \(token.label) [\(token.manufacturer), \(token.model)]")
         }
         return
@@ -88,10 +98,13 @@ func run() throws {
     guard let slot = UInt(arguments[1]) else {
         throw SignumError.module("Invalid slot")
     }
-    let certificates = try module.certificates(slot: slot)
+    let rows = try withCancellation(operation) {
+        try worker.certificates(provider: provider, slot: slot, isCancelled: { operation.isCancellationRequested })
+    }
+    let certificates = rows.map(\.certificate)
     if action == "certs" {
         for cert in certificates {
-            let der = try module.certificateDER(slot: slot, certificate: cert)
+            let der = rows.first(where: { $0.certificate.id == cert.id })!.der
             let assessment = CertificateEligibility.evaluate(certificateDER: der)
             print("\(cert.label) — ID \(cert.id): \(assessment.explanation) · \(assessment.usageDescription)")
         }
@@ -104,7 +117,7 @@ func run() throws {
         throw SignumError.module("Certificate ID not found in this slot")
     }
 
-    let approvedCertificate = try module.certificateDER(slot: slot, certificate: certificate)
+    let approvedCertificate = rows.first(where: { $0.certificate.id == certificate.id })!.der
     let assessment = try CertificateEligibility.requireEligible(certificateDER: approvedCertificate)
     print(assessment.explanation)
     print(CertificateEligibility.scope)
@@ -112,8 +125,11 @@ func run() throws {
     if action == "sign-test" {
         let pin = try inputPIN()
         print("Starting hardware signing test (not a PDF signature)...")
-        let verified = try module.signAndVerifyTest(slot: slot, certificate: certificate, pin: pin, expectedCertificateDER: approvedCertificate)
-        print(verified ? "Verified OK — RSA/SHA-256" : "Verification failed")
+        try withCancellation(operation) {
+            try worker.signProof(provider: provider, slot: slot, certificate: certificate, der: approvedCertificate,
+                                 pin: pin, isCancelled: { operation.isCancellationRequested })
+        }
+        print("Verified OK — RSA/SHA-256")
         return
     }
 
@@ -130,7 +146,7 @@ func run() throws {
     }
     let snapshot = try DocumentSnapshot.capture(source: input, format: .cades)
     defer { snapshot.close() }
-    let job = try SigningJob(snapshot: snapshot, providerPath: module.modulePath, slot: slot,
+    let job = try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot,
                              certificate: certificate, certificateDER: approvedCertificate, destination: output)
     print("Copia privata da controllare: \(snapshot.fileURL.path)")
     print(job.approvalDescription)
@@ -139,7 +155,7 @@ func run() throws {
     guard readLine() == "FIRMA" else { throw SignumError.module("Firma annullata. Copia privata scartata.") }
     _ = try job.verifiedBytes()
     let pin = try inputPIN()
-    try job.signCAdES(using: module, pin: pin)
+    try withCancellation(operation) { try job.signCAdES(using: worker, pin: pin, operation: operation) }
     print("Created: \(output.path)")
     print("NEXT: verify with: openssl cms -verify -inform DER -binary -noverify -in '\(output.path)' -out /tmp/signum-extracted.dat")
 }
