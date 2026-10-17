@@ -107,9 +107,11 @@ struct PAdESPlacementPane: View {
     }
 }
 
-private final class PlacementPDFView: PDFView {
+final class PlacementPDFView: PDFView {
     var previewAnnotation: PDFAnnotation?
     var currentPreviewPlacement: PAdESPlacement?
+    private var currentPreviewName: String?
+    private var currentPreviewVisible = false
     var onChoose: ((PDFPage, CGPoint) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
@@ -126,12 +128,20 @@ private final class PlacementPDFView: PDFView {
         onChoose?(page, convert(point, to: page))
     }
 
-    func setPreview(_ placement: PAdESPlacement?, name: String, visible: Bool) {
+    func updatePreview(_ placement: PAdESPlacement?, name: String, visible: Bool) {
+        if currentPreviewPlacement != placement || currentPreviewName != name || currentPreviewVisible != visible {
+            setPreview(placement, name: name, visible: visible)
+        }
+    }
+
+    private func setPreview(_ placement: PAdESPlacement?, name: String, visible: Bool) {
         if let old = previewAnnotation {
             old.page?.removeAnnotation(old)
             previewAnnotation = nil
         }
         currentPreviewPlacement = placement
+        currentPreviewName = name
+        currentPreviewVisible = visible
         guard visible, let placement, let page = document?.page(at: placement.pageIndex) else { return }
         let annotation = PDFAnnotation(bounds: placement.rectangle, forType: .freeText, withProperties: nil)
         annotation.contents = "Firmato digitalmente da\n" + name
@@ -198,9 +208,7 @@ private struct SignaturePlacementPDFView: NSViewRepresentable {
            let selected = doc.page(at: selectedPage), viewer.currentPage !== selected {
             viewer.go(to: selected)
         }
-        if viewer.currentPreviewPlacement != placement || !visible && viewer.previewAnnotation != nil {
-            viewer.setPreview(placement, name: holder, visible: visible)
-        }
+        viewer.updatePreview(placement, name: holder, visible: visible)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }

@@ -19,6 +19,6 @@ let package = Package(
         .executableTarget(name: "SignumApp", dependencies: ["SignumCore"]),
         .executableTarget(name: "SignumOutputCrashProbe", dependencies: ["SignumCore"],
                           path: "Tests/SignumOutputCrashProbe"),
-        .testTarget(name: "SignumCoreTests", dependencies: ["SignumCore", "SignumOutputCrashProbe", "SignumCLI"])
+        .testTarget(name: "SignumCoreTests", dependencies: ["SignumCore", "SignumOutputCrashProbe", "SignumCLI", "SignumApp"])
     ]
 )

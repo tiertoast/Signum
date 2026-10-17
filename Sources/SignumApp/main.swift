@@ -4,6 +4,11 @@ import AppKit
 import UniformTypeIdentifiers
 import SignumCore
 
+func signingApprovalMessage(holder: String, job: SigningJob) -> String {
+    "Firmatario: \(holder)\n" + job.approvalDescription
+}
+
+
 @main
 struct SignumApp: App {
     var body: some Scene {
@@ -561,7 +566,7 @@ struct SignumWindow: View {
         }
         let approval = NSAlert()
         approval.messageText = "Approva i byte da firmare"
-        approval.informativeText = "Firmatario: \(holder)\n" + job.approvalDescription
+        approval.informativeText = signingApprovalMessage(holder: holder, job: job)
         approval.addButton(withTitle: "Approva e firma")
         approval.addButton(withTitle: "Annulla")
         guard approval.runModal() == .alertFirstButtonReturn else {

@@ -34,6 +34,7 @@ final class SyntheticCertificates {
         try run(["req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "rsa.key", "-out", "ca.pem",
                  "-days", "1", "-subj", "/CN=Synthetic Signum CA"])
         try run(["req", "-new", "-key", "rsa.key", "-out", "rsa.csr", "-subj", "/CN=DS3 CNL0 Synthetic Signer"])
+        try run(["req", "-new", "-key", "rsa.key", "-out", "other.csr", "-subj", "/CN=Signum Synthetic Signer B"])
         try run(["ecparam", "-name", "prime256v1", "-genkey", "-out", "ec.key"])
         try run(["req", "-new", "-key", "ec.key", "-out", "ec.csr", "-subj", "/CN=Synthetic EC Signer"])
         try run(["genpkey", "-algorithm", "RSA-PSS", "-pkeyopt", "rsa_keygen_bits:2048", "-out", "pss.key"])
@@ -73,6 +74,7 @@ final class SyntheticCertificates {
             certificates[name] = try Data(contentsOf: folder.appendingPathComponent("leaf.der"))
         }
         try make("valid", eku: "1.3.6.1.5.5.7.3.36")
+        try make("otherSigner", csr: "other.csr")
         try make("replaced", eku: "1.3.6.1.5.5.7.3.36") // same key/subject, distinct serial and DER
         try make("expired", start: "000101000000Z", end: "010101000000Z")
         try make("future", start: "400101000000Z", end: "410101000000Z")
