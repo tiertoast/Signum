@@ -63,7 +63,7 @@ CFBundleShortVersionString e CFBundleVersion del bundle effettivo; nessuna label
 Alpha/Beta inventata. Eseguibile senza metadati: «Build di sviluppo».
 Resources/Info.plist aggiornato a 0.3.3/build 1. Due test verificano cambio di
 versione/build senza costanti UI e fallback senza metadati: **2/2** riusciti
-(`pr2-version-swift.log`). Il packager verrà allineato alla stessa fonte.
+(`pr2-version-swift.log`). Anche il packager usa ora la stessa fonte.
 
 ## Decisione macOS 13/14
 
@@ -108,3 +108,97 @@ Durante il primo tentativo di packaging la nuova variabile del target era
 sovrascritta da un percorso dylib del ciclo: TypeError, staging eliminato e nessun
 bundle finale. Rinominata `declared_target`; entrambi i packaging completi ripetuti
 con successo. Nessuna verifica fallita lasciata come evidenza di riuscita.
+
+## Regressioni finali e consegna
+
+| Verifica eseguita localmente | Esito |
+|---|---|
+| Suite Swift completa, con helper nativo esplicito | **154/154**, zero skip/fallimenti |
+| Suite PKCS#11 sintetica | **40/40** |
+| PAdES Debug/Release, nuove dipendenze macOS 13 | **63/63** ciascuna |
+| Build di tutti i prodotti Swift Debug/Release | riuscite |
+| Test Python packaging | **10/10** |
+| Bundle Debug/Release e copie rilocate | firma/audit/discovery mock/PAdES riusciti |
+| ASAN Swift mirato ai file modificati | **17/17**, nessuna segnalazione nel runner |
+| ASAN PAdES nativo | **63/63**, nessuna segnalazione nel runner |
+
+Leak detection ASAN disabilitata; librerie di terze parti non interamente
+strumentate. TSAN non rieseguito in questo intervento. Fixture documentali,
+certificati e chiavi sono sintetici; il mock ignora la stringa di autenticazione
+di test. Nessun token, PIN reale o documento personale. La nuova prova end-to-end
+Swift viene saltata se non si imposta SIGNUM_TEST_PADES_HELPER: qui è stata
+impostata ed eseguita, come mostrato nei log. La View non è stata collaudata con
+click manuali e non sono state avviate automaticamente applicazioni hardware.
+
+Candidati finali esclusivi, separati da tutte le Alpha e dai candidati precedenti:
+- `.build/pr2-bundles/final-debug/Signum.app`
+- `.build/pr2-bundles/final-release/Signum.app`
+
+Entrambi provengono dal commit **b3f687c** con albero tracciato pulito al momento
+della build (`sourceTrackedDirty: false`). Controllati nuovamente hash annidati,
+metadati, assenza di percorsi di sviluppo e codesign dopo la pubblicazione.
+Firma **ad hoc**: nessun Developer ID, hardened runtime, notarizzazione o release.
+
+### Ripetere le verifiche
+
+Con toolchain Apple e CMake locale già presenti, dal workspace Signum:
+
+```sh
+cd /Users/andreaoregioni/Developer/Signum-Reliability
+SIGNUM_NATIVE_PREFIX="$PWD/.build/pr2-native-macos13/prefix" SIGNUM_PADES_TEST_BUILD="$PWD/.build/pr2-pades-debug" scripts/test-pades-local.sh
+SIGNUM_TEST_PADES_HELPER="$PWD/.build/pr2-pades-debug/signum-pades-local" swift test --scratch-path .build/reliability
+scripts/test-pkcs11-local.sh
+swift build -c debug --scratch-path .build/reliability
+swift build -c release --scratch-path .build/reliability
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
+```
+
+Per ricostruire dipendenze e bundle usare percorsi **nuovi**, mai una Alpha:
+
+```sh
+/usr/bin/python3 scripts/build-beta-native.py --output .build/pr2-native-rebuild
+/usr/bin/python3 scripts/build-beta-app.py --configuration debug --native-prefix .build/pr2-native-rebuild/prefix --output .build/pr2-rebuild/debug/Signum.app
+/usr/bin/python3 scripts/build-beta-app.py --configuration release --native-prefix .build/pr2-native-rebuild/prefix --output .build/pr2-rebuild/release/Signum.app
+```
+
+Il packager esegue anche CTest PAdES contro quelle precise dipendenze, poi la
+suite nativa con il helper incorporato prima e dopo la rilocazione.
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 SIGNUM_TEST_PADES_HELPER="$PWD/.build/pr2-pades-debug/signum-pades-local" swift test --scratch-path .build/reliability-asan --sanitize address --filter 'PAdESHelperProcessTests|PAdESStatusIntegrationTests|ProviderSelectionTests|AppVersionTests'
+.build/native-tools/cmake/data/bin/cmake --build .build/pr2-pades-asan --parallel 6
+ASAN_OPTIONS=detect_leaks=0 .build/native-tools/cmake/data/bin/ctest --test-dir .build/pr2-pades-asan --output-on-failure --verbose
+```
+
+Il tree nativo ASAN è stato configurato Debug con prefisso
+`.build/pr2-native-macos13/prefix`, deployment 13.0, offline tests ON e flag C/C++
+`-fsanitize=address -fno-omit-frame-pointer -g -O1`.
+
+Evidenze locali ignorate da Git: `.build/reliability/evidence/pr2-*.log`.
+In particolare `pr2-package-{debug,release}-final.log` registra i bundle finali.
+
+### Commit e limiti residui
+
+| Commit locale | Correzione |
+|---|---|
+| `b14adf2` | Esiti PAdES pre-autenticazione confermati, mapping ed end-to-end |
+| `50f7cc9` | Provenienza della selezione provider e invalidazione atomica |
+| `d3b5b59` | Versione UI dai metadati reali |
+| `b3f687c` | Target macOS 13 coerente, ricetta nativa e gate packaging |
+
+Il commit successivo di documentazione registra i risultati finali.
+Nessuna modifica tracciata residua dopo la consegna. L'unico file non tracciato
+resta la review originale, SHA-256 invariato
+`2f275328cdca3ebe2023ade1c87b3179bc89540af8d7a898b304241d61a168a6`.
+`main` resta `be84a1e44f3b0bbe41bee9a2f46dbed36342ab70`; il precedente branch
+Foundation resta `e328fbf1a2b4ed05018f2346c2aa48ccebd569d4`.
+Nessun push, merge, tag o GitHub Actions. I thread della PR non sono stati
+marcati risolti: i commit sono soltanto locali.
+
+**RISCHI RESIDUI:** compatibilità reale macOS 13/14 e middleware nel lifecycle
+per richiesta; stato hardware dopo timeout; cancellazione PAdES successiva a
+un possibile commit. Le prove v4 si affidano al helper e al vendor cooperativi,
+non proteggono da codice ostile nello stesso processo/account. Rimangono invariati
+i limiti SG-06, cooperazione multiprocesso e distribuzione descritti nel rapporto
+Foundation. Il prossimo gate è la revisione dei commit e il collaudo manuale
+separatamente autorizzato, non un merge o una distribuzione automatica.

@@ -1,5 +1,10 @@
 # Signum — Beta Foundation
 
+Aggiornamento successivo: [correzioni della review PR #2](PR2_REVIEW_CORRECTIONS.md).
+I checkpoint sotto restano storici. La consegna aggiornata corregge i due P2 e
+la versione UI e mantiene il target di build macOS 13 con ricompilazione nativa
+e controlli Mach-O; il collaudo runtime su macOS 13/14 rimane da eseguire.
+
 ## Unità 1 — Analisi e design (prima delle modifiche al codice)
 
 17 ottobre 2026. Workspace `~/Developer/Signum-Reliability`.
