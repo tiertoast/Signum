@@ -1,9 +1,13 @@
+#include "SignumCertificatePolicy.h"
+#include <cctype>
 // Experimental local PAdES-B proof of concept.
 // Uses PoDoFo for incremental PDF signing, Bit4id/OpenSC PKCS#11 for RSA.
 // Does NOT export the private key or validate trust; visible AP is an experimental text-only stream.
-// This is NOT built or invoked by the Signum SwiftUI app yet.
+// Invoked by SignumApp when bundled; success means integrity verified and published.
 #include <podofo/podofo.h>
 #include "SignumPKCS11.h"
+#include "TransactionalOutput.h"
+#include "PAdESAppearance.h"
 
 #include <algorithm>
 #include <array>
@@ -132,12 +136,13 @@ struct PKCS11 {
     }
 
     void sign_encoded_digest(unsigned long slot, const std::vector<uint8_t>& id,
-                             const std::vector<uint8_t>& pin, bufferview digestInfo,
+                             const std::vector<uint8_t>& pin, const std::string& approved, bufferview digestInfo,
                              charbuff& signedHash) {
         std::array<uint8_t, 8192> signature{};
         size_t length = 0;
         const auto* message = reinterpret_cast<const uint8_t*>(digestInfo.data());
-        if (sg_sign_encoded_digest(context, slot, id.data(), id.size(),
+        if (sg_sign_encoded_digest_checked(context, slot, id.data(), id.size(),
+                                   reinterpret_cast<const uint8_t*>(approved.data()), approved.size(),
                                    pin.data(), pin.size(), message, digestInfo.size(),
                                    signature.data(), signature.size(), &length,
                                    error.data(), error.size()) != 0)
@@ -180,37 +185,36 @@ static std::string read_appearance_name() {
     return name;
 }
 
-static void set_text_appearance(PdfMemDocument& doc, PdfSignature& signature,
-                                const Rect& rect, const std::string& holder) {
-    if (rect.Width < 125 || rect.Height < 45)
-        throw std::runtime_error("Visible signature rectangle too small");
-
-    // The form XObject is a normal, pre-signing PDF object. It is never
-    // appended to the signed PDF after the ByteRange has been calculated.
-    auto appearance = doc.CreateXObjectForm(Rect(0, 0, rect.Width, rect.Height));
-    PdfPainter painter;
-    painter.SetCanvas(*appearance);
-    painter.GraphicsState.SetNonStrokingColor(PdfColor(1.0));
-    painter.DrawRectangle(0, 0, rect.Width, rect.Height, PdfPathDrawMode::Fill);
-    painter.GraphicsState.SetStrokingColor(PdfColor(0.45));
-    painter.DrawRectangle(0.5, 0.5, rect.Width - 1, rect.Height - 1,
-                          PdfPathDrawMode::Stroke);
-    painter.GraphicsState.SetNonStrokingColor(PdfColor(0.1));
-    auto& font = doc.GetFonts().GetStandard14Font(PdfStandard14FontType::Helvetica);
-    painter.TextState.SetFont(font, 9);
-    painter.DrawText("Firmato digitalmente da", 7, rect.Height - 17);
-    painter.TextState.SetFont(font, 11);
-    const auto truncated = holder.substr(0, 35);
-    painter.DrawText(truncated, 7, rect.Height - 33);
-    painter.FinishDrawing();
-
-    signature.MustGetWidget().SetAppearanceStream(*appearance);
-}
 
 int main(int argc, char** argv) {
-    const bool appearanceFromPipe = argc > 1 &&
-        std::strcmp(argv[argc - 1], "--appearance-stdin") == 0;
-    const int afterAppearance = argc - (appearanceFromPipe ? 1 : 0);
+    // GUI requires this protocol marker, so an older bundled helper fails closed.
+    const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v3") == 0;
+    int protocolCount = argc - (verifiedProtocol ? 1 : 0);
+    auto option = [&](const char* key) -> std::string {
+        if (protocolCount >= 3 && std::strcmp(argv[protocolCount - 2], key) == 0) {
+            std::string value = argv[protocolCount - 1]; protocolCount -= 2; return value;
+        }
+        return {};
+    };
+    const auto expectedFingerprint = option("--expected-cert-sha256");
+    const auto expectedDocument = option("--expected-document-sha256");
+    const auto snapshotID = option("--snapshot-id");
+    const auto jobID = option("--job-id");
+    auto uuid = [](const std::string& text) {
+        if (text.size() != 36) return false;
+        for (size_t i = 0; i < text.size(); ++i) {
+            if (i == 8 || i == 13 || i == 18 || i == 23) { if (text[i] != '-') return false; }
+            else if (!std::isxdigit(static_cast<unsigned char>(text[i]))) return false;
+        }
+        return true;
+    };
+    if (!verifiedProtocol || expectedFingerprint.size() != 64 || expectedDocument.size() != 64 || !uuid(snapshotID) || !uuid(jobID)) {
+        std::cerr << "Snapshot protocol v3 requires job, snapshot and both approved SHA-256 fingerprints\n";
+        return 2;
+    }
+    const bool appearanceFromPipe = protocolCount > 1 &&
+        std::strcmp(argv[protocolCount - 1], "--appearance-stdin") == 0;
+    const int afterAppearance = protocolCount - (appearanceFromPipe ? 1 : 0);
     const bool pinFromPipe = afterAppearance > 1 &&
         std::strcmp(argv[afterAppearance - 1], "--pin-stdin") == 0;
     const int positionalCount = afterAppearance - (pinFromPipe ? 1 : 0);
@@ -221,57 +225,35 @@ int main(int argc, char** argv) {
         return 2;
     }
     fs::path output;
-    bool outputCreated = false;
     try {
         const fs::path input = argv[1];
         output = argv[2];
         const fs::path middleware = argv[3];
         const auto slot = static_cast<unsigned long>(std::stoul(argv[4]));
         auto certificateID = parse_hex(argv[5]);
+
+        if (fs::absolute(input).lexically_normal() == fs::absolute(output).lexically_normal())
+            throw std::runtime_error("Output conflicts with input");
+        const auto source = signum::readSource(input.string());
+        signum::requireExpectedDocument(source, expectedDocument);
         require_driver_readonly(middleware);
-
-        if (!fs::is_regular_file(input) || fs::file_size(input) == 0 ||
-            fs::file_size(input) > 64 * 1024 * 1024)
-            throw std::runtime_error("Input must be a local PDF smaller than 64 MiB");
-        if (fs::exists(output) || fs::absolute(input) == fs::absolute(output))
-            throw std::runtime_error("Output already exists or conflicts with input");
-
-        // Check the input header; PoDoFo performs full PDF parsing.
-        std::ifstream header(input, std::ios::binary);
-        char magic[5]{};
-        header.read(magic, 5);
-        if (std::memcmp(magic, "%PDF-", 5) != 0)
-            throw std::runtime_error("Input is not a PDF");
-
-        // Create the output exclusively with owner-only access before the
-        // incremental update; never modify the user's original PDF.
-        const int fd = ::open(output.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
-        if (fd < 0) throw std::runtime_error("Cannot create new output PDF");
-        outputCreated = true;
-        try {
-            std::ifstream source(input, std::ios::binary);
-            if (!source) throw std::runtime_error("Cannot read source PDF");
-            std::array<char, 65536> buffer{};
-            while (source) {
-                source.read(buffer.data(), buffer.size());
-                auto remaining = source.gcount();
-                const char* ptr = buffer.data();
-                while (remaining > 0) {
-                    const auto n = ::write(fd, ptr, static_cast<size_t>(remaining));
-                    if (n <= 0) throw std::runtime_error("Cannot copy PDF to protected output");
-                    ptr += n;
-                    remaining -= n;
-                }
-            }
-            if (!source.eof()) throw std::runtime_error("Error while reading source PDF");
-            ::close(fd);
-        } catch (...) {
-            ::close(fd);
-            throw;
-        }
+        signum::TransactionalOutput transaction(output.string());
+        // PoDoFo operates on the bounded source bytes, never on a public or
+        // re-opened temporary pathname. The input is never opened for writing.
+        charbuff pdfBytes(std::string(reinterpret_cast<const char*>(source.data()), source.size()));
 
         PKCS11 token(middleware.c_str());
         const auto der = token.certificate(slot, certificateID);
+        // Bind to the exact certificate shown by the GUI, before any PIN read
+        // or private-key operation.
+        if (!expectedFingerprint.empty()) signum::requireExpectedCertificate(der, expectedFingerprint);
+        const auto assessment = sg_certificate_assess(reinterpret_cast<const uint8_t*>(der.data()), der.size(), sg_certificate_now());
+        if (assessment.status != SG_CERT_ELIGIBLE) {
+            std::string reason = assessment.status == SG_CERT_INELIGIBLE ? "Non idoneo: " : "Idoneità indeterminata: ";
+            for (unsigned bit = 0; bit < 32; ++bit)
+                if (assessment.reasons & (1u << bit)) reason += std::string(sg_certificate_reason_message(1u << bit)) + " ";
+            throw std::runtime_error(reason);
+        }
         std::vector<uint8_t> pin;
         if (pinFromPipe) {
             pin = read_stdin_pin();
@@ -293,7 +275,7 @@ int main(int argc, char** argv) {
         }
 
         try {
-            auto io = std::make_shared<FileStreamDevice>(output.string(), FileMode::Open);
+            auto io = std::make_shared<BufferStreamDevice>(pdfBytes);
             PdfMemDocument doc(io);
             unsigned pageIndex = 0;
             Rect rectangle;
@@ -310,10 +292,10 @@ int main(int argc, char** argv) {
             if (pageIndex >= doc.GetPages().GetCount())
                 throw std::runtime_error("Page index exceeds PDF page count");
             auto& page = doc.GetPages().GetPageAt(pageIndex);
-            auto& field = page.CreateField<PdfSignature>("SignumSignature", rectangle);
+            auto& field = page.CreateField<PdfSignature>("SignumSignature-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()), rectangle);
             field.SetSignatureDate(PdfDate::UtcNow());
             if (!appearanceName.empty())
-                set_text_appearance(doc, field, rectangle, appearanceName);
+                signum::setTextAppearance(doc, field, rectangle, appearanceName);
 
             PdfSignerCmsParams params;
             params.SignatureType = PdfSignatureType::PAdES_B;
@@ -321,10 +303,10 @@ int main(int argc, char** argv) {
             params.Flags = PdfSignerCmsFlags::ServiceDoWrapDigest;
             params.SigningService = [&](bufferview digestInfo, bool dryrun, charbuff& signedHash) {
                 if (dryrun) {
-                    signedHash.resize(256);
+                    signedHash.resize(static_cast<size_t>((assessment.public_key_bits + 7) / 8));
                     return;
                 }
-                token.sign_encoded_digest(slot, certificateID, pin, digestInfo, signedHash);
+                token.sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash);
             };
             PdfSignerCms signer(der, params);
             PoDoFo::SignDocument(doc, *io, signer, field);
@@ -333,14 +315,12 @@ int main(int argc, char** argv) {
             throw;
         }
         wipe_pin(pin);
-        std::cout << "PAdES prototype output written: " << output << "\n"
-                  << "VERIFY WITH AN INDEPENDENT PDF VALIDATOR BEFORE ANY USE.\n";
+        transaction.write(signum::Bytes(pdfBytes.begin(), pdfBytes.end()));
+        transaction.verifyAndPublish(source, der);
+        std::cout << "PAdES integrity verified and output published: " << output << "\n"
+                  << "Certificate trust and eIDAS qualification NOT checked.\n";
         return 0;
     } catch (const std::exception& error) {
-        if (outputCreated) {
-            std::error_code ec;
-            fs::remove(output, ec);
-        }
         std::cerr << "PAdES proof of concept failed: " << error.what() << "\n";
         return 1;
     }

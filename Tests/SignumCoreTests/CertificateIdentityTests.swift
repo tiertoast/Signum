@@ -39,7 +39,7 @@ final class CertificateIdentityTests: XCTestCase {
             field([0x55, 0x04, 0x05], "TINIT-RSSMRA80A01H501U"),
             field([0x55, 0x04, 0x03], "Rossi Mario")
         ])
-        let identity = try CertificateIdentityReader.read(fixture)
+        let identity = try SignumCertificateIdentity(certificateDER: fixture)
         XCTAssertEqual(identity.fullName, "Mario Rossi")
         XCTAssertEqual(identity.fiscalCode, "RSSMRA80A01H501U")
         XCTAssertEqual(identity.title, "Mario Rossi (RSSMRA80A01H501U)")
@@ -52,7 +52,7 @@ final class CertificateIdentityTests: XCTestCase {
             field([0x55, 0x04, 0x2A], "Anna"),
             field([0x55, 0x04, 0x03], "VRDNNA85B42F205Z/DEVICE-ID")
         ])
-        let identity = try CertificateIdentityReader.read(fixture)
+        let identity = try SignumCertificateIdentity(certificateDER: fixture)
         XCTAssertEqual(identity.fullName, "Anna Verdi")
         XCTAssertEqual(identity.fiscalCode, "VRDNNA85B42F205Z")
     }
@@ -62,13 +62,13 @@ final class CertificateIdentityTests: XCTestCase {
             field([0x55, 0x04, 0x03], "Mario Rossi"),
             field([0x55, 0x04, 0x05], "SERIAL-1234")
         ])
-        let identity = try CertificateIdentityReader.read(fixture)
+        let identity = try SignumCertificateIdentity(certificateDER: fixture)
         XCTAssertEqual(identity.title, "Mario Rossi")
         XCTAssertNil(identity.fiscalCode)
     }
 
     func testMalformedCertificateIsRejected() {
-        XCTAssertThrowsError(try CertificateIdentityReader.read(Data([0x30, 0x82, 0x01])))
+        XCTAssertThrowsError(try SignumCertificateIdentity(certificateDER: Data([0x30, 0x82, 0x01])))
     }
 
     func testDeviceTypeIsConservativeForUnknownHardware() {

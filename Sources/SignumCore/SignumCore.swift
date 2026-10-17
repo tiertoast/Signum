@@ -9,10 +9,12 @@ public enum SignumError: Error, LocalizedError {
     case unsupportedPlatform
     case invalidCertificate
     case invalidSignature
+    case outputUncertain(String)
 
     public var errorDescription: String? {
         switch self {
         case .module(let description): return description
+        case .outputUncertain(let description): return "Esito incerto: \(description)"
         case .unsupportedPlatform: return "Independent signature verification requires macOS Security.framework"
         case .invalidCertificate: return "The token did not provide a valid X.509 certificate"
         case .invalidSignature: return "Signature verification failed"
@@ -64,7 +66,7 @@ public struct SignumToken: Identifiable, Hashable {
     }
 }
 
-public struct SignumCertificate: Identifiable, Hashable {
+public struct SignumCertificate: Identifiable, Hashable, Sendable {
     public let label: String
     public let identifier: Data
     public var id: String { identifier.map { String(format: "%02X", $0) }.joined() }
@@ -75,9 +77,12 @@ public struct SignumTokenScan {
     public let unavailableSlots: Int
 }
 
-/// Loads an installed PKCS#11 provider. Do not share an instance between threads.
-/// The PKCS#11 driver executes inside this process: use trusted modules only.
-public final class PKCS11Module {
+/// Loads an installed PKCS#11 provider. Native calls share an in-process owner
+/// per canonical module and serialize complete session transactions. Retain the
+/// object during a call. Higher-level multi-call jobs still need their own state.
+/// The driver executes in-process: use trusted modules and call off the UI thread.
+public final class PKCS11Module: @unchecked Sendable {
+    // Immutable Swift state; each C entry point serializes the shared provider.
     private let context: OpaquePointer
     public let modulePath: String
 
@@ -93,10 +98,21 @@ public final class PKCS11Module {
         }
         guard status == 0, let pointer else { throw SignumError.module(Self.diagnostic(diagnostics)) }
         context = pointer
-        modulePath = path
+        modulePath = sg_canonical_path(pointer).map { String(cString: $0) } ?? path
     }
 
-    deinit { sg_close(context) }
+    private final class RetiredContext: @unchecked Sendable {
+        let pointer: OpaquePointer
+        init(_ pointer: OpaquePointer) { self.pointer = pointer }
+    }
+    private static let releaseQueue = DispatchQueue(label: "Signum.provider.release", qos: .utility, attributes: .concurrent)
+
+    deinit {
+        // Finalization may block in vendor code. Never run it while SwiftUI
+        // releases a View's last reference on the main thread.
+        let retired = RetiredContext(context)
+        Self.releaseQueue.async { sg_close(retired.pointer) }
+    }
 
     public func tokens() throws -> [SignumToken] {
         try scanTokens().tokens
@@ -168,7 +184,7 @@ public final class PKCS11Module {
     /// Demonstration only: raw SHA256withRSA operation via the installed PKCS#11 module.
     /// Do not use this without reviewing the driver and its surrounding configuration.
     private func signRSASHA256(slot: UInt, certificate: SignumCertificate,
-                               pin: String, message: Data) throws -> Data {
+                               pin: String, message: Data, expectedCertificateDER: Data) throws -> Data {
         guard !pin.isEmpty, !message.isEmpty, message.count <= 1024 * 1024 else {
             throw SignumError.module("Invalid PIN or message size")
         }
@@ -179,17 +195,20 @@ public final class PKCS11Module {
         defer {
             for i in pinBytes.indices { pinBytes[i] = 0 }
         }
-        try certificate.identifier.withUnsafeBytes { id in
-            try pinBytes.withUnsafeBytes { secret in
-                try message.withUnsafeBytes { bytes in
-                    try execute { error in
-                        signature.withUnsafeMutableBufferPointer { output in
-                            sg_sign_test(context, slot,
-                                         id.bindMemory(to: UInt8.self).baseAddress, id.count,
-                                         secret.bindMemory(to: UInt8.self).baseAddress, secret.count,
-                                         bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
-                                         output.baseAddress, output.count, &length,
-                                         error.baseAddress, error.count)
+        try expectedCertificateDER.withUnsafeBytes { approved in
+            try certificate.identifier.withUnsafeBytes { id in
+                try pinBytes.withUnsafeBytes { secret in
+                    try message.withUnsafeBytes { bytes in
+                        try execute { error in
+                            signature.withUnsafeMutableBufferPointer { output in
+                                sg_sign_test_checked(context, slot,
+                                             id.bindMemory(to: UInt8.self).baseAddress, id.count,
+                                             approved.bindMemory(to: UInt8.self).baseAddress, approved.count,
+                                             secret.bindMemory(to: UInt8.self).baseAddress, secret.count,
+                                             bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
+                                             output.baseAddress, output.count, &length,
+                                             error.baseAddress, error.count)
+                            }
                         }
                     }
                 }
@@ -251,13 +270,15 @@ public final class PKCS11Module {
     }
 
     /// Existing synthetic-string test; the signature is verified using Security.framework.
-    public func signAndVerifyTest(slot: UInt, certificate: SignumCertificate, pin: String) throws -> Bool {
+    public func signAndVerifyTest(slot: UInt, certificate: SignumCertificate, pin: String,
+                                  expectedCertificateDER: Data? = nil) throws -> Bool {
         #if canImport(Security)
         let message = Data("Signum PKCS11 proof of concept v0.1\n".utf8)
         let cert = try certificateDER(slot: slot, certificate: certificate)
+        try CertificateEligibility.requireEligible(certificateDER: cert, expectedCertificateDER: expectedCertificateDER)
         guard let x509 = SecCertificateCreateWithData(nil, cert as CFData),
               let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
-        let signature = try signRSASHA256(slot: slot, certificate: certificate, pin: pin, message: message)
+        let signature = try signRSASHA256(slot: slot, certificate: certificate, pin: pin, message: message, expectedCertificateDER: cert)
         guard SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,
                                     message as CFData, signature as CFData, nil) else {
             throw SignumError.invalidSignature
@@ -271,14 +292,16 @@ public final class PKCS11Module {
     /// Experimental attached CMS/CAdES candidate. Validation by an independent
     /// CMS/ETSI implementation is mandatory before treating this as a usable document.
     public func createCAdES(document: Data, slot: UInt,
-                            certificate: SignumCertificate, pin: String) throws -> Data {
+                            certificate: SignumCertificate, pin: String,
+                            expectedCertificateDER: Data? = nil) throws -> Data {
         #if canImport(Security)
         let cert = try certificateDER(slot: slot, certificate: certificate)
+        try CertificateEligibility.requireEligible(certificateDER: cert, expectedCertificateDER: expectedCertificateDER)
         guard let x509 = SecCertificateCreateWithData(nil, cert as CFData),
               let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
         let prepared = try CAdES.Prepared(document: document, certificateDER: cert)
         let signature = try signRSASHA256(slot: slot, certificate: certificate,
-                                          pin: pin, message: prepared.attributesToSign)
+                                          pin: pin, message: prepared.attributesToSign, expectedCertificateDER: cert)
         guard SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,
                                     prepared.attributesToSign as CFData,
                                     signature as CFData, nil) else {
@@ -292,7 +315,9 @@ public final class PKCS11Module {
 
     private func execute(_ perform: (UnsafeMutableBufferPointer<CChar>) -> Int32) throws {
         var diagnostics = [CChar](repeating: 0, count: 512)
-        let result = diagnostics.withUnsafeMutableBufferPointer { buffer in perform(buffer) }
+        let result = withExtendedLifetime(self) {
+            diagnostics.withUnsafeMutableBufferPointer { buffer in perform(buffer) }
+        }
         guard result == 0 else { throw SignumError.module(Self.diagnostic(diagnostics)) }
     }
 

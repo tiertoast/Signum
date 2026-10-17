@@ -7,6 +7,18 @@ public struct SignumCertificateIdentity: Equatable {
     public let fiscalCode: String?
     public let issuer: String?
 
+    /// Display identity and expected-certificate binding can share these exact
+    /// public DER bytes; this does not evaluate eligibility or trust.
+    public init(certificateDER: Data) throws {
+        self = try CertificateIdentityReader.read(certificateDER)
+    }
+
+    init(fullName: String, fiscalCode: String?, issuer: String?) {
+        self.fullName = fullName
+        self.fiscalCode = fiscalCode
+        self.issuer = issuer
+    }
+
     public var title: String {
         guard let fiscalCode else { return fullName }
         return "\(fullName) (\(fiscalCode))"

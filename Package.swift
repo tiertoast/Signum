@@ -10,10 +10,15 @@ let package = Package(
         .executable(name: "SignumApp", targets: ["SignumApp"])
     ],
     targets: [
-        .target(name: "CPKCS11", publicHeadersPath: "include"),
-        .target(name: "SignumCore", dependencies: ["CPKCS11"]),
+        .target(name: "CCertificatePolicy", publicHeadersPath: "include",
+                linkerSettings: [.linkedFramework("Security"), .linkedFramework("CoreFoundation")]),
+        .target(name: "COutputPermissions", publicHeadersPath: "include"),
+        .target(name: "CPKCS11", dependencies: ["CCertificatePolicy"], publicHeadersPath: "include"),
+        .target(name: "SignumCore", dependencies: ["CPKCS11", "CCertificatePolicy", "COutputPermissions"]),
         .executableTarget(name: "SignumCLI", dependencies: ["SignumCore"]),
         .executableTarget(name: "SignumApp", dependencies: ["SignumCore"]),
-        .testTarget(name: "SignumCoreTests", dependencies: ["SignumCore"])
+        .executableTarget(name: "SignumOutputCrashProbe", dependencies: ["SignumCore"],
+                          path: "Tests/SignumOutputCrashProbe"),
+        .testTarget(name: "SignumCoreTests", dependencies: ["SignumCore", "SignumOutputCrashProbe", "SignumCLI", "SignumApp"])
     ]
 )

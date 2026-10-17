@@ -4,6 +4,11 @@ import AppKit
 import UniformTypeIdentifiers
 import SignumCore
 
+func signingApprovalMessage(holder: String, job: SigningJob) -> String {
+    "Firmatario: \(holder)\n" + job.approvalDescription
+}
+
+
 @main
 struct SignumApp: App {
     var body: some Scene {
@@ -24,6 +29,13 @@ private enum SignumFormat: String, Hashable {
     case cades, pades, xades
 }
 
+private struct LoadedCertificates {
+    var certificates: [SignumCertificate] = []
+    var identities: [String: SignumCertificateIdentity] = [:]
+    var assessments: [String: CertificateEligibility.Assessment] = [:]
+    var derByID: [String: Data] = [:]
+}
+
 struct SignumWindow: View {
     @State private var modulePath = "/Library/bit4id/pkcs11/libbit4xpki.dylib"
     @State private var module: PKCS11Module?
@@ -31,25 +43,32 @@ struct SignumWindow: View {
     @State private var tokens: [SignumToken] = []
     @State private var certificates: [SignumCertificate] = []
     @State private var certificateIdentities: [String: SignumCertificateIdentity] = [:]
+    @State private var certificateAssessments: [String: CertificateEligibility.Assessment] = [:]
+    @State private var certificateDERs: [String: Data] = [:]
     @State private var selectedSlot: UInt?
     @State private var selectedCertificateID: String?
     @State private var operation: SignumOperation = .sign
     @State private var format: SignumFormat = .cades
     @State private var pdfPlacement: PAdESPlacement?
+    @State private var documentSnapshot: DocumentSnapshot?
+    @State private var previewSnapshotID: UUID?
+    @State private var selectionRequestID = UUID()
     @State private var inputFile: URL?
     @State private var lastSignedFile: URL?
     @State private var dropTargeted = false
     @State private var pin = ""
     @State private var status = "Collega un dispositivo e premi Carica."
     @State private var busy = false
+    @State private var discoveryID = UUID()
 
     private var canSign: Bool {
         guard !busy, !pin.isEmpty, selectedSlot != nil,
-              selectedCertificateID != nil, let file = inputFile else { return false }
+              let id = selectedCertificateID, certificateAssessments[id]?.permitsSigning == true,
+              let snapshot = documentSnapshot, snapshot.format.rawValue == format.rawValue else { return false }
         switch format {
         case .cades: return true
         case .pades:
-            return file.pathExtension.lowercased() == "pdf" && SignumPAdESHelper.available
+            return previewSnapshotID == snapshot.identity.id && SignumPAdESHelper.available
         case .xades: return false
         }
     }
@@ -125,13 +144,16 @@ struct SignumWindow: View {
         }
         .onChange(of: format) { nextFormat in
             pin = ""
-            pdfPlacement = nil
-            lastSignedFile = nil
-            if nextFormat == .pades,
-               let file = inputFile,
-               file.pathExtension.lowercased() != "pdf" {
-                inputFile = nil
+            let previous = inputFile
+            discardDocument()
+            if let previous, nextFormat != .xades,
+               nextFormat != .pades || previous.pathExtension.lowercased() == "pdf" {
+                selectDocument(previous)
             }
+        }
+        .onDisappear {
+            selectionRequestID = UUID()
+            documentSnapshot = nil // An active immutable job retains its own snapshot.
         }
     }
 
@@ -169,6 +191,12 @@ struct SignumWindow: View {
                 )
                 .onDrop(of: [UTType.fileURL.identifier],
                         isTargeted: $dropTargeted, perform: receiveDrop)
+                if let snapshot = documentSnapshot {
+                    Text("Copia selezionata · \(snapshot.identity.byteCount) byte · SHA-256 \(snapshot.identity.sha256)")
+                        .font(.caption2).textSelection(.enabled)
+                    Text("Le modifiche successive all'originale non sono incluse. Per aggiornarlo, selezionalo nuovamente.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Text(format == .pades ? "PDF · dimensione massima 64 MiB"
                       : "Qualsiasi file · dimensione massima 16 MiB")
                     .font(.caption).foregroundStyle(.secondary)
@@ -219,12 +247,18 @@ struct SignumWindow: View {
                             .font(.caption.weight(.semibold)).lineLimit(2)
                         Text("\(certificate.label) · ID \(certificate.id)")
                             .font(.caption2).foregroundStyle(.secondary)
+                        Text(certificateAssessments[certificate.id]?.status.description ?? "Idoneità indeterminata")
+                            .font(.caption2)
                     }
                     .tag(certificate.id)
                 }
                 .frame(height: 130)
                 .disabled(busy)
-                Text("Seleziona un certificato idoneo alla firma, non soltanto all'autenticazione.")
+                if let id = selectedCertificateID, let assessment = certificateAssessments[id] {
+                    Text(assessment.explanation).font(.caption)
+                    Text(assessment.usageDescription).font(.caption2).foregroundStyle(.secondary)
+                }
+                Text(CertificateEligibility.scope)
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(5)
@@ -280,11 +314,25 @@ struct SignumWindow: View {
 
     @ViewBuilder
     private var pdfWorkspace: some View {
-        if format == .pades, let file = inputFile,
-           file.pathExtension.lowercased() == "pdf" {
+        if format == .pades, let snapshot = documentSnapshot {
             PAdESPlacementPane(
-                fileURL: file, holder: selectedHolder, placement: $pdfPlacement
+                snapshot: snapshot,
+                previewReady: { id, ready in
+                    guard documentSnapshot?.identity.id == id else { return }
+                    if ready, previewSnapshotID != id { previewSnapshotID = id }
+                    if !ready {
+                        discardDocument(); pin = ""
+                        status = "Anteprima non disponibile: seleziona un PDF valido e non protetto."
+                    }
+                },
+                holder: selectedHolder,
+                placement: Binding(get: { pdfPlacement }, set: { value in
+                    guard !busy, documentSnapshot?.identity.id == snapshot.identity.id else { return }
+                    pdfPlacement = value
+                })
             )
+            .id(snapshot.identity.id)
+            .allowsHitTesting(!busy)
             .padding(14)
         } else {
             VStack(spacing: 14) {
@@ -303,75 +351,108 @@ struct SignumWindow: View {
         }
     }
 
+    private static func readCertificates(_ module: PKCS11Module, slot: UInt?) throws -> LoadedCertificates {
+        dispatchPrecondition(condition: .notOnQueue(.main))
+        guard let slot else { return LoadedCertificates() }
+        var result = LoadedCertificates()
+        result.certificates = try module.certificates(slot: slot)
+        for certificate in result.certificates {
+            // A DER failure must not leave a stale signer selectable. Display
+            // parsing can still fall back to the certificate label.
+            let der = try module.certificateDER(slot: slot, certificate: certificate)
+            result.derByID[certificate.id] = der
+            result.assessments[certificate.id] = CertificateEligibility.evaluate(certificateDER: der)
+            if let identity = try? SignumCertificateIdentity(certificateDER: der) {
+                result.identities[certificate.id] = identity
+            }
+        }
+        return result
+    }
+
+    private func applyCertificates(_ loaded: LoadedCertificates) {
+        certificates = loaded.certificates
+        certificateIdentities = loaded.identities
+        certificateDERs = loaded.derByID
+        certificateAssessments = loaded.assessments
+        selectedCertificateID = loaded.certificates.first(where: { loaded.assessments[$0.id]?.permitsSigning == true })?.id
+        status = "\(loaded.certificates.count) certificati · \(loaded.identities.count) identità lette."
+    }
+
     private func load(allowRetry: Bool = true) {
+        guard !busy else { return }
         let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        do {
-            let loaded: PKCS11Module
-            if let existing = module, activeModulePath == path {
-                loaded = existing
-            } else {
-                selectedSlot = nil
-                selectedCertificateID = nil
-                certificates = []
-                certificateIdentities = [:]
-                tokens = []
-                module = nil // Finalize the previous module before opening another.
-                activeModulePath = nil
-                loaded = try PKCS11Module(path: path)
-                module = loaded
-                activeModulePath = path
+        let previous = activeModulePath == path ? module : nil
+        let previousSlot = selectedSlot
+        let request = UUID()
+        discoveryID = request
+        selectedCertificateID = nil
+        busy = true
+        status = "Lettura del dispositivo in corso…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { () -> (PKCS11Module, SignumTokenScan, UInt?, LoadedCertificates) in
+                let loaded = try previous ?? PKCS11Module(path: path)
+                let scan = try loaded.scanTokens()
+                let next = scan.tokens.first(where: { $0.slot == previousSlot })?.slot ?? scan.tokens.first?.slot
+                return (loaded, scan, next, try Self.readCertificates(loaded, slot: next))
             }
-
-            let scan = try loaded.scanTokens()
-            let previousSlot = selectedSlot
-            tokens = scan.tokens
-            let nextSlot: UInt?
-            if let previousSlot, scan.tokens.contains(where: { $0.slot == previousSlot }) {
-                nextSlot = previousSlot
-            } else {
-                nextSlot = scan.tokens.first?.slot
-            }
-            selectedSlot = nextSlot
-            loadCertificates(slot: nextSlot)
-
-            if scan.unavailableSlots > 0 {
-                status = "\(scan.tokens.count) dispositivi pronti; \(scan.unavailableSlots) in inizializzazione."
-                if allowRetry {
-                    // The card reader can temporarily return CKR_TOKEN_NOT_RECOGNIZED (0xE1).
-                    // Only one automatic retry; never retry PIN authentication.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(450)) {
-                        guard !self.busy, self.activeModulePath == path else { return }
-                        self.load(allowRetry: false)
+            DispatchQueue.main.async {
+                guard self.discoveryID == request else { return }
+                self.busy = false
+                switch result {
+                case .success(let (loaded, scan, slot, cache)):
+                    self.module = loaded
+                    self.activeModulePath = loaded.modulePath
+                    self.tokens = scan.tokens
+                    self.selectedSlot = slot
+                    self.applyCertificates(cache)
+                    if scan.unavailableSlots > 0 {
+                        self.status = "\(scan.tokens.count) dispositivi pronti; \(scan.unavailableSlots) in inizializzazione."
+                        if allowRetry {
+                            // Discovery retry only; never resubmit a signing/PIN request.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(450)) {
+                                guard !self.busy, self.discoveryID == request,
+                                      self.modulePath.trimmingCharacters(in: .whitespacesAndNewlines) == path else { return }
+                                self.load(allowRetry: false)
+                            }
+                        }
+                    } else if scan.tokens.isEmpty {
+                        self.status = "Nessun dispositivo riconosciuto."
                     }
+                case .failure(let error):
+                    self.module = nil
+                    self.activeModulePath = nil
+                    self.tokens = []
+                    self.selectedSlot = nil
+                    self.applyCertificates(LoadedCertificates())
+                    self.status = "Caricamento non riuscito: \(error.localizedDescription)"
                 }
-            } else if scan.tokens.isEmpty {
-                status = "Nessun dispositivo riconosciuto."
             }
-        } catch {
-            status = "Caricamento non riuscito: \(error.localizedDescription)"
-            // Keep the successfully initialized module for a manual refresh.
         }
     }
 
     private func loadCertificates(slot: UInt?) {
+        guard !busy else { return }
         selectedCertificateID = nil
         certificates = []
         certificateIdentities = [:]
+        certificateDERs = [:]
+        certificateAssessments = [:]
+        let request = UUID()
+        discoveryID = request
         guard let module, let slot else { return }
-        do {
-            let found = try module.certificates(slot: slot)
-            var identities: [String: SignumCertificateIdentity] = [:]
-            for certificate in found {
-                if let identity = try? module.certificateIdentity(slot: slot, certificate: certificate) {
-                    identities[certificate.id] = identity
+        busy = true
+        status = "Lettura certificati in corso…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try Self.readCertificates(module, slot: slot) }
+            DispatchQueue.main.async {
+                guard self.discoveryID == request else { return }
+                self.busy = false
+                guard self.selectedSlot == slot else { return }
+                switch result {
+                case .success(let cache): self.applyCertificates(cache)
+                case .failure(let error): self.status = "Lettura certificati non riuscita: \(error.localizedDescription)"
                 }
             }
-            certificates = found
-            certificateIdentities = identities
-            selectedCertificateID = found.first?.id
-            status = "\(found.count) certificati · \(identities.count) identità lette."
-        } catch {
-            status = "Lettura certificati non riuscita: \(error.localizedDescription)"
         }
     }
 
@@ -387,10 +468,7 @@ struct SignumWindow: View {
                 status = "Per PAdES seleziona un documento .pdf."
                 return
             }
-            inputFile = url
-            pdfPlacement = nil
-            lastSignedFile = nil
-            status = "Documento selezionato: \(url.lastPathComponent)"
+            selectDocument(url)
         }
     }
 
@@ -410,133 +488,111 @@ struct SignumWindow: View {
                     self.status = "Per PAdES seleziona un file PDF."
                     return
                 }
-                self.inputFile = url
-                self.pdfPlacement = nil
-                self.lastSignedFile = nil
-                self.status = "Documento selezionato: \(url.lastPathComponent)"
+                self.selectDocument(url)
             }
         }
         return true
     }
 
-    private func signDocument() {
-        guard format == .cades, !busy, let module, let slot = selectedSlot,
-              let cert = certificates.first(where: { $0.id == selectedCertificateID }),
-              let original = inputFile, !pin.isEmpty else { return }
-
-        let save = NSSavePanel()
-        save.title = "Salva il documento firmato CAdES"
-        save.directoryURL = original.deletingLastPathComponent()
-        save.nameFieldStringValue = original.lastPathComponent + ".p7m"
-        save.canCreateDirectories = true
-        guard save.runModal() == .OK, let destination = save.url else { return }
-        guard destination.pathExtension.lowercased() == "p7m",
-              original.standardizedFileURL != destination.standardizedFileURL else {
-            status = "La destinazione deve avere estensione .p7m ed essere diversa dall'originale."
-            return
-        }
-
-        if FileManager.default.fileExists(atPath: destination.path) {
-            status = "Il file .p7m esiste già. Scegli un nome diverso."
-            return
-        }
-
-        let suppliedPIN = pin
-        pin = "" // Clear SwiftUI text field immediately.
-        busy = true
+    private func discardDocument() {
+        documentSnapshot?.close()
+        documentSnapshot = nil
+        inputFile = nil
+        previewSnapshotID = nil
+        pdfPlacement = nil
         lastSignedFile = nil
-        status = "Creazione della firma CAdES in corso…"
+    }
 
-        // Keep module alive and disable all UI operations using this PKCS#11
-        // provider while the signature is running.
+    private func selectDocument(_ url: URL) {
+        guard !busy, let requestedFormat = SigningFormat(rawValue: format.rawValue) else { return }
+        discardDocument()
+        pin = ""
+        busy = true
+        let request = UUID(); selectionRequestID = request
+        status = "Acquisizione della copia privata del documento…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let result: Result<URL, Error>
-            do {
-                let attributes = try FileManager.default.attributesOfItem(atPath: original.path)
-                guard let size = attributes[.size] as? NSNumber,
-                      size.intValue > 0, size.intValue <= CAdES.maximumDocumentBytes else {
-                    throw SignumError.module("Il file deve contenere tra 1 byte e 16 MiB.")
-                }
-                let document = try Data(contentsOf: original)
-                guard !document.isEmpty && document.count <= CAdES.maximumDocumentBytes else {
-                    throw SignumError.module("Documento vuoto o troppo grande.")
-                }
-                let cms = try module.createCAdES(document: document,
-                                                  slot: slot, certificate: cert, pin: suppliedPIN)
-                try SignumFileOutput.writeNew(cms, to: destination)
-                result = .success(destination)
-            } catch {
-                result = .failure(error)
-            }
+            let captured = Result { try DocumentSnapshot.capture(source: url, format: requestedFormat) }
             DispatchQueue.main.async {
-                self.busy = false
-                switch result {
-                case .success(let url):
-                    self.lastSignedFile = url
-                    self.status = "Busta .p7m creata: \(url.lastPathComponent). Verificala con InfoCamere o DSS."
-                case .failure(let error):
-                    self.status = "Firma non riuscita: \(error.localizedDescription)"
+                guard selectionRequestID == request else {
+                    if case .success(let snapshot) = captured { snapshot.close() }
+                    return
+                }
+                busy = false
+                switch captured {
+                case .success(let snapshot):
+                    documentSnapshot = snapshot
+                    inputFile = snapshot.originalURL
+                    status = "Copia acquisita. Controlla il documento prima di approvare la firma."
+                case .failure(let error): status = error.localizedDescription
                 }
             }
         }
     }
 
+    private func signDocument() { approveAndSign() }
+    private func signPAdES() { approveAndSign() }
 
-    private func signPAdES() {
-        guard format == .pades, !busy, let original = inputFile,
-              let slot = selectedSlot,
-              let cert = certificates.first(where: { $0.id == selectedCertificateID }),
-              !pin.isEmpty else { return }
-
-        let picker = NSSavePanel()
-        picker.title = "Salva PDF firmato PAdES — prototipo"
-        picker.directoryURL = original.deletingLastPathComponent()
-        picker.nameFieldStringValue = original.deletingPathExtension().lastPathComponent + "-firmato.pdf"
-        guard picker.runModal() == .OK, let output = picker.url else { return }
-        guard output.pathExtension.lowercased() == "pdf",
-              output.standardizedFileURL != original.standardizedFileURL else {
-            status = "Scegli un file PDF di destinazione diverso dall'originale."
-            return
-        }
-        guard !FileManager.default.fileExists(atPath: output.path) else {
-            status = "Il PDF di destinazione esiste già: scegli un altro nome."
-            return
-        }
-
-        let field: SignumPAdESHelper.Field?
-        if let placement = pdfPlacement {
-            field = .init(pageIndex: placement.pageIndex,
-                          x: Double(placement.rectangle.minX),
-                          y: Double(placement.rectangle.minY),
-                          width: Double(placement.rectangle.width),
-                          height: Double(placement.rectangle.height))
-        } else {
-            field = nil
-        }
-        let secret = pin
+    private func approveAndSign() {
+        guard canSign, let snapshot = documentSnapshot, let module, let slot = selectedSlot,
+              let certificate = certificates.first(where: { $0.id == selectedCertificateID }),
+              let der = certificateDERs[certificate.id] else { return }
+        // Freeze operation inputs before opening modal panels; the worker never
+        // reads view state or the original document URL.
         let holder = selectedHolder
-        pin = ""
+        let field = pdfPlacement.map { SignumPAdESHelper.Field(pageIndex: $0.pageIndex,
+            x: Double($0.rectangle.minX), y: Double($0.rectangle.minY),
+            width: Double($0.rectangle.width), height: Double($0.rectangle.height)) }
         busy = true
+        var launched = false
+        defer { if !launched { busy = false } }
+        let save = NSSavePanel()
+        save.title = "Destinazione della copia firmata"
+        save.directoryURL = snapshot.originalURL.deletingLastPathComponent()
+        save.nameFieldStringValue = snapshot.format == .cades
+            ? snapshot.originalURL.lastPathComponent + ".p7m"
+            : snapshot.originalURL.deletingPathExtension().lastPathComponent + "-firmato.pdf"
+        guard save.runModal() == .OK, let destination = save.url else {
+            discardDocument(); pin = ""; status = "Firma annullata. Riseleziona il documento."; return
+        }
+        let job: SigningJob
+        do {
+            job = try SigningJob(snapshot: snapshot, providerPath: module.modulePath, slot: slot,
+                                 certificate: certificate, certificateDER: der, destination: destination)
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw SignumError.module("La destinazione esiste già: scegli un altro nome.")
+            }
+        } catch {
+            discardDocument(); pin = ""; status = error.localizedDescription; return
+        }
+        let approval = NSAlert()
+        approval.messageText = "Approva i byte da firmare"
+        approval.informativeText = signingApprovalMessage(holder: holder, job: job)
+        approval.addButton(withTitle: "Approva e firma")
+        approval.addButton(withTitle: "Annulla")
+        guard approval.runModal() == .alertFirstButtonReturn else {
+            discardDocument(); pin = ""; status = "Firma annullata. Copia privata scartata."; return
+        }
+        let secret = pin; pin = ""
+        launched = true
         lastSignedFile = nil
-        status = "Firma PDF con PoDoFo e PKCS#11 in corso…"
-        let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines)
-
+        status = "Firma della copia approvata in corso…"
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome = Result {
-                try SignumPAdESHelper.sign(
-                    input: original, output: output, modulePath: path,
-                    slot: slot, certificateID: cert.id, pin: secret,
-                    appearanceName: holder, field: field
-                )
+                defer { job.snapshot.close() }
+                if job.format == .cades {
+                    try job.signCAdES(using: module, pin: secret)
+                } else {
+                    try SignumPAdESHelper.sign(job: job, pin: secret, appearanceName: holder, field: field)
+                }
             }
             DispatchQueue.main.async {
-                self.busy = false
+                busy = false
+                discardDocument()
                 switch outcome {
                 case .success:
-                    self.lastSignedFile = output
-                    self.status = "PDF PAdES sperimentale creato: VERIFICALO con InfoCamere prima di utilizzarlo."
-                case .failure(let error):
-                    self.status = "Firma PDF non riuscita: \(error.localizedDescription)"
+                    lastSignedFile = job.destination
+                    status = "Documento firmato e integrità verificata. Attendibilità CA, revoca e qualificazione non valutate."
+                case .failure(let error): status = error.localizedDescription
                 }
             }
         }

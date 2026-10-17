@@ -52,9 +52,39 @@ final class CAdESVerificationIntegrationTests: XCTestCase {
         XCTAssertEqual(verified.originalDocument, expected)
         XCTAssertEqual(verified.suggestedFilename, "sample.txt")
 
+        // Verify the assembled Signum builder independently with a synthetic
+        // software key. No PKCS#11 provider, token or PIN is involved.
+        let der = folder.appendingPathComponent("certificate.der")
+        let attributes = folder.appendingPathComponent("attributes")
+        let signature = folder.appendingPathComponent("signature")
+        try openssl(["x509", "-in", certificate.path, "-outform", "DER", "-out", der.path])
+        let prepared = try CAdES.Prepared(document: expected, certificateDER: Data(contentsOf: der))
+        try prepared.attributesToSign.write(to: attributes)
+        try openssl(["dgst", "-sha256", "-sign", key.path, "-out", signature.path, attributes.path])
+        let built = try prepared.finish(signature: Data(contentsOf: signature))
+        let published = folder.appendingPathComponent("verified.p7m")
+        try SignumFileOutput.writeNew(built, to: published) { staged in
+            XCTAssertFalse(manager.fileExists(atPath: published.path))
+            try CAdESVerifier.verifyAttached(data: staged, expectedDocument: expected)
+        }
+        XCTAssertEqual(try Data(contentsOf: published), built)
+        let rejected = folder.appendingPathComponent("rejected.p7m")
+        XCTAssertThrowsError(try SignumFileOutput.writeNew(built, to: rejected) { staged in
+            try CAdESVerifier.verifyAttached(data: staged, expectedDocument: Data("Wrong content".utf8))
+        })
+        XCTAssertFalse(manager.fileExists(atPath: rejected.path))
+        // Signing an existing envelope compares the outer payload, not the
+        // innermost document returned by the recursive presentation verifier.
+        try CAdESVerifier.verifyAttached(data: Data(contentsOf: second), expectedDocument: Data(contentsOf: first))
+
         var corrupted = try Data(contentsOf: second)
         corrupted[corrupted.index(before: corrupted.endIndex)] ^= 0x01
         XCTAssertThrowsError(try CAdESVerifier.verify(data: corrupted))
+        XCTAssertThrowsError(try SignumFileOutput.writeNew(corrupted, to: rejected) { staged in
+            try CAdESVerifier.verifyAttached(data: staged, expectedDocument: Data(contentsOf: first))
+        })
+        XCTAssertFalse(manager.fileExists(atPath: rejected.path))
+
     }
 }
 #endif

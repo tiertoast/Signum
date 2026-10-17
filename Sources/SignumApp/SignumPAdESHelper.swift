@@ -23,19 +23,18 @@ enum SignumPAdESHelper {
         let height: Double
     }
 
-    static func sign(input: URL,
-                     output: URL,
-                     modulePath: String,
-                     slot: UInt,
-                     certificateID: String,
-                     pin: String,
-                     appearanceName: String,
-                     field: Field?) throws {
+    static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?) throws {
+        defer { job.snapshot.close() }
+        guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
+        _ = try job.verifiedBytes()
+        let input = job.snapshot.fileURL, output = job.destination
+        let modulePath = job.providerPath, slot = job.slot, certificateID = job.certificate.id
+        let expectedCertificate = job.certificateDER
+        try CertificateEligibility.requireEligible(certificateDER: expectedCertificate)
         guard available else {
             throw SignumError.module("Motore PAdES non installato nel bundle. Compila PoDoFo in locale.")
         }
         guard input.isFileURL, output.isFileURL,
-              input.pathExtension.lowercased() == "pdf",
               output.pathExtension.lowercased() == "pdf",
               input.standardizedFileURL != output.standardizedFileURL else {
             throw SignumError.module("Input e output devono essere PDF differenti.")
@@ -72,21 +71,6 @@ enum SignumPAdESHelper {
         args.append("--pin-stdin")
         if field != nil { args.append("--appearance-stdin") }
 
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = args
-        let inputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardInput = inputPipe
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errorPipe
-
-        do {
-            try process.run()
-        } catch {
-            throw SignumError.module("Impossibile avviare il motore PAdES: \(error.localizedDescription)")
-        }
-
         // Supply exactly one line to the helper. This avoids getpass() in GUI
         // contexts and avoids leaking credentials through command arguments.
         var secret = Data(pin.utf8)
@@ -107,30 +91,17 @@ enum SignumPAdESHelper {
             secret.append(printableName)
             secret.append(0x0A)
         }
-        do {
-            try inputPipe.fileHandleForWriting.write(contentsOf: secret)
-            try inputPipe.fileHandleForWriting.close()
-        } catch {
-            // If helper exited immediately, collect its diagnostic below.
-            try? inputPipe.fileHandleForWriting.close()
+        defer { secret.resetBytes(in: 0..<secret.count) }
+        let fingerprint = job.certificateSHA256
+        args += ["--job-id", job.id.uuidString, "--snapshot-id", job.snapshotIdentity.id.uuidString,
+                 "--expected-document-sha256", job.contentSHA256,
+                 "--expected-cert-sha256", fingerprint, "--verified-output-v3"]
+        switch PAdESHelperProcess.run(executable: executableURL, arguments: args,
+                                      input: &secret, destination: output) {
+        case .published: return
+        case .failed(let diagnostic): throw SignumError.module("PAdES non riuscita: \(diagnostic)")
+        case .uncertain(let diagnostic): throw SignumError.outputUncertain(diagnostic)
         }
-        secret.resetBytes(in: 0..<secret.count)
-        process.waitUntilExit()
-
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationReason == .exit && process.terminationStatus == 0 else {
-            let diagnostic = String(decoding: errorData.prefix(1200), as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw SignumError.module("PAdES non riuscita: \(diagnostic.isEmpty ? "il motore ha interrotto la firma." : diagnostic)")
-        }
-        guard FileManager.default.fileExists(atPath: output.path),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: output.path),
-              let size = attrs[.size] as? NSNumber,
-              size.intValue > 0 else {
-            throw SignumError.module("Il motore non ha creato un PDF di output valido.")
-        }
-        // Success here means the helper completed, NOT that a qualified PAdES
-        // signature has passed a third-party PDF validator.
     }
 }
 #endif

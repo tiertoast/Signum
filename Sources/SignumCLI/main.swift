@@ -90,7 +90,12 @@ func run() throws {
     }
     let certificates = try module.certificates(slot: slot)
     if action == "certs" {
-        for cert in certificates { print("\(cert.label) — ID \(cert.id)") }
+        for cert in certificates {
+            let der = try module.certificateDER(slot: slot, certificate: cert)
+            let assessment = CertificateEligibility.evaluate(certificateDER: der)
+            print("\(cert.label) — ID \(cert.id): \(assessment.explanation) · \(assessment.usageDescription)")
+        }
+        print(CertificateEligibility.scope)
         return
     }
 
@@ -99,10 +104,15 @@ func run() throws {
         throw SignumError.module("Certificate ID not found in this slot")
     }
 
+    let approvedCertificate = try module.certificateDER(slot: slot, certificate: certificate)
+    let assessment = try CertificateEligibility.requireEligible(certificateDER: approvedCertificate)
+    print(assessment.explanation)
+    print(CertificateEligibility.scope)
+
     if action == "sign-test" {
         let pin = try inputPIN()
         print("Starting hardware signing test (not a PDF signature)...")
-        let verified = try module.signAndVerifyTest(slot: slot, certificate: certificate, pin: pin)
+        let verified = try module.signAndVerifyTest(slot: slot, certificate: certificate, pin: pin, expectedCertificateDER: approvedCertificate)
         print(verified ? "Verified OK — RSA/SHA-256" : "Verification failed")
         return
     }
@@ -118,21 +128,18 @@ func run() throws {
     guard !FileManager.default.fileExists(atPath: output.path) else {
         throw SignumError.module("Refusing to overwrite existing output")
     }
-    let fileAttributes = try FileManager.default.attributesOfItem(atPath: input.path)
-    guard let size = fileAttributes[.size] as? NSNumber,
-          size.intValue > 0, size.intValue <= CAdES.maximumDocumentBytes else {
-        throw SignumError.module("Input must be 1 byte to 16 MiB")
-    }
-    let document = try Data(contentsOf: input)
-    guard !document.isEmpty && document.count <= CAdES.maximumDocumentBytes else {
-        throw SignumError.module("Input exceeds allowed size")
-    }
-    print("Signing test document with slot \(slot), certificate \(certificate.label).")
-    print("This prototype DOES NOT validate certificate trust or legal qualification.")
+    let snapshot = try DocumentSnapshot.capture(source: input, format: .cades)
+    defer { snapshot.close() }
+    let job = try SigningJob(snapshot: snapshot, providerPath: module.modulePath, slot: slot,
+                             certificate: certificate, certificateDER: approvedCertificate, destination: output)
+    print("Copia privata da controllare: \(snapshot.fileURL.path)")
+    print(job.approvalDescription)
+    print("Per approvare questa copia, scrivi FIRMA (qualsiasi altra risposta annulla):")
+    fflush(stdout)
+    guard readLine() == "FIRMA" else { throw SignumError.module("Firma annullata. Copia privata scartata.") }
+    _ = try job.verifiedBytes()
     let pin = try inputPIN()
-    let cms = try module.createCAdES(document: document, slot: slot,
-                                     certificate: certificate, pin: pin)
-    try SignumFileOutput.writeNew(cms, to: output)
+    try job.signCAdES(using: module, pin: pin)
     print("Created: \(output.path)")
     print("NEXT: verify with: openssl cms -verify -inform DER -binary -noverify -in '\(output.path)' -out /tmp/signum-extracted.dat")
 }

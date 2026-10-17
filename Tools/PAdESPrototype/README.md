@@ -1,56 +1,91 @@
-# Signum PAdES Engine — Experimental
+# Signum PAdES Engine — Reliability Foundation
 
-Optional native C++/PoDoFo prototype for PAdES-B with a PKCS#11 hardware key.
-Not built by swift test. When the optional helper is compiled locally, the macOS app can launch it for experimental PAdES signing.
+Native macOS helper used by SignumApp when bundled. SwiftPM builds the app but
+not this C++ helper. This development branch requires **PoDoFo 1.1.2** and
+**OpenSSL 3.x**; no global installation is performed by the test script.
 
-## Technical flow
+## Signing and verification
 
-- PoDoFo 1.1.x incrementally signs a new copy of the PDF using PdfSignerCms.
-- An external SigningService supplies SHA-256 DigestInfo to PKCS#11 CKM_RSA_PKCS.
-- The private key never leaves the DigitalDNA/CNS device.
-- The optional rectangle creates a PDF signature field; graphic image/text appearance streams are NOT yet implemented.
-- This does not verify trusted certificate chains, eIDAS status, timestamps or revocation.
+- SignumCore acquires an owner-private CoW document snapshot before user approval.
+  PDFKit previews the snapshot's immutable bytes, not the original URL.
+- The helper requires job/snapshot UUIDs and the approved document SHA-256, checks
+  that fingerprint before provider/PIN access, then signs only the loaded bytes.
+- PoDoFo incrementally signs an in-memory copy of that bounded, verified input.
+- The external service supplies SHA-256 DigestInfo to PKCS#11 CKM_RSA_PKCS;
+  the token's private key is never exported.
+- The shared SignumCore local certificate policy runs before the PIN is read;
+  a second DER binding/policy check precedes authentication under the provider lock.
+  Only eligible RSA 2048–8192-bit keys are accepted; the reservation uses key size.
+  Unknown usage/critical-extension semantics fail closed as indeterminate.
+- The text-only appearance stream and page coordinates are preserved.
+- Complete output is written to private staging on the destination volume.
+- CoreGraphics parses the PDF independently of PoDoFo. OpenSSL verifies the
+  detached CMS, signed attributes and signature against the expected certificate.
+- The verifier also checks ByteRange/Contents coverage, source prefix, page
+  content/resources/geometry, preservation of existing annotations and the new
+  signature widget. Only then is the file published with exclusive atomic rename.
+- This verifies integrity, **not** certificate trust, revocation, timestamps,
+  eIDAS qualification or full ETSI conformance.
 
-## Build on your Mac only
+Encrypted PDFs, certified PDFs with a catalog `/Perms`, unsupported signature
+filters/digests, cyclic/oversized resource graphs and unexpected PDF layouts fail
+closed. See [the part 2 report](../../docs/0.3.3-reliability-foundation-part2.md)
+for the precise scope and residual limits.
 
-Verify installed Homebrew packages first, then when ready:
+## Local offline tests
+
+With dependencies in `.build/native-prefix` and CMake available:
 
 ```bash
-brew install cmake podofo
-cd ~/Signum
-cmake -S Tools/PAdESPrototype -B .build/signum-pades -DCMAKE_PREFIX_PATH="$(brew --prefix)"
-cmake --build .build/signum-pades --config Release
+scripts/test-pades-local.sh
 ```
 
-If compilation fails or the PoDoFo API differs, STOP and send the compiler diagnostics.
-Do not use a production PDF for this experiment.
+The script also detects the private CMake wheel under `.build/native-tools`.
+`SIGNUM_CMAKE`, `SIGNUM_CTEST`, `SIGNUM_NATIVE_PREFIX` and
+`SIGNUM_PADES_TEST_BUILD` can override the local paths. The test executable uses
+only generated PDF/certificate/software-key fixtures. Subprocess cases launch
+the real helper with synthetic input and a test-only PKCS#11 mock, keeping stdin
+open and empty to prove that document/protocol/certificate failures precede any PIN read. No installed provider, PIN or
+physical token is used. No CI is configured or invoked.
 
-## First PDF signature trial (after successful compilation)
-
-Choose a small non-confidential test PDF and a NEW output path:
+For a separate Release helper:
 
 ```bash
-.build/signum-pades/signum-pades-local /absolute/path/to/test.pdf /absolute/path/to/test-signed.pdf /Library/bit4id/pkcs11/libbit4xpki.dylib 1 445333
+cmake -S Tools/PAdESPrototype -B .build/signum-pades-release \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/.build/native-prefix" \
+  -DOPENSSL_ROOT_DIR="$PWD/.build/native-prefix"
+cmake --build .build/signum-pades-release --parallel 6
 ```
 
-The helper asks for the token PIN on the terminal, not via arguments.
-To use a signature field rectangle, append optional PAGE_INDEX X Y WIDTH HEIGHT (PDF points, page zero-based):
+## App bridge and manual hardware checks
 
-```text
-0 120 90 190 62
-```
+The GUI supplies PIN/name through a private stdin pipe, never argv/environment.
+It requires `--verified-output-v3`; older helpers fail rather than reporting
+success without snapshot binding, certificate policy and integrity verification.
+Stderr is drained while the process runs and retained at a
+bounded size. Timeout/abnormal exit with a possible committed file produces an
+uncertain result and never an automatic retry or deletion of that file.
 
-Verify the output independently with InfoCamere Sign, including its PAdES profile, integrity, ByteRange and intended signer. The file is not considered compatible until these tests succeed.
+This is an internal app/helper contract, not a public integration API. Invocations
+without v3, `--job-id`, `--snapshot-id`, `--expected-document-sha256`, and
+`--expected-cert-sha256` fail before authentication. Old direct invocations must be
+replaced by explicitly approved snapshot jobs. Signum's CLI uses the same Core
+snapshot/job invariants for CAdES and asks for approval before the PIN prompt.
 
-## License and safety
+Acquisition currently requires a filesystem supporting native CoW cloning on the
+same volume as the private macOS temporary area. Unsupported/cross-volume inputs
+fail closed; there is no streaming-copy fallback that could mix concurrent source
+writes. Later original-file edits never update an approved snapshot. Re-select the
+file to acquire/approve a new version. See the part 5 report for cleanup limits.
 
-PoDoFo is LGPL-2.0-or-later OR MPL-2.0, installed independently, not vendored in Signum.
-The helper does not perform a full driver security review; the PIN may remain in transient memory copies. An eventual GUI bridge must use isolated secure IPC rather than command-line or environment PINs.
+`scripts/build-app.sh` can bundle `.build/signum-pades/signum-pades-local` in a
+separate development app. Native runtime libraries still require a reproducible
+packaging/distribution step (SG-17); these local binaries are not a public release.
 
-## GUI prototype
+Hardware tests require explicit user authorization, a synthetic PDF and manual PIN
+entry. Independent InfoCamere/other-validator interoperability checks remain to be
+performed. Do not infer qualified status from the visible stamp.
 
-Rebuild the helper locally, then run `bash scripts/build-app.sh` to include it in the app bundle. Until the helper is present, the PAdES signing button stays disabled. Verify every output PDF with an independent validator. The selected position creates a signature field; the custom image and text appearance is not yet embedded into signed PDFs.
-
-## Visible appearance trial
-
-Version 0.3.2-alpha creates a small real `/AP /N` stream when a signature field position is selected in the GUI. It currently renders **text only** (certificate holder display name and signature label), before hashing and signing. Logo, image, custom font, and a graphical signing date remain future work. After rebuilding, validate both the visible stamp in a PDF reader and PAdES integrity with InfoCamere. Never infer qualified status from the visible stamp.
+PoDoFo remains an external LGPL-2.0-or-later OR MPL-2.0 dependency; no third-party
+source or binary is committed. Secrets may still remain in Swift/middleware memory
+(SG-12); this portion does not claim a complete middleware or PIN security review.
