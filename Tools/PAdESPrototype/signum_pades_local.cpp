@@ -189,8 +189,19 @@ static std::string read_appearance_name() {
 
 int main(int argc, char** argv) {
     if (sg_worker_watch_parent() != 0) return 2;
+    const bool statusProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v4") == 0;
+    // Reserve the only status descriptor before loading any vendor code. Vendor
+    // stdout/stderr cannot masquerade as a pre-authentication rejection.
+    int reply = -1;
+    if (statusProtocol) {
+        reply = dup(STDOUT_FILENO);
+        int sink = open("/dev/null", O_WRONLY | O_CLOEXEC);
+        if (reply < 0 || sink < 0 || fcntl(reply, F_SETFD, FD_CLOEXEC) ||
+            fcntl(reply, F_SETNOSIGPIPE, 1) || dup2(sink, STDOUT_FILENO) < 0 || dup2(sink, STDERR_FILENO) < 0) return 2;
+        close(sink);
+    }
     // GUI requires this protocol marker, so an older bundled helper fails closed.
-    const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v3") == 0;
+    const bool verifiedProtocol = statusProtocol || (argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v3") == 0);
     int protocolCount = argc - (verifiedProtocol ? 1 : 0);
     auto option = [&](const char* key) -> std::string {
         if (protocolCount >= 3 && std::strcmp(argv[protocolCount - 2], key) == 0) {
@@ -214,6 +225,19 @@ int main(int argc, char** argv) {
         std::cerr << "Snapshot protocol v3 requires job, snapshot and both approved SHA-256 fingerprints\n";
         return 2;
     }
+    auto respond = [&](const char* outcome, const char* reason) {
+        // UUID syntax has been validated; all other fields are fixed literals.
+        const auto status = std::string("{\"version\":4,\"jobID\":\"") + jobID +
+            "\",\"outcome\":\"" + outcome + "\",\"reason\":\"" + reason + "\"}";
+        size_t sent = 0;
+        while (sent < status.size()) {
+            auto n = write(reply, status.data() + sent, status.size() - sent);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) return 2;
+            sent += static_cast<size_t>(n);
+        }
+        close(reply); return 0;
+    };
     const bool appearanceFromPipe = protocolCount > 1 &&
         std::strcmp(argv[protocolCount - 1], "--appearance-stdin") == 0;
     const int afterAppearance = protocolCount - (appearanceFromPipe ? 1 : 0);
@@ -227,6 +251,8 @@ int main(int argc, char** argv) {
         return 2;
     }
     fs::path output;
+    bool authenticationMayHaveStarted = false;
+    const char* rejectionReason = "preflight";
     try {
         const fs::path input = argv[1];
         output = argv[2];
@@ -246,7 +272,10 @@ int main(int argc, char** argv) {
 
         std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(
             sg_token_lease_acquire(middleware.c_str(), slot, 0, 10000), sg_token_lease_release);
-        if (!lease) throw std::runtime_error("Dispositivo occupato o coordinamento non disponibile; nessun PIN inviato al provider");
+        if (!lease) {
+            rejectionReason = errno == ETIMEDOUT ? "busy" : "coordination";
+            throw std::runtime_error("Dispositivo occupato o coordinamento non disponibile; nessun PIN inviato al provider");
+        }
         PKCS11 token(middleware.c_str());
         const auto der = token.certificate(slot, certificateID);
         // Bind to the exact certificate shown by the GUI, before any PIN read
@@ -311,6 +340,7 @@ int main(int argc, char** argv) {
                     signedHash.resize(static_cast<size_t>((assessment.public_key_bits + 7) / 8));
                     return;
                 }
+                authenticationMayHaveStarted = true; // Before any possible Login; never reset on error.
                 token.sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash);
             };
             PdfSignerCms signer(der, params);
@@ -322,10 +352,15 @@ int main(int argc, char** argv) {
         wipe_pin(pin);
         transaction.write(signum::Bytes(pdfBytes.begin(), pdfBytes.end()));
         transaction.verifyAndPublish(source, der);
+        if (statusProtocol) return respond("published", "none");
         std::cout << "PAdES integrity verified and output published: " << output << "\n"
                   << "Certificate trust and eIDAS qualification NOT checked.\n";
         return 0;
     } catch (const std::exception& error) {
+        // Stack unwinding/cleanup has finished before acknowledging a rejection.
+        // Crash, hang or a lost/truncated response carries no such proof.
+        if (statusProtocol) return respond(authenticationMayHaveStarted ? "uncertain" : "rejectedBeforeAuthentication",
+                                           authenticationMayHaveStarted ? "interrupted" : rejectionReason);
         std::cerr << "PAdES proof of concept failed: " << error.what() << "\n";
         return 1;
     }

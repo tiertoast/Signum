@@ -624,7 +624,7 @@ int main(int argc, char** argv) {
             put(input, source);
             std::vector<std::string> args = {argv[2], input.string(), output.string(), module.string(), "7", "01", "--pin-stdin",
                 "--job-id", "11111111-1111-4111-8111-111111111111", "--snapshot-id", "22222222-2222-4222-8222-222222222222",
-                "--expected-document-sha256", sha256(source), "--expected-cert-sha256", sha256(Bytes(signer.der.begin(), signer.der.end())), "--verified-output-v3"};
+                "--expected-document-sha256", sha256(source), "--expected-cert-sha256", sha256(Bytes(signer.der.begin(), signer.der.end())), "--verified-output-v4"};
             std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(nullptr, sg_token_lease_release);
             if (busy) { lease.reset(sg_token_lease_acquire(module.c_str(), 7, 0, 0)); expect(lease != nullptr, "Cannot hold fixture token"); }
             auto pid = spawnFixture(args, f.path / "helper.log", busy ? "" : "synthetic-fixture\n");
@@ -634,6 +634,10 @@ int main(int argc, char** argv) {
                 kill(pid, SIGKILL); expect(waitFixture(pid) != 0, "Killed helper claimed success");
             } else {
                 expect(waitFixture(pid) == 0, "Real native helper failed software fixture");
+                auto status = fileBytes(f.path / "helper.log");
+                auto text = std::string(status.begin(), status.end());
+                expect(text.find("\"outcome\":\"published\"") != std::string::npos && text.find("11111111-1111-4111-8111-111111111111") != std::string::npos,
+                       "Missing job-bound v4 status");
                 verifyPDF(fileBytes(output), source, signer.der);
                 std::ifstream audit(f.path / "operations"); int op, logins = 0, signs = 0;
                 while (audit >> op) { if (op == 8) ++logins; if (op == 16) ++signs; }

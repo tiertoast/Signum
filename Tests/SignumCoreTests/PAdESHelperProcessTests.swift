@@ -21,7 +21,7 @@ final class PAdESHelperProcessTests: XCTestCase {
     func testDrainsLargeStderrWithoutDeadlockAndBoundsDiagnostic() throws {
         try fixture { output in
             let outcome = run("/usr/bin/head -c 262144 /dev/zero >&2; exit 7", output: output)
-            guard case .failed(let message) = outcome else { return XCTFail("Unexpected transport outcome") }
+            guard case .uncertain(let message) = outcome else { return XCTFail("Unexpected transport outcome") }
             XCTAssertLessThanOrEqual(message.utf8.count, 1200)
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         }
@@ -39,9 +39,9 @@ final class PAdESHelperProcessTests: XCTestCase {
             guard case .uncertain = run("exit 0", output: output) else { return XCTFail("Missing output cannot be success") }
         }
     }
-    func testTimeoutWithoutOutputFailsWithoutRetry() throws {
+    func testTimeoutWithoutProofRemainsUncertainWithoutRetry() throws {
         try fixture { output in
-            guard case .failed = run("while :; do :; done", output: output, timeout: 0.05) else { return XCTFail("Expected timeout failure") }
+            guard case .uncertain = run("while :; do :; done", output: output, timeout: 0.05) else { return XCTFail("Expected timeout uncertainty") }
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         }
     }
@@ -85,6 +85,32 @@ final class PAdESHelperProcessTests: XCTestCase {
                                                 arguments: [], input: &message, destination: output)
             guard case .failed = outcome else { return XCTFail("Expected launch failure") }
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+        }
+    }
+    func testBoundPreAuthenticationStatusAndFinalErrorMapping() throws {
+        try fixture { output in
+            let job = UUID()
+            func reply(_ id: UUID, version: Int = 4, outcome: String = "rejectedBeforeAuthentication", reason: String = "busy") -> PAdESHelperProcess.Outcome {
+                var input = Data()
+                let message = "{\"version\":\(version),\"jobID\":\"\(id)\",\"outcome\":\"\(outcome)\",\"reason\":\"\(reason)\"}"
+                return PAdESHelperProcess.run(executable: URL(fileURLWithPath: "/bin/echo"), arguments: [message],
+                    input: &input, destination: output, expectedJobID: job)
+            }
+            let rejection = reply(job)
+            guard case .failed = rejection else { return XCTFail("Known busy must fail ordinarily") }
+            XCTAssertThrowsError(try PAdESHelperProcess.requirePublished(rejection)) { error in
+                guard case SignumError.module = error else { return XCTFail("Busy became uncertain") }
+            }
+            for outcome in [reply(UUID()), reply(job, version: 3), reply(job, reason: "unrecognized"),
+                            reply(job, outcome: "uncertain", reason: "interrupted"), reply(job, outcome: "published", reason: "none")] {
+                guard case .uncertain = outcome else { return XCTFail("Unproved status accepted") }
+                XCTAssertThrowsError(try PAdESHelperProcess.requirePublished(outcome)) { error in
+                    guard case SignumError.outputUncertain = error else { return XCTFail("Lost uncertainty") }
+                }
+            }
+            XCTAssertThrowsError(try PAdESHelperProcess.requirePublished(.cancelled("before launch"))) { error in
+                XCTAssertEqual(error as? SupervisedProcess.Failure, .cancelled)
+            }
         }
     }
 }
