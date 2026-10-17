@@ -112,3 +112,58 @@ Collaudo GUI manuale **senza collegare token**:
 
 Hardware, PIN personale, macOS 13/14 e aspetto grafico completo restano fuori
 questa prova. B va iniziata dopo il collaudo A, C dopo B verificata.
+
+## Consegna locale e riproduzione
+
+Commit:
+- `4440e8b`: firma multipla, GUI e 12 test, con primitive Foundation invariate.
+- `996dad1`: fixture software per collaudo GUI senza hardware.
+- Il commit documentale successivo registra questa consegna.
+
+Candidati **finali** (non usare i precedenti candidati debug/release intermedi):
+- `.build/04a-bundles/final-debug/Signum.app`
+- `.build/04a-bundles/final-release/Signum.app`
+
+Manifesto: commit sorgente `996dad1`, albero tracciato pulito alla build,
+versione 0.4.0/build 1, minos massimo 13.0. Entrambe le configurazioni superano
+verifica codesign, audit byte/load-command, discovery mock e PAdES **63/63**
+anche dopo rilocazione. Firma solo ad hoc; Alpha e prefissi precedenti preservati.
+Nessuna distribuzione, Developer ID, notarizzazione o validazione eIDAS.
+
+Comandi locali (CMake/toolchain e prefisso macOS 13 già presenti):
+
+```sh
+cd /Users/andreaoregioni/Developer/Signum-Reliability
+SIGNUM_TEST_PADES_HELPER="$PWD/.build/pr2-pades-debug/signum-pades-local" swift test --scratch-path .build/reliability
+scripts/test-pkcs11-local.sh
+SIGNUM_NATIVE_PREFIX="$PWD/.build/pr2-native-macos13/prefix" SIGNUM_PADES_TEST_BUILD="$PWD/.build/pr2-pades-debug" scripts/test-pades-local.sh
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
+swift build -c debug --scratch-path .build/reliability
+swift build -c release --scratch-path .build/reliability
+```
+
+Il test misto e quello nativo PR2 richiedono SIGNUM_TEST_PADES_HELPER; qui sono
+stati eseguiti, senza skip. Per nuovi bundle usare sempre percorsi non esistenti:
+
+```sh
+/usr/bin/python3 scripts/build-beta-app.py --configuration release --native-prefix .build/pr2-native-macos13/prefix --output .build/04a-rebuild/Signum.app
+```
+
+Per collaudo GUI manuale sintetico:
+
+```sh
+open -n "$PWD/.build/04a-bundles/final-release/Signum.app"
+```
+
+Impostare nella GUI il percorso
+`/Users/andreaoregioni/Developer/Signum-Reliability/.build/04a-demo/synthetic-provider.dylib`
+**prima di Carica**, quindi seguire i passi della fixture sopra. Il certificato
+demo scade in 7 giorni: rigenerare in una directory nuova se necessario.
+
+**Stato:** A implementata e verificata software, gate GUI interattiva ancora aperto;
+B e C non iniziate. Non dichiarare la 0.4 completa o hardware-collaudata.
+Riprendere da GUI A, poi appearance B con test sul PDF realmente firmato, poi C.
+Nessun push/merge/tag/release/GitHub Actions; nessun accesso a HalleyMac.
+`main` locale resta `be84a1e`; branch Beta precedente resta `b48b3ae`. Review non
+tracciata preservata con SHA-256
+`2f275328cdca3ebe2023ade1c87b3179bc89540af8d7a898b304241d61a168a6`.
