@@ -108,14 +108,16 @@ non vengono copiati automaticamente né esaminati fuori da Signum.
 
 ## Avanzamento
 
-- **IMPLEMENTATO:** unità 1, analisi/design; baseline preservata sul nuovo branch.
+- **IMPLEMENTATO:** unità 1–5: analisi, isolamento attivo GUI/CLI, supervisione e
+  cancellazione, lease multiprocesso, packaging locale ad hoc arm64.
 - **TESTATO:** risultati della baseline e degli incrementi riportati sotto.
 - **NON TESTATO:** hardware, UI manuale, macOS minimo/Mac pulito, Developer ID/notarizzazione.
-- **PIANIFICATO:** unità 2 infrastruttura SG-06, unità 3 instradamento completo e
-  cancellazione/stati, unità 4 coordinamento multiprocesso, unità 5 packaging locale.
+- **PIANIFICATO:** collaudo manuale middleware, matrice macOS/Mac pulito,
+  Developer ID/hardened runtime/notarizzazione e revisione delle licenze prima
+  di una distribuzione. Nessun Trust Engine o claim eIDAS/ETSI.
 
-Le unità successive verranno dichiarate completate solo con codice e regressioni
-passate; nessuna funzionalità è dichiarata isolata solo perché esiste un helper.
+I checkpoint sotto descrivono gli incrementi realmente verificati; le note
+«non ancora attivato» delle unità precedenti sono riferite a quel checkpoint.
 
 ### Verifica unità 1
 
@@ -249,3 +251,77 @@ in-place del modulo, rimozione amministrativa della directory temporanea e codic
 ostile nello stesso account non sono risolti da flock. I lock vuoti persistono;
 non contengono percorsi, documenti, identificativi certificati o credenziali.
 Nessuna verifica hardware o prova con middleware installato è stata eseguita.
+
+## Unità 5 — Packaging locale autonomo
+
+**IMPLEMENTATO e TESTATO:** `scripts/build-beta-native.py` ricompila offline
+OpenSSL 3.5.4, FreeType 2.13.3 e PoDoFo 1.1.2 dai tre archivi già presenti,
+verificati con SHA-256 fissato nella ricetta. Nuovo albero esclusivo
+`.build/beta-native-v1`; nessuna modifica a `.build/native-prefix` o alle Alpha.
+Nessun download/installazione globale. Toolchain Apple e CMake locale già presente.
+Le ricerche Homebrew/registri CMake e codec opzionali esterni sono disabilitate.
+Zlib/libxml2 sono di sistema, FreeType/OpenSSL statici, PoDoFo dylib incorporata.
+
+OpenSSL viene compilato da percorso sorgente relativo, con prefix logico usato
+solo in DESTDIR: nessuna installazione in `/signum-native`. La ricetta beta usa
+`no-shared no-tests no-module no-engine`: provider default incorporato,
+configurazione `/etc/ssl`, nessun engine/provider dinamico OpenSSL richiesto.
+Questo è distinto dai moduli **PKCS#11** vendor, che rimangono caricabili nei figli.
+Non cambia RSA/SHA-256/CMS utilizzato da Signum; gli end-to-end software PAdES con
+questa precisa build passano. Engine OpenSSL e configurazioni software diverse
+non sono stati validati. Non è una build FIPS.
+
+`scripts/build-beta-app.py` compila tutti i prodotti Swift e il helper nativo in
+scratch separati Debug/Release, con file/debug prefix map. Copia GUI, CLI e worker,
+calcola la chiusura delle dylib, accetta solo librerie di sistema o del prefisso
+beta, incorpora PoDoFo in Frameworks e riscrive i riferimenti con `@loader_path`.
+Rimuove rpath locali e simboli debug; rifiuta riferimenti al checkout, directory
+Developer utente e Homebrew anche nelle stringhe binarie, non soltanto in otool.
+Firma ad hoc nell'ordine dylib → helper/CLI → eseguibile → app, poi verifica
+`codesign --verify --deep --strict`. Manifest sigillato con versioni/hash sorgenti,
+commit del codice, configurazione e hash del codice annidato; l'integrità del main
+è protetta dalla firma del bundle, evitando un hash autoreferenziale.
+
+La destinazione deve essere nuova (anche symlink pendenti rifiutati); staging in
+una directory appena creata, pubblicazione `renamex_np(RENAME_EXCL)`, cleanup
+staging anche su errore. I precedenti bundle non vengono cancellati o sostituiti.
+Identifier distinto `io.github.tiertoast.Signum.BetaFoundation`. Info.plist locale
+0.3.3/build 1, min OS derivato dal massimo dei minos Mach-O: **14.0** in questa
+build, arm64. Nessuna promessa di funzionamento su macOS 14 basata sul solo minos.
+Il manifesto non contiene percorsi assoluti di sviluppo. La ricetta riproduce
+il procedimento; timestamp e firme non implicano identità bit per bit.
+
+**TESTATO:** sette test Python di parser Mach-O, bounds dei percorsi caricati,
+evidenza loader obbligatoria, rejection di percorsi compilati e di destinazioni
+esistenti/symlink, commit esclusivo che preserva una destinazione concorrente.
+Swift **146/146**, PKCS#11 **40/40** dopo l'incremento. Build Swift e PAdES
+Debug/Release riuscite contro il prefisso beta; PAdES **63/63** per configurazione.
+Sia il bundle sia una copia rilocata superano avvio helper senza richiesta,
+discovery CLI→worker con mock, audit DYLD (PoDoFo caricata dentro il bundle),
+e suite PAdES **63/63** usando il helper incorporato, incluso v3 con firma RSA
+software verificata. Nessun modulo installato viene caricato in queste prove.
+
+Bundle finali di questa verifica:
+- `.build/beta-bundles/debug-v3/Signum.app`
+- `.build/beta-bundles/release-v3/Signum.app`
+
+I loro manifesti indicano `c4c4f6f`, commit del codice applicativo già consolidato;
+la ricetta di packaging viene committata nell'unità 5. Log locali ignorati
+`.build/reliability/evidence/beta-unit5-*.log`, incluse build native, suite,
+audit/firma e test sui bundle rilocati. I precedenti candidati v1/v2 sono build
+di sviluppo superate, non la consegna da collaudare.
+
+**NON TESTATO / APERTO:** avvio interattivo GUI, middleware reale nel nuovo
+lifetime per richiesta, prestazioni/timeout con DigitalDNA, macOS minimo e Mac
+privo di strumenti di sviluppo. CAdES usa ancora `/usr/bin/openssl` di sistema per
+la verifica; il mock positivo CAdES è coperto dalla suite Swift, non da un click
+GUI nel bundle. OpenSC/Bit4id e i relativi driver/servizi restano installazioni
+utente, non inclusi o ispezionati qui. Nessuna modifica alle integrazioni esterne.
+
+Nessuna credenziale Apple Developer è stata usata: firma **ad hoc**, senza
+Developer ID, hardened runtime, notarizzazione, Gatekeeper o DMG. Prima di una
+release serviranno identità/provisioning e una policy di library validation
+limitata ai figli che caricano middleware terzi. I notices disponibili sono
+incorporati; la verifica completa degli obblighi di distribuzione/licenze e
+delle sorgenti da rendere disponibili resta un gate separato. Non distribuire
+questi candidati come Beta pubblica già qualificata.
