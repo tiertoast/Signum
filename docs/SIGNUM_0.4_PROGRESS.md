@@ -72,3 +72,43 @@ Nessuna regressione rilevata nelle suite; possibili regressioni GUI/middleware
 richiedono collaudo manuale. Runtime macOS 13/14 e hardware non riesaminati.
 
 Evidenze locali: `.build/reliability/evidence/04a-*.log`.
+
+## Fixture per collaudo GUI senza hardware
+
+`scripts/prepare-batch-demo.py` crea solo sotto `.build`, in una directory nuova
+0700, un certificato/chiave RSA **sintetici**, il provider software di test e
+quattro documenti (tre testi diversi e un PDF); aggiunge un duplicato intenzionale.
+Il provider non accede a lettori o middleware installati. Il mock ignora la stringa
+di autenticazione; **non inserire mai un PIN reale**. La chiave è di test, non usare
+questo provider su documenti reali. La preparazione non firma e non autentica.
+
+**Verificato:** esecuzione della preparazione, discovery/certificato tramite CLI e
+worker, idoneità locale, firma PAdES nativa del PDF demo con verifica prima del
+commit, un solo Login/Sign sintetico, originale invariato. Ripetere la preparazione
+sulla stessa directory viene rifiutato e preserva il modulo esistente.
+Log `04a-demo.log`. Questi test software non sostituiscono click GUI o hardware.
+
+Fixture già pronta in `.build/04a-demo`. Per crearne un'altra:
+
+```sh
+cd /Users/andreaoregioni/Developer/Signum-Reliability
+/usr/bin/python3 scripts/prepare-batch-demo.py --output .build/04a-demo-new
+```
+
+Collaudo GUI manuale **senza collegare token**:
+1. Aprire il candidato 0.4; impostare soltanto il percorso assoluto della
+   `synthetic-provider.dylib` generata, premere Carica e scegliere lo slot/certificato
+   sintetico. Non usare il percorso del middleware reale.
+2. Aggiungere i tre testi con selezione multipla; aggiungere il duplicato per
+   vedere il rifiuto e provare Rimuovi. Per batch misto passare a PAdES, aggiungere
+   `synthetic.pdf` e aprirne l'anteprima dal nome nell'elenco.
+3. Conferma firma → scegliere una cartella **demo** di output → controllare tutta
+   la lista e i Dettagli tecnici. Annullare una prima volta: nessuna firma parte.
+4. Confermare, inserire una stringa fittizia non vuota nel campo per il primo
+   documento e premere Autorizza. Verificare che il successivo resti in attesa con
+   campo vuoto. Ripetere esplicitamente per gli altri oppure annullarli.
+5. Controllare il resoconto, i file nuovi e la conservazione di eventuali file
+   preesistenti. Nuova sessione svuota il riepilogo e libera le copie private.
+
+Hardware, PIN personale, macOS 13/14 e aspetto grafico completo restano fuori
+questa prova. B va iniziata dopo il collaudo A, C dopo B verificata.
