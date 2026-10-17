@@ -1,5 +1,6 @@
 #include "SignumCertificatePolicy.h"
 #include "TransactionalOutput.h"
+#include <uuid/uuid.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include "PAdESAppearance.h"
 #include <openssl/evp.h>
@@ -135,6 +136,30 @@ static fs::path stageIn(const fs::path& folder) {
     for (auto& entry : fs::directory_iterator(folder)) if (entry.path().filename().string().find(".signum-pades-staging-") == 0) return entry.path();
     throw std::runtime_error("No staging directory");
 }
+static std::string aclText(const fs::path& path) {
+    int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    expect(fd >= 0, "Cannot open ACL fixture");
+    errno = 0; auto acl = acl_get_fd(fd); int saved = errno; close(fd);
+    if (!acl) { expect(saved == ENOENT, "Cannot read ACL"); return {}; }
+    char* text = acl_to_text(acl, nullptr); expect(text != nullptr, "Cannot format ACL");
+    std::string result(text); acl_free(text); acl_free(acl); return result;
+}
+static void inheritedACL(const fs::path& path, bool write,
+                         std::vector<acl_flag_t> inheritance = {ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT}) {
+    auto acl = acl_init(1); acl_entry_t entry; uuid_t everyone;
+    expect(acl && acl_create_entry(&acl, &entry) == 0 &&
+        uuid_parse("ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000000C", everyone) == 0 &&
+        acl_set_tag_type(entry, ACL_EXTENDED_ALLOW) == 0 && acl_set_qualifier(entry, everyone) == 0, "Cannot create ACL fixture");
+    acl_permset_t perms; expect(acl_get_permset(entry, &perms) == 0, "ACL permissions");
+    for (auto right : {ACL_READ_DATA, ACL_EXECUTE, ACL_READ_ATTRIBUTES, ACL_READ_SECURITY})
+        expect(acl_add_perm(perms, right) == 0, "ACL read grant");
+    if (write) for (auto right : {ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_WRITE_ATTRIBUTES})
+        expect(acl_add_perm(perms, right) == 0, "ACL write grant");
+    acl_flagset_t flags; expect(acl_get_flagset_np(entry, &flags) == 0, "ACL inheritance flags");
+    for (auto flag : inheritance) expect(acl_add_flag_np(flags, flag) == 0, "ACL inheritance flag");
+    int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    expect(fd >= 0 && acl_set_fd(fd, acl) == 0, "Cannot set ACL fixture"); close(fd); acl_free(acl);
+}
 static void rejects(const std::string& name, const Bytes& candidate, const Bytes& source, const std::string& certificate) {
     test(name, [&] {
         Folder folder; auto original = folder.path / "source.pdf", output = folder.path / "signed.pdf";
@@ -189,6 +214,74 @@ int main(int argc, char** argv) {
             expect(stat((stage / "output.pdf").c_str(), &info) == 0 && (info.st_mode & 0777) == 0600, "Payload permissions");
             tx.verifyAndPublish(source, identity.der);
             expect(fileBytes(output) == valid && fileBytes(input) == source, "Published/source bytes differ");
+        });
+        for (bool writable : {false, true}) test(writable ? "inherited write ACL: private staging and final sharing" : "inherited read ACL: private staging and final sharing", [&] {
+            Folder f; inheritedACL(f.path, writable);
+            auto control = f.path / "control", output = f.path / "signed.pdf";
+            int controlFD = open(control.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
+            expect(controlFD >= 0, "Cannot create inheritance control"); close(controlFD);
+            const auto expected = aclText(control); fs::remove(control);
+            expect(expected.find("everyone") != std::string::npos, "ACL did not inherit");
+            struct stat payloadIdentity{}; bool checked = false;
+            OutputOperations ops;
+            ops.close = [&](int fd) {
+                const auto stage = stageIn(f.path);
+                expect(aclText(stage).empty(), "Stage exposed during final ACL restoration");
+                struct stat now{}; expect(fstat(fd, &now) == 0 && now.st_ino == payloadIdentity.st_ino, "Payload inode changed");
+                expect(!fs::exists(output), "Output visible before commit"); checked = true; return close(fd);
+            };
+            TransactionalOutput tx(output.string(), ops);
+            const auto stage = stageIn(f.path);
+            expect(aclText(stage).empty() && aclText(stage / "output.pdf").empty(), "Inherited ACL survived hardening");
+            expect(lstat((stage / "output.pdf").c_str(), &payloadIdentity) == 0, "Cannot identify payload");
+            tx.write(valid); tx.verifyAndPublish(source, identity.der);
+            struct stat published{}; expect(lstat(output.c_str(), &published) == 0 && published.st_ino == payloadIdentity.st_ino, "Final inode changed");
+            expect(checked && fileBytes(output) == valid && aclText(output) == expected, "Final bytes/sharing differ");
+        });
+        for (int phase = 0; phase < 4; ++phase) test("ACL failure stops publication, phase " + std::to_string(phase), [&] {
+            Folder f; inheritedACL(f.path, true); OutputOperations ops; int hardened = 0, writes = 0;
+            ops.harden = [&](int fd, mode_t mode) {
+                if (phase == 3) return 0; // Verification must reject ineffective hardening.
+                if (++hardened == phase + 1) { errno = EPERM; return -1; }
+                return sg_output_make_private(fd, mode);
+            };
+            if (phase == 2) ops.applyACL = [](int, acl_t) { errno = EPERM; return -1; };
+            ops.write = [&](int fd, const void* p, size_t n) -> ssize_t { ++writes; return ::write(fd, p, n); };
+            bool failed = false;
+            try { TransactionalOutput tx((f.path / "signed.pdf").string(), ops); tx.write(valid); tx.verifyAndPublish(source, identity.der); }
+            catch (...) { failed = true; }
+            expect(failed && fs::is_empty(f.path) && writes == (phase == 2 ? 1 : 0), "ACL failure wrote/published/leaked data");
+        });
+        test("final ACL matches direct kernel inheritance for file-only, directory-only, limited and inherit-only ACE", [&] {
+            const std::vector<std::vector<acl_flag_t>> variants = {{ACL_ENTRY_FILE_INHERIT}, {ACL_ENTRY_DIRECTORY_INHERIT},
+                {ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT, ACL_ENTRY_LIMIT_INHERIT},
+                {ACL_ENTRY_FILE_INHERIT, ACL_ENTRY_DIRECTORY_INHERIT, ACL_ENTRY_ONLY_INHERIT}};
+            for (const auto& flags : variants) {
+                Folder f; inheritedACL(f.path, true, flags);
+                auto control = f.path / "control", output = f.path / "signed.pdf";
+                int fd = open(control.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600); expect(fd >= 0, "Cannot create control"); close(fd);
+                auto expected = aclText(control); fs::remove(control);
+                TransactionalOutput tx(output.string()); tx.write(valid); tx.verifyAndPublish(source, identity.der);
+                expect(aclText(output) == expected, "Final inheritance semantics changed");
+            }
+        });
+        test("inherited ACL with substituted payload symlink is refused", [&] {
+            Folder f; inheritedACL(f.path, true); auto output = f.path / "signed.pdf", foreign = f.path / "foreign";
+            put(foreign, source); bool failed = false; fs::path stage;
+            try {
+                TransactionalOutput tx(output.string()); stage = stageIn(f.path); tx.write(valid);
+                fs::rename(stage / "output.pdf", stage / "moved"); fs::create_symlink(foreign, stage / "output.pdf");
+                tx.verifyAndPublish(source, identity.der);
+            } catch (...) { failed = true; }
+            expect(failed && !fs::exists(output) && fs::is_symlink(stage / "output.pdf") && fileBytes(foreign) == source,
+                   "Substituted symlink was published or its target changed");
+        });
+        test("crashed empty ACL inheritance fixture is recovered", [&] {
+            Folder f; const auto abandoned = f.path / ".signum-pades-staging-33333333-3333-4333-8333-333333333333";
+            fs::create_directories(abandoned / ".permissions"); chmod(abandoned.c_str(), 0700);
+            put(abandoned / ".permissions" / "empty", {});
+            { TransactionalOutput tx((f.path / "signed.pdf").string()); }
+            expect(fs::is_empty(f.path), "Empty inheritance fixture leaked");
         });
         test("appearance stream text and placement preserved", [&] {
             auto provider = CGDataProviderCreateWithData(nullptr, valid.data(), valid.size(), nullptr);
@@ -268,7 +361,7 @@ int main(int argc, char** argv) {
             expect(fileBytes(output) == valid, "Short write failed");
         });
         test("existing destination and dangling symlink are preserved", [&] {
-            Folder f; auto output = f.path / "result.pdf"; put(output, source);
+            Folder f; inheritedACL(f.path, true); auto output = f.path / "result.pdf"; put(output, source);
             bool failed = false; try { TransactionalOutput tx(output.string()); } catch (...) { failed = true; }
             expect(failed && fileBytes(output) == source, "Existing destination changed");
             fs::remove(output); fs::create_symlink(f.path / "absent", output);
@@ -276,7 +369,7 @@ int main(int argc, char** argv) {
             expect(failed && fs::is_symlink(output) && !fs::exists(f.path / "absent"), "Symlink modified");
         });
         test("destination race is refused at commit", [&] {
-            Folder f; auto output = f.path / "result.pdf"; bool failed = false;
+            Folder f; inheritedACL(f.path, true); auto output = f.path / "result.pdf"; bool failed = false;
             try { TransactionalOutput tx(output.string()); tx.write(valid); put(output, source); tx.verifyAndPublish(source, identity.der); } catch (...) { failed = true; }
             expect(failed && fileBytes(output) == source, "Concurrent winner overwritten");
         });

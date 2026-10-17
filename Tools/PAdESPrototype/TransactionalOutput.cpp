@@ -52,7 +52,8 @@ void recover(int parent) {
         if (stage < 0) continue;
         struct stat info{};
         if (fstat(stage, &info) == 0 && info.st_uid == getuid() && (info.st_mode & 0777) == 0700 &&
-            flock(stage, LOCK_EX | LOCK_NB) == 0 && knownLayout(stage)) {
+            flock(stage, LOCK_EX | LOCK_NB) == 0 && sg_output_is_private(stage, 0700) == 0 &&
+            sg_output_cleanup_permissions(stage) == 0 && knownLayout(stage)) {
             struct stat data{};
             if (fstatat(stage, payload, &data, AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(data.st_mode) &&
                 data.st_uid == getuid() && (data.st_mode & 0777) == 0600 && data.st_nlink == 1 && same(stage, payload, data))
@@ -66,7 +67,8 @@ void recover(int parent) {
 }
 OutputOperations::OutputOperations() :
     write([](int fd, const void* p, size_t n) { return ::write(fd, p, n); }),
-    sync([](int fd) { return fsync(fd); }), close([](int fd) { return ::close(fd); }) {}
+    sync([](int fd) { return fsync(fd); }), close([](int fd) { return ::close(fd); }),
+    harden(sg_output_make_private), applyACL(sg_output_apply_acl) {}
 TransactionalOutput::TransactionalOutput(const std::string& destination, OutputOperations operations) : ops(std::move(operations)) {
     try {
         const std::filesystem::path path(destination);
@@ -87,9 +89,13 @@ TransactionalOutput::TransactionalOutput(const std::string& destination, OutputO
         check(stage >= 0 && fstat(stage, &directoryIdentity) == 0, "Cannot identify private staging");
         haveDirectory = true;
         check(flock(stage, LOCK_EX | LOCK_NB) == 0, "Cannot lock private staging");
+        check(ops.harden(stage, 0700) == 0 && sg_output_is_private(stage, 0700) == 0, "Cannot harden private staging");
+        finalACL = sg_output_inherited_acl(parent, stage);
+        check(finalACL != nullptr, "Cannot determine destination sharing");
         file = openat(stage, payload, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
         check(file >= 0 && fstat(file, &fileIdentity) == 0, "Cannot create staged PDF");
         haveFile = true;
+        check(ops.harden(file, 0600) == 0 && sg_output_is_private(file, 0600) == 0, "Cannot harden staged PDF");
     } catch (...) { cleanup(); throw; }
 }
 void TransactionalOutput::cleanup() noexcept {
@@ -98,6 +104,7 @@ void TransactionalOutput::cleanup() noexcept {
     if (haveDirectory && same(parent, directoryName, directoryIdentity)) unlinkat(parent, directoryName.c_str(), AT_REMOVEDIR);
     if (stage >= 0) ::close(stage);
     if (parent >= 0) ::close(parent);
+    if (finalACL) { acl_free(finalACL); finalACL = nullptr; }
     file = stage = parent = -1;
 }
 TransactionalOutput::~TransactionalOutput() { cleanup(); }
@@ -126,10 +133,13 @@ void TransactionalOutput::verifyAndPublish(const Bytes& source, const std::strin
         offset += static_cast<size_t>(n);
     }
     verifyPDF(bytes, source, expectedCertificate);
+    // Sharing is restored while the ancestor remains inaccessible to other users.
+    check(sg_output_is_private(stage, 0700) == 0 && same(parent, directoryName, directoryIdentity) &&
+          ops.applyACL(file, finalACL) == 0, "Cannot set final PDF sharing");
     // Do not retry close even on error; the descriptor may already be released.
     const int closing = file; file = -1;
     check(ops.close(closing) == 0, "PDF close failed");
-    check(same(stage, payload, fileIdentity), "Staged PDF was replaced");
+    check(sg_output_is_private(stage, 0700) == 0 && same(parent, directoryName, directoryIdentity) && same(stage, payload, fileIdentity), "Staged PDF was replaced");
     check(renameatx_np(stage, payload, parent, destinationName.c_str(), RENAME_EXCL) == 0, "Cannot publish PDF exclusively");
     // Commit succeeded. Cleanup is best effort and cannot change the outcome.
 }

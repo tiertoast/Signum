@@ -1,5 +1,6 @@
 #pragma once
 #include "PAdESVerification.h"
+#include "output_permissions.h"
 #include <functional>
 #include <sys/stat.h>
 namespace signum {
@@ -9,6 +10,8 @@ struct OutputOperations {
     std::function<ssize_t(int, const void*, size_t)> write;
     std::function<int(int)> sync;
     std::function<int(int)> close;
+    std::function<int(int, mode_t)> harden;
+    std::function<int(int, acl_t)> applyACL;
     OutputOperations();
 };
 class TransactionalOutput {
@@ -24,6 +27,7 @@ private:
     std::string directoryName, destinationName;
     struct stat directoryIdentity{}, fileIdentity{};
     bool haveDirectory = false, haveFile = false, written = false;
+    acl_t finalACL = nullptr;
     OutputOperations ops;
     void cleanup() noexcept;
 };
