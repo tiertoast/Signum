@@ -9,10 +9,12 @@ public enum SignumError: Error, LocalizedError {
     case unsupportedPlatform
     case invalidCertificate
     case invalidSignature
+    case outputUncertain(String)
 
     public var errorDescription: String? {
         switch self {
         case .module(let description): return description
+        case .outputUncertain(let description): return "Esito incerto: \(description)"
         case .unsupportedPlatform: return "Independent signature verification requires macOS Security.framework"
         case .invalidCertificate: return "The token did not provide a valid X.509 certificate"
         case .invalidSignature: return "Signature verification failed"

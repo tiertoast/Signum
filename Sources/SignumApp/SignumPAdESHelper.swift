@@ -72,21 +72,6 @@ enum SignumPAdESHelper {
         args.append("--pin-stdin")
         if field != nil { args.append("--appearance-stdin") }
 
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = args
-        let inputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardInput = inputPipe
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errorPipe
-
-        do {
-            try process.run()
-        } catch {
-            throw SignumError.module("Impossibile avviare il motore PAdES: \(error.localizedDescription)")
-        }
-
         // Supply exactly one line to the helper. This avoids getpass() in GUI
         // contexts and avoids leaking credentials through command arguments.
         var secret = Data(pin.utf8)
@@ -107,30 +92,14 @@ enum SignumPAdESHelper {
             secret.append(printableName)
             secret.append(0x0A)
         }
-        do {
-            try inputPipe.fileHandleForWriting.write(contentsOf: secret)
-            try inputPipe.fileHandleForWriting.close()
-        } catch {
-            // If helper exited immediately, collect its diagnostic below.
-            try? inputPipe.fileHandleForWriting.close()
+        defer { secret.resetBytes(in: 0..<secret.count) }
+        args.append("--verified-output-v1")
+        switch PAdESHelperProcess.run(executable: executableURL, arguments: args,
+                                      input: &secret, destination: output) {
+        case .published: return
+        case .failed(let diagnostic): throw SignumError.module("PAdES non riuscita: \(diagnostic)")
+        case .uncertain(let diagnostic): throw SignumError.outputUncertain(diagnostic)
         }
-        secret.resetBytes(in: 0..<secret.count)
-        process.waitUntilExit()
-
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationReason == .exit && process.terminationStatus == 0 else {
-            let diagnostic = String(decoding: errorData.prefix(1200), as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw SignumError.module("PAdES non riuscita: \(diagnostic.isEmpty ? "il motore ha interrotto la firma." : diagnostic)")
-        }
-        guard FileManager.default.fileExists(atPath: output.path),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: output.path),
-              let size = attrs[.size] as? NSNumber,
-              size.intValue > 0 else {
-            throw SignumError.module("Il motore non ha creato un PDF di output valido.")
-        }
-        // Success here means the helper completed, NOT that a qualified PAdES
-        // signature has passed a third-party PDF validator.
     }
 }
 #endif

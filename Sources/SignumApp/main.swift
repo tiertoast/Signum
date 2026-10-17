@@ -536,9 +536,13 @@ struct SignumWindow: View {
                 switch outcome {
                 case .success:
                     self.lastSignedFile = output
-                    self.status = "PDF PAdES sperimentale creato: VERIFICALO con InfoCamere prima di utilizzarlo."
+                    self.status = "PDF firmato e integrità verificata. Attendibilità del certificato e qualificazione eIDAS non verificate."
                 case .failure(let error):
-                    self.status = "Firma PDF non riuscita: \(error.localizedDescription)"
+                    if case SignumError.outputUncertain = error {
+                        self.status = error.localizedDescription
+                    } else {
+                        self.status = "Firma PDF non riuscita: \(error.localizedDescription)"
+                    }
                 }
             }
         }
