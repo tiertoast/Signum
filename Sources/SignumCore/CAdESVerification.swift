@@ -68,6 +68,29 @@ public enum CAdESVerifier {
         throw SignumError.module("Superato il limite di \(maximumNestingDepth) firme annidate.")
     }
 
+    /// Verify exactly the outer CMS layer against the bytes supplied to signing.
+    /// Nested CMS is allowed as content and is compared without unwrapping it.
+    /// This checks integrity only; certificate trust/qualification is not checked.
+    public static func verifyAttached(data: Data, expectedDocument: Data) throws {
+        guard !data.isEmpty, data.count <= maximumInputBytes else {
+            throw SignumError.module("Dimensione busta CAdES non supportata.")
+        }
+        _ = try CMSDescription.signers(in: data)
+        let manager = FileManager.default
+        let directory = manager.temporaryDirectory.appendingPathComponent(
+            "signum-verify-" + UUID().uuidString, isDirectory: true)
+        try manager.createDirectory(at: directory, withIntermediateDirectories: false,
+                                    attributes: [.posixPermissions: 0o700])
+        defer { try? manager.removeItem(at: directory) }
+        let signed = directory.appendingPathComponent("signed.p7m")
+        let extracted = directory.appendingPathComponent("payload")
+        try data.write(to: signed)
+        try verifyCMS(input: signed, output: extracted, in: directory)
+        guard try Data(contentsOf: extracted) == expectedDocument else {
+            throw SignumError.module("Il contenuto CMS non corrisponde al documento firmato.")
+        }
+    }
+
     private static func suggestedName(filename: String) -> String {
         var result = (filename as NSString).lastPathComponent
         for _ in 0..<maximumNestingDepth {

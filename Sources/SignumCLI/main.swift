@@ -132,7 +132,9 @@ func run() throws {
     let pin = try inputPIN()
     let cms = try module.createCAdES(document: document, slot: slot,
                                      certificate: certificate, pin: pin)
-    try SignumFileOutput.writeNew(cms, to: output)
+    try SignumFileOutput.writeNew(cms, to: output) { staged in
+        try CAdESVerifier.verifyAttached(data: staged, expectedDocument: document)
+    }
     print("Created: \(output.path)")
     print("NEXT: verify with: openssl cms -verify -inform DER -binary -noverify -in '\(output.path)' -out /tmp/signum-extracted.dat")
 }

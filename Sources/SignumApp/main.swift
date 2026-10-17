@@ -463,7 +463,9 @@ struct SignumWindow: View {
                 }
                 let cms = try module.createCAdES(document: document,
                                                   slot: slot, certificate: cert, pin: suppliedPIN)
-                try SignumFileOutput.writeNew(cms, to: destination)
+                try SignumFileOutput.writeNew(cms, to: destination) { staged in
+                    try CAdESVerifier.verifyAttached(data: staged, expectedDocument: document)
+                }
                 result = .success(destination)
             } catch {
                 result = .failure(error)
