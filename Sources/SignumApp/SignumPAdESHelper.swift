@@ -15,7 +15,7 @@ enum SignumPAdESHelper {
         FileManager.default.isExecutableFile(atPath: executableURL.path)
     }
 
-    struct Field: Equatable {
+    struct Field: Equatable, Sendable {
         let pageIndex: Int
         let x: Double
         let y: Double

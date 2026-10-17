@@ -33,7 +33,12 @@ private enum SignumFormat: String, Hashable {
     case cades, pades, xades
 }
 
-struct SignumWindow: View {
+@MainActor struct SignumWindow: View {
+    @StateObject private var batch = BatchSigningCoordinator()
+    @State private var placements: [UUID: PAdESPlacement] = [:]
+    @State private var readyPreviews = Set<UUID>()
+    @State private var approvedFields: [UUID: SignumPAdESHelper.Field] = [:]
+    @State private var approvedHolder = ""
     @State private var provider = ProviderSelection()
     @State private var work: SigningOperation?
     @State private var workPhase: SigningOperationPhase = .idle
@@ -49,16 +54,19 @@ struct SignumWindow: View {
     @State private var status = "Collega un dispositivo e premi Carica."
     @State private var busy = false
 
-    private var canSign: Bool {
-        guard !busy, provider.signingProvider != nil, !provider.pin.isEmpty, provider.selectedSlot != nil,
-              let id = provider.selectedCertificateID, provider.certificateAssessments[id]?.permitsSigning == true,
-              let snapshot = documentSnapshot, snapshot.format.rawValue == format.rawValue else { return false }
-        switch format {
-        case .cades: return true
-        case .pades:
-            return previewSnapshotID == snapshot.identity.id && SignumPAdESHelper.available
-        case .xades: return false
+    private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning }
+    private var canApproveBatch: Bool {
+        guard !interfaceLocked, !batch.isFrozen, !batch.documents.isEmpty,
+              provider.signingProvider != nil, provider.selectedSlot != nil,
+              let id = provider.selectedCertificateID, provider.certificateAssessments[id]?.permitsSigning == true else { return false }
+        return batch.documents.allSatisfy { entry in
+            !entry.state.isTerminal && (entry.snapshot.format != .pades ||
+                (readyPreviews.contains(entry.id) && SignumPAdESHelper.available))
         }
+    }
+    private var canAuthorizeNext: Bool {
+        batch.isApproved && !interfaceLocked && !batch.needsOutcomeReview &&
+            batch.nextDocument != nil && !provider.pin.isEmpty
     }
 
     private var selectedHolder: String {
@@ -91,7 +99,7 @@ struct SignumWindow: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .disabled(busy)
+            .disabled(interfaceLocked || batch.isFrozen)
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
 
@@ -130,19 +138,12 @@ struct SignumWindow: View {
                 }
             }
         }
-        .onChange(of: format) { nextFormat in
-            provider.pin = ""
-            let previous = inputFile
-            discardDocument()
-            if let previous, nextFormat != .xades,
-               nextFormat != .pades || previous.pathExtension.lowercased() == "pdf" {
-                selectDocument(previous)
-            }
-        }
+        .onChange(of: format) { _ in provider.pin = "" }
         .onDisappear {
             work?.requestCancellation()
+            batch.cancelAll()
             selectionRequestID = UUID()
-            documentSnapshot = nil // An active immutable job retains its own snapshot.
+            documentSnapshot = nil
         }
     }
 
@@ -156,41 +157,70 @@ struct SignumWindow: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(busy)
+            .disabled(interfaceLocked || batch.isFrozen)
             .padding(5)
         }
     }
 
     private var documentPicker: some View {
-        GroupBox("Documento") {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    Image(systemName: "doc")
-                    Text(inputFile?.lastPathComponent ?? "Trascina o seleziona un file")
-                        .lineLimit(2)
+        GroupBox("Documenti da firmare") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("\(batch.documents.count) documenti · nuovi file in \(format.rawValue.uppercased())")
                         .font(.callout)
-                    Spacer(minLength: 4)
-                    Button("Scegli…") { chooseFile() }.disabled(busy)
+                    Spacer()
+                    Button("Aggiungi…") { chooseFile() }.disabled(interfaceLocked || batch.isFrozen)
                 }
-                .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3),
-                                      style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: [5, 4]))
-                )
-                .onDrop(of: [UTType.fileURL.identifier],
-                        isTargeted: $dropTargeted, perform: receiveDrop)
-                if let snapshot = documentSnapshot {
-                    Text("Copia selezionata · \(snapshot.identity.byteCount) byte · SHA-256 \(snapshot.identity.sha256)")
-                        .font(.caption2).textSelection(.enabled)
-                    Text("Le modifiche successive all'originale non sono incluse. Per aggiornarlo, selezionalo nuovamente.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Text(format == .pades ? "PDF · dimensione massima 64 MiB"
-                      : "Qualsiasi file · dimensione massima 16 MiB")
+                Text("Trascina qui uno o più documenti. Ogni documento richiede una propria autorizzazione.")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(5)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3)))
+                    .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted, perform: receiveDrop)
+                ForEach(batch.documents) { entry in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
+                                .lineLimit(2).disabled(batch.isRunning)
+                            Spacer()
+                            if !batch.isFrozen {
+                                Button("Rimuovi") {
+                                    let selected = documentSnapshot?.identity.id == entry.id
+                                    batch.remove(entry.id); placements[entry.id] = nil; readyPreviews.remove(entry.id)
+                                    if selected { showDocument(batch.documents.first?.id) }
+                                }.disabled(interfaceLocked)
+                            } else if batch.isApproved && !entry.state.isTerminal {
+                                Button("Annulla") { batch.cancelDocument(entry.id); provider.pin = "" }
+                                    .disabled(batch.isRunning && batch.nextDocument?.id == entry.id)
+                            }
+                        }
+                        Text("\(entry.snapshot.format.rawValue.uppercased()) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.snapshot.identity.byteCount), countStyle: .file)) · \(entry.state.message)")
+                            .font(.caption)
+                        Text(entry.destination?.path ?? "Destinazione: cartella da scegliere alla conferma")
+                            .font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                        if !entry.result.isEmpty { Text(entry.result).font(.caption) }
+                    }.padding(.vertical, 4)
+                }
+                if let snapshot = documentSnapshot {
+                    DisclosureGroup("Dettagli tecnici del documento selezionato") {
+                        Text("\(snapshot.identity.byteCount) byte · SHA-256 \(snapshot.identity.sha256)")
+                            .font(.caption2).textSelection(.enabled)
+                    }
+                }
+                ForEach(Array(batch.selectionIssues.enumerated()), id: \.offset) { _, message in
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Le modifiche successive agli originali non sono incluse. Massimo 32 documenti e 128 MiB per sessione.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if !batch.documents.isEmpty {
+                    Button("Nuova sessione") {
+                        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]
+                        showDocument(nil); provider.pin = ""; lastSignedFile = nil
+                    }.disabled(interfaceLocked)
+                    DisclosureGroup("Resoconto sessione") {
+                        Text(batch.sessionReport).font(.caption).textSelection(.enabled)
+                    }
+                }
+            }.padding(5)
         }
     }
 
@@ -206,8 +236,8 @@ struct SignumWindow: View {
                         status = "Provider modificato. Premi Carica per selezionare nuovamente dispositivo e certificato."
                     }))
                         .textFieldStyle(.roundedBorder)
-                        .disabled(busy)
-                    Button("Carica") { load() }.disabled(busy)
+                        .disabled(interfaceLocked || batch.isFrozen)
+                    Button("Carica") { load() }.disabled(interfaceLocked || batch.isFrozen)
                 }
                 List(provider.tokens, selection: Binding(
                     get: { provider.selectedSlot },
@@ -227,7 +257,7 @@ struct SignumWindow: View {
                     .tag(token.slot)
                 }
                 .frame(height: 105)
-                .disabled(busy)
+                .disabled(interfaceLocked || batch.isFrozen)
             }
             .padding(5)
         }
@@ -248,7 +278,7 @@ struct SignumWindow: View {
                     .tag(certificate.id)
                 }
                 .frame(height: 130)
-                .disabled(busy)
+                .disabled(interfaceLocked || batch.isFrozen)
                 if let id = provider.selectedCertificateID, let assessment = provider.certificateAssessments[id] {
                     Text(assessment.explanation).font(.caption)
                     Text(assessment.usageDescription).font(.caption2).foregroundStyle(.secondary)
@@ -263,40 +293,44 @@ struct SignumWindow: View {
     private var signingControls: some View {
         GroupBox("Firma") {
             VStack(alignment: .leading, spacing: 10) {
-                if format == .pades {
-                    if SignumPAdESHelper.available {
-                        Text("Motore PoDoFo sperimentale rilevato. Riquadro con nome incorporato se posizionato; immagini personalizzate non ancora disponibili. Verifica sempre con InfoCamere.")
-                            .font(.caption).foregroundStyle(.orange)
-                    } else {
-                        Text("Per abilitare PAdES, compila in locale il motore PoDoFo e ricrea Signum.app.")
-                            .font(.caption).foregroundStyle(.orange)
+                if !batch.isApproved {
+                    Button("Conferma firma…") { prepareBatch() }.disabled(!canApproveBatch)
+                    Text("Il riepilogo include tutti i documenti. Per ogni PDF apri prima l'anteprima dall'elenco.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("\(batch.finishedCount) di \(batch.documents.count) conclusi")
+                    if let next = batch.nextDocument {
+                        Text("Prossimo: \(next.snapshot.originalURL.lastPathComponent)").font(.caption)
+                        SecureField("PIN per questo documento", text: $provider.pin)
+                            .textFieldStyle(.roundedBorder).privacySensitive().disabled(interfaceLocked || batch.needsOutcomeReview)
+                        Button("Autorizza questa firma") { authorizeNextDocument() }.disabled(!canAuthorizeNext)
                     }
-                }
-                HStack(spacing: 10) {
-                    SecureField("PIN del dispositivo", text: $provider.pin)
-                        .textFieldStyle(.roundedBorder)
-                        .privacySensitive()
-                        .disabled(busy || (format == .pades && !SignumPAdESHelper.available))
-                    if busy {
+                    if batch.needsOutcomeReview {
+                        Text("Esito incerto: controlla dispositivo ed eventuale output prima di continuare. La firma non verrà ripetuta.").font(.caption)
+                        Button("Ho verificato l'esito: consenti il prossimo documento") { batch.acknowledgeUncertainOutcome(); provider.pin = "" }
+                            .disabled(batch.isRunning)
+                    }
+                    Button("Annulla documenti in attesa") { batch.cancelPending(); provider.pin = "" }
+                        .disabled(batch.nextDocument == nil)
+                    if batch.isRunning {
                         ProgressView().controlSize(.small)
-                    }
-                    Button(busy ? "Firma in corso…" :
-                           format == .pades ? "Firma PDF" : "Firma .p7m") {
-                        if format == .pades { signPAdES() }
-                        else { signDocument() }
-                    }
-                    .disabled(!canSign)
-                    if busy, let work {
-                        Button("Annulla") {
-                            status = work.requestCancellation() ? "Annullamento richiesto…" : "La pubblicazione è già iniziata. Attendi l'esito."
-                        }
+                        Button("Interrompi firma corrente") { batch.activeOperation?.requestCancellation() }
                     }
                 }
-                if busy, work != nil { Text(workPhase.message).font(.caption).foregroundStyle(.secondary) }
-                Text("Solo test con documenti fittizi. Validazione normativa eIDAS e revoche non implementate.")
+                if batch.isPreparing { ProgressView("Preparazione documenti…").controlSize(.small) }
+                if batch.isPreparing {
+                    Button("Annulla selezione in preparazione") { batch.cancelAll() }
+                }
+                if busy, work == nil, !batch.isPreparing {
+                    Button("Annulla caricamento") { selectionRequestID = UUID(); busy = false }
+                }
+                if busy, let work {
+                    ProgressView(workPhase.message).controlSize(.small)
+                    Button("Annulla lettura") { work.requestCancellation() }
+                }
+                Text("Il PIN viene richiesto per ogni documento; il provider può richiedere USER e CONTEXT_SPECIFIC per quella firma. Nessun retry automatico. Attendibilità CA e revoca non valutate.")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(5)
+            }.padding(5)
         }
     }
 
@@ -315,24 +349,25 @@ struct SignumWindow: View {
 
     @ViewBuilder
     private var pdfWorkspace: some View {
-        if format == .pades, let snapshot = documentSnapshot {
+        if let snapshot = documentSnapshot, snapshot.format == .pades {
             PAdESPlacementPane(
                 snapshot: snapshot,
                 previewReady: { id, ready in
                     guard documentSnapshot?.identity.id == id else { return }
-                    if ready, previewSnapshotID != id { previewSnapshotID = id }
+                    if ready { previewSnapshotID = id; readyPreviews.insert(id) }
                     if !ready {
-                        discardDocument(); provider.pin = ""
+                        batch.remove(id); showDocument(batch.documents.first?.id); provider.pin = ""
                         status = "Anteprima non disponibile: seleziona un PDF valido e non protetto."
                     }
                 },
                 holder: selectedHolder,
                 placement: Binding(get: { pdfPlacement }, set: { value in
-                    guard !busy, documentSnapshot?.identity.id == snapshot.identity.id else { return }
-                    pdfPlacement = value
+                    guard !interfaceLocked, !batch.isFrozen, documentSnapshot?.identity.id == snapshot.identity.id else { return }
+                    pdfPlacement = value; placements[snapshot.identity.id] = value
                 })
             )
             .id(snapshot.identity.id)
+            .disabled(interfaceLocked || batch.isFrozen)
             .allowsHitTesting(!busy)
             .padding(14)
         } else {
@@ -362,7 +397,7 @@ struct SignumWindow: View {
         return operation
     }
 
-    private static func readCertificates(_ worker: IsolatedPKCS11Client, provider: String,
+    private nonisolated static func readCertificates(_ worker: IsolatedPKCS11Client, provider: String,
                                          slot: UInt?, operation: SigningOperation) throws -> LoadedCertificates {
         dispatchPrecondition(condition: .notOnQueue(.main))
         guard let slot else { return LoadedCertificates() }
@@ -384,7 +419,7 @@ struct SignumWindow: View {
     }
 
     private func load(allowRetry: Bool = true) {
-        guard !busy else { return }
+        guard !interfaceLocked, !batch.isFrozen else { return }
         let inputPath = provider.path, path = inputPath.trimmingCharacters(in: .whitespacesAndNewlines), previousSlot = provider.selectedSlot
         let request = provider.beginDiscovery(), operation = beginWork(), worker = IsolatedPKCS11Client()
         busy = true
@@ -424,7 +459,7 @@ struct SignumWindow: View {
     }
 
     private func loadCertificates(slot: UInt?) {
-        guard !busy else { return }
+        guard !interfaceLocked, !batch.isFrozen else { return }
         let request = provider.beginCertificateLoad()
         guard let path = provider.signingProvider, let slot else { return }
         let operation = beginWork(), worker = IsolatedPKCS11Client()
@@ -446,152 +481,95 @@ struct SignumWindow: View {
     }
 
     private func chooseFile() {
-        guard !busy else { return }
+        guard !interfaceLocked, !batch.isFrozen else { return }
         let picker = NSOpenPanel()
-        picker.title = "Seleziona un documento da firmare"
-        picker.canChooseFiles = true
-        picker.canChooseDirectories = false
-        picker.allowsMultipleSelection = false
-        if picker.runModal() == .OK, let url = picker.url {
-            guard format != .pades || url.pathExtension.lowercased() == "pdf" else {
-                status = "Per PAdES seleziona un documento .pdf."
-                return
-            }
-            selectDocument(url)
-        }
+        picker.title = "Seleziona i documenti da firmare"
+        picker.canChooseFiles = true; picker.canChooseDirectories = false
+        picker.allowsMultipleSelection = true
+        if format == .pades { picker.allowedContentTypes = [.pdf] }
+        if picker.runModal() == .OK { addDocuments(picker.urls) }
     }
 
     private func receiveDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard !busy,
-              let item = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) })
-        else { return false }
-
-        item.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, _ in
-            let url: URL?
-            if let file = value as? URL { url = file }
-            else if let raw = value as? Data { url = URL(dataRepresentation: raw, relativeTo: nil) }
-            else { url = nil }
-            DispatchQueue.main.async {
-                guard !self.busy, let url, url.isFileURL else { return }
-                guard self.format != .pades || url.pathExtension.lowercased() == "pdf" else {
-                    self.status = "Per PAdES seleziona un file PDF."
-                    return
-                }
-                self.selectDocument(url)
-            }
+        guard !interfaceLocked, !batch.isFrozen else { return false }
+        let items = Array(providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }.prefix(BatchSigningCoordinator.maximumDocuments))
+        guard !items.isEmpty else { return false }
+        busy = true
+        let request = UUID(); selectionRequestID = request
+        Task { @MainActor in
+            let urls = await FileDropResolution.resolve(items)
+            guard selectionRequestID == request else { return }
+            busy = false
+            addDocuments(urls)
         }
         return true
     }
 
-    private func discardDocument() {
-        documentSnapshot?.close()
-        documentSnapshot = nil
-        inputFile = nil
-        previewSnapshotID = nil
-        pdfPlacement = nil
-        lastSignedFile = nil
-    }
-
-    private func selectDocument(_ url: URL) {
-        guard !busy, let requestedFormat = SigningFormat(rawValue: format.rawValue) else { return }
-        discardDocument()
+    private func addDocuments(_ urls: [URL]) {
+        guard !interfaceLocked, !batch.isFrozen, let kind = SigningFormat(rawValue: format.rawValue) else { return }
         provider.pin = ""
-        busy = true
-        let request = UUID(); selectionRequestID = request
-        status = "Acquisizione della copia privata del documento…"
-        DispatchQueue.global(qos: .userInitiated).async {
-            let captured = Result { try DocumentSnapshot.capture(source: url, format: requestedFormat) }
-            DispatchQueue.main.async {
-                guard selectionRequestID == request else {
-                    if case .success(let snapshot) = captured { snapshot.close() }
-                    return
-                }
-                busy = false
-                switch captured {
-                case .success(let snapshot):
-                    documentSnapshot = snapshot
-                    inputFile = snapshot.originalURL
-                    status = "Copia acquisita. Controlla il documento prima di approvare la firma."
-                case .failure(let error): status = error.localizedDescription
-                }
-            }
+        Task { @MainActor in
+            await batch.addDocuments(urls, format: kind)
+            if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
+            status = "\(batch.documents.count) documenti nella selezione. Controllali prima della conferma."
         }
     }
 
-    private func signDocument() { approveAndSign() }
-    private func signPAdES() { approveAndSign() }
+    private func showDocument(_ id: UUID?) {
+        if let old = documentSnapshot, batch.documents.contains(where: { $0.id == old.identity.id }) { placements[old.identity.id] = pdfPlacement }
+        documentSnapshot = batch.documents.first(where: { $0.id == id })?.snapshot
+        inputFile = documentSnapshot?.originalURL
+        pdfPlacement = id.flatMap { placements[$0] }
+        previewSnapshotID = nil
+    }
 
-    private func approveAndSign() {
-        guard canSign, let snapshot = documentSnapshot, let selectedProvider = provider.signingProvider, let slot = provider.selectedSlot,
+    private func prepareBatch() {
+        guard canApproveBatch, let selectedProvider = provider.signingProvider, let slot = provider.selectedSlot,
               let certificate = provider.certificates.first(where: { $0.id == provider.selectedCertificateID }),
               let der = provider.certificateDERs[certificate.id] else { return }
-        // Freeze operation inputs before opening modal panels; the worker never
-        // reads view state or the original document URL.
+        let picker = NSOpenPanel()
+        picker.title = "Cartella delle copie firmate"
+        picker.canChooseFiles = false; picker.canChooseDirectories = true; picker.allowsMultipleSelection = false
+        guard picker.runModal() == .OK, let directory = picker.url else { return }
+        provider.pin = ""; busy = true
         let holder = selectedHolder
-        let field = pdfPlacement.map { SignumPAdESHelper.Field(pageIndex: $0.pageIndex,
-            x: Double($0.rectangle.minX), y: Double($0.rectangle.minY),
-            width: Double($0.rectangle.width), height: Double($0.rectangle.height)) }
-        busy = true
-        var launched = false
-        defer { if !launched { busy = false } }
-        let save = NSSavePanel()
-        save.title = "Destinazione della copia firmata"
-        save.directoryURL = snapshot.originalURL.deletingLastPathComponent()
-        save.nameFieldStringValue = snapshot.format == .cades
-            ? snapshot.originalURL.lastPathComponent + ".p7m"
-            : snapshot.originalURL.deletingPathExtension().lastPathComponent + "-firmato.pdf"
-        guard save.runModal() == .OK, let destination = save.url else {
-            discardDocument(); provider.pin = ""; status = "Firma annullata. Riseleziona il documento."; return
+        if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
+        let fields = placements.mapValues { value in SignumPAdESHelper.Field(pageIndex: value.pageIndex,
+            x: Double(value.rectangle.minX), y: Double(value.rectangle.minY), width: Double(value.rectangle.width), height: Double(value.rectangle.height)) }
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let approval = try await batch.prepareApproval(provider: selectedProvider, slot: slot, certificate: certificate, der: der, directory: directory)
+                let alert = NSAlert()
+                alert.messageText = "Conferma firma"
+                alert.informativeText = "Firmatario: \(holder)\n\(approval.jobs.count) documenti. Confermi questa lista? Ogni firma richiederà una propria autorizzazione."
+                let content = NSHostingView(rootView: BatchConsentView(approval: approval))
+                content.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
+                alert.accessoryView = content
+                alert.addButton(withTitle: "Conferma documenti"); alert.addButton(withTitle: "Annulla")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    try batch.confirm(approval)
+                    approvedFields = fields; approvedHolder = holder
+                    status = "Lista confermata. Autorizza il primo documento."
+                } else { batch.declineApproval(); status = "Conferma annullata. Nessuna firma avviata." }
+            } catch { status = error.localizedDescription }
         }
-        let job: SigningJob
-        do {
-            job = try SigningJob(snapshot: snapshot, providerPath: selectedProvider, slot: slot,
-                                 certificate: certificate, certificateDER: der, destination: destination)
-            guard !FileManager.default.fileExists(atPath: destination.path) else {
-                throw SignumError.module("La destinazione esiste già: scegli un altro nome.")
-            }
-        } catch {
-            discardDocument(); provider.pin = ""; status = error.localizedDescription; return
-        }
-        let approval = NSAlert()
-        approval.messageText = "Approva i byte da firmare"
-        approval.informativeText = signingApprovalMessage(holder: holder, job: job)
-        approval.addButton(withTitle: "Approva e firma")
-        approval.addButton(withTitle: "Annulla")
-        guard approval.runModal() == .alertFirstButtonReturn else {
-            discardDocument(); provider.pin = ""; status = "Firma annullata. Copia privata scartata."; return
-        }
+    }
+
+    private func authorizeNextDocument() {
+        guard canAuthorizeNext else { return }
         let secret = provider.pin; provider.pin = ""
-        let operation = beginWork(), worker = IsolatedPKCS11Client()
-        launched = true
-        lastSignedFile = nil
-        status = "Firma della copia approvata in corso…"
-        DispatchQueue.global(qos: .userInitiated).async {
-            let outcome = Result {
-                defer { job.snapshot.close() }
-                if job.format == .cades {
-                    try job.signCAdES(using: worker, pin: secret, operation: operation)
-                } else {
-                    try SignumPAdESHelper.sign(job: job, pin: secret, appearanceName: holder, field: field, operation: operation)
-                    operation.transition(to: .completed)
+        let fields = approvedFields, holder = approvedHolder
+        Task { @MainActor in
+            do {
+                try await batch.authorizeNext(pin: secret) { job, pin, operation in
+                    if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
+                    else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
+                        field: fields[job.snapshotIdentity.id], operation: operation) }
                 }
-            }
-            if !operation.state.isTerminal {
-                if case .failure(let error) = outcome {
-                    if case SignumError.outputUncertain = error { operation.transition(to: .outcomeUncertain) }
-                    else { operation.transition(to: operation.isCancellationRequested ? .cancelled : .failed) }
-                }
-            }
-            DispatchQueue.main.async {
-                busy = false; workPhase = operation.state; work = nil
-                discardDocument()
-                switch outcome {
-                case .success:
-                    lastSignedFile = job.destination
-                    status = "Documento firmato e integrità verificata. Attendibilità CA, revoca e qualificazione non valutate."
-                case .failure(let error): status = error.localizedDescription
-                }
-            }
+                lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
+                status = batch.nextDocument == nil ? "Sessione conclusa. Consulta il resoconto." : "Esito registrato. Il prossimo documento attende una nuova autorizzazione."
+            } catch { status = error.localizedDescription }
         }
     }
 

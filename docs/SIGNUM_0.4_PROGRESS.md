@@ -1,0 +1,74 @@
+# Signum 0.4 — sviluppo funzionale
+
+Base verificata dopo fetch: `origin/main ec8c6b2`, merge Foundation `50e2473`,
+README `f8ab186`. Branch `codex/signum-0.4-functional`; review non tracciata
+preservata. Letti README, rapporti Foundation/PR2 e RELEASE_READINESS.
+
+## Analisi iniziale (prima del codice)
+
+| Milestone | Riuso / modifica minima | Rischio e criterio di completamento |
+|---|---|---|
+| **A — firma multipla, priorità** | Snapshot, SigningJob, SigningOperation, worker e helper v4. Coordinatore separato dalla View, coda ordinata e limitata, approvazione congelata, autorizzazione esplicita per singolo documento | PIN non conservato fra job; collisioni/no overwrite; cleanup e risultati indipendenti. Completa con tre CAdES e batch misto software, duplicati/errori/cancel/provenienza, GUI collegata e regressioni/build passate |
+| **B — appearance** | PDFKit/PAdESPlacementPane, preferenze, appearance PoDoFo già incorporata. Modello limitato per testo/data/immagine, stesso layout fra preview e PDF | Immagini malformate/enormi, rotazione/coordinate e differenze preview. Non completa senza appearance nel PDF e verifica crittografica su fixture testo/immagine/data/invisibile/rotazioni |
+| **C — verifica PAdES** | Verificatore nativo SG-03, parser PDF/CMS e supervisore. Risultato Core distinto dalla View | Revisioni/ByteRange/CMS non supportati non diventano validi. Completa con GUI e fixture alterate, non firmate, revisioni multiple; nessun claim CA/revoca/eIDAS |
+
+Si completa e verifica A prima di iniziare B; C solo dopo B verificata.
+Nessuna nuova primitiva crittografica, renderer parallelo o integrazione esterna.
+
+## 0.4-A — implementato e verificato automaticamente
+
+- Selezione multipla NSOpenPanel e drop ordinato (callback limitati a 10 s),
+  elenco nome/formato/dimensione/stato/destinazione, rimozione prima del consenso.
+- `BatchSigningCoordinator` Core separato dalla View: snapshot singoli, ordine
+  stabile, massimo 32 documenti e 128 MiB complessivi. Duplicati per percorso o
+  SHA-256 nello stesso formato rifiutati; limiti individuali Foundation invariati.
+- Riepilogo «Conferma firma» con tutti i job congelati, firmatario/formati/destinazioni;
+  SHA-256 e identificativi sotto «Dettagli tecnici». Nessuna aggiunta dopo conferma.
+- Destinazioni collision-free con suffissi scelti **prima** del consenso; controllo
+  nuovamente prima della richiesta privata e commit esclusivo Foundation invariato.
+- CAdES e PAdES misti riusano esattamente worker e helper verificato v4. Ogni PDF
+  deve essere aperto nell'anteprima degli stessi byte prima della conferma GUI.
+  Posizioni/invisibilità disponibili nella baseline sono congelate per documento.
+- Autorizzazione manuale di **un solo** documento per azione. Nessun PIN conservato
+  nel coordinatore; campo svuotato a ogni invio/cancellazione. Nessuna prosecuzione
+  automatica, nessun retry dello stesso job, nessuna sessione vendor condivisa.
+  USER e CONTEXT_SPECIFIC restano gestiti dal bridge esistente per **quella** firma,
+  secondo CKA_ALWAYS_AUTHENTICATE: non si presume una login valida per l'intero batch.
+- Annullamento singolo/in blocco dei job in attesa; interruzione corrente tramite
+  SigningOperation. Esito incerto blocca ulteriori autorizzazioni finché l'utente
+  riconosce di aver controllato dispositivo/output. Il documento incerto non viene
+  ripetuto. Risultati completati preservati; errori indipendenti e resoconto a video.
+- «Nuova sessione» libera snapshot e riepilogo; il report non viene scritto su disco.
+  Copie private eliminate a fine job/rimozione/reset; i byte in memoria restano
+  limitati fino al reset. Nessuna garanzia di cancellazione forense/zeroizzazione.
+- Metadati locali 0.4.0/build 1, target macOS 13 invariato; nessuna release.
+
+**Test realmente passati sul codice aggiornato:** Swift **166/166**, inclusi
+**12 nuovi test** batch; PKCS#11 **40/40**; PAdES Debug/Release **63/63** ciascuna;
+packaging **10/10**. Build di tutti i prodotti Swift Debug/Release riuscite.
+ASAN e TSAN mirati ai 12 test batch: **12/12** ciascuno, nessuna segnalazione nei
+runner; leak detection ASAN disabilitata, terze parti non interamente strumentate.
+
+Nuovi casi: tre CAdES con tre azioni distinte e conteggio Login/Sign; batch misto
+CAdES/PAdES nativo; duplicati/ordine/rimozione; destinazione esistente e collisione
+apparsa dopo consenso; nomi uguali; fallimento pre-commit del secondo con primo
+preservato e terzo ancora autorizzabile; cancel durante coda; originali modificati
+ma CMS sugli snapshot approvati; identità immutate; nessuna seconda autenticazione
+automatica; consenso annullato/limite 32; richieste concorrenti e PIN vuoto;
+ritorno del motore senza pubblicazione confermata non marcato «Completato».
+
+## Non verificato e ripresa
+
+**GUI interattiva non verificata:** il canale Computer Use restituisce
+«Sky Computer Use native pipe closed before response», anche dopo riavvio Codex e
+reset del runtime. L'avvio locale è stato richiesto con esito del comando positivo,
+ma non sono stati osservati finestra/layout/click. Non si attribuisce una causa
+certa ai permessi. Nessun token o PIN personale usato. Il collaudo GUI rimane un
+gate esplicito per dichiarare A interamente collaudata.
+
+**B e C non iniziate:** priorità alla porzione A coerente. Aspetto PAdES ancora
+limitato alla baseline testuale/invisibile; nessuna nuova verifica PAdES nella GUI.
+Nessuna regressione rilevata nelle suite; possibili regressioni GUI/middleware
+richiedono collaudo manuale. Runtime macOS 13/14 e hardware non riesaminati.
+
+Evidenze locali: `.build/reliability/evidence/04a-*.log`.

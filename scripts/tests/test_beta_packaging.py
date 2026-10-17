@@ -43,7 +43,7 @@ class PackagingTests(unittest.TestCase):
         info = plistlib.loads((package.REPO / "Resources/Info.plist").read_bytes())
         self.assertEqual(native.deployment_target(), info["LSMinimumSystemVersion"])
         self.assertIn(".macOS(.v" + info["LSMinimumSystemVersion"].split(".")[0] + ")", (package.REPO / "Package.swift").read_text())
-        self.assertEqual(info["CFBundleShortVersionString"], "0.3.3")
+        self.assertEqual(info["CFBundleShortVersionString"], "0.4.0")
 
     def test_newer_native_prefix_is_rejected_before_build_or_publication(self):
         with tempfile.TemporaryDirectory() as root:
