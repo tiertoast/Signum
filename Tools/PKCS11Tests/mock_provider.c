@@ -67,6 +67,12 @@ static CK_RV end(CK_RV rv) { --stats.active_calls; pthread_mutex_unlock(&mutex);
 #define VALID(h) if ((h) >= 512 || !sessions[h].active) return end(CKR_SESSION_HANDLE_INVALID)
 static CK_RV initialize(void *args) {
     BEGIN(M_INIT);
+#ifdef SIGNUM_MOCK_BOOTSTRAP_CERTIFICATE
+    if (!certificate_length) {
+        memcpy(certificate_bytes, bootstrap_certificate, sizeof(bootstrap_certificate));
+        certificate_length = sizeof(bootstrap_certificate);
+    }
+#endif
     stats.initialize_flags = args ? ((CK_C_INITIALIZE_ARGS_PTR)args)->flags : 0;
     if (stats.initialized) return end(CKR_CRYPTOKI_ALREADY_INITIALIZED);
     stats.initialized = 1; return end(CKR_OK);

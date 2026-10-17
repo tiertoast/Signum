@@ -254,8 +254,16 @@ void requireExpectedCertificate(const std::string& certificate, const std::strin
         require(digest[i] == static_cast<unsigned char>((nibble(sha256[2*i]) << 4) | nibble(sha256[2*i+1])), "Token certificate differs from selected certificate; reload selection before signing");
 }
 
+void requireExpectedDocument(const Bytes& document, const std::string& sha256) {
+    require(sha256.size() == 64 && std::all_of(sha256.begin(), sha256.end(), [](char c) { return nibble(c) >= 0; }), "Invalid expected document SHA-256");
+    std::array<unsigned char, 32> digest{}; unsigned int length = 0;
+    require(EVP_Digest(document.data(), document.size(), digest.data(), &length, EVP_sha256(), nullptr) == 1 && length == digest.size(), "Cannot hash document snapshot");
+    for (size_t i = 0; i < digest.size(); ++i)
+        require(digest[i] == static_cast<unsigned char>((nibble(sha256[2*i]) << 4) | nibble(sha256[2*i+1])), "Document snapshot differs from approved SHA-256; no signing authorized");
+}
+
 Bytes readSource(const std::string& path) {
-    const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW_ANY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) throw std::runtime_error("Cannot open PDF source");
     struct Close { int fd; ~Close() { close(fd); } } closeSource{fd};
     struct stat info{};
@@ -270,6 +278,12 @@ Bytes readSource(const std::string& path) {
         require(bytes.size() + static_cast<size_t>(count) <= maxInput, "PDF source grew beyond limit");
         bytes.insert(bytes.end(), chunk.begin(), chunk.begin() + count);
     }
+    struct stat after{};
+    require(fstat(fd, &after) == 0 && info.st_dev == after.st_dev && info.st_ino == after.st_ino &&
+            info.st_size == after.st_size && static_cast<uint64_t>(after.st_size) == bytes.size() &&
+            info.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec && info.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec &&
+            info.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec && info.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec,
+            "Document snapshot changed during read");
     require(bytes.size() >= 5 && std::memcmp(bytes.data(), "%PDF-", 5) == 0, "Input is not a PDF");
     return bytes;
 }

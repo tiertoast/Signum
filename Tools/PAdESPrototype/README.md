@@ -6,7 +6,11 @@ not this C++ helper. This development branch requires **PoDoFo 1.1.2** and
 
 ## Signing and verification
 
-- PoDoFo incrementally signs an in-memory copy of a bounded PDF source.
+- SignumCore acquires an owner-private CoW document snapshot before user approval.
+  PDFKit previews the snapshot's immutable bytes, not the original URL.
+- The helper requires job/snapshot UUIDs and the approved document SHA-256, checks
+  that fingerprint before provider/PIN access, then signs only the loaded bytes.
+- PoDoFo incrementally signs an in-memory copy of that bounded, verified input.
 - The external service supplies SHA-256 DigestInfo to PKCS#11 CKM_RSA_PKCS;
   the token's private key is never exported.
 - The shared SignumCore local certificate policy runs before the PIN is read;
@@ -39,9 +43,9 @@ scripts/test-pades-local.sh
 The script also detects the private CMake wheel under `.build/native-tools`.
 `SIGNUM_CMAKE`, `SIGNUM_CTEST`, `SIGNUM_NATIVE_PREFIX` and
 `SIGNUM_PADES_TEST_BUILD` can override the local paths. The test executable uses
-only generated PDF/certificate/software-key fixtures. One subprocess case launches
-the real helper against the test-only PKCS#11 mock with malformed DER, keeping stdin
-open and empty to prove rejection before a PIN read. No installed provider, PIN or
+only generated PDF/certificate/software-key fixtures. Subprocess cases launch
+the real helper with synthetic input and a test-only PKCS#11 mock, keeping stdin
+open and empty to prove that document/protocol/certificate failures precede any PIN read. No installed provider, PIN or
 physical token is used. No CI is configured or invoked.
 
 For a separate Release helper:
@@ -56,10 +60,23 @@ cmake --build .build/signum-pades-release --parallel 6
 ## App bridge and manual hardware checks
 
 The GUI supplies PIN/name through a private stdin pipe, never argv/environment.
-It requires `--verified-output-v2`; older helpers fail rather than reporting an
-success without the current certificate policy and integrity verification. Stderr is drained while the process runs and retained at a
+It requires `--verified-output-v3`; older helpers fail rather than reporting
+success without snapshot binding, certificate policy and integrity verification.
+Stderr is drained while the process runs and retained at a
 bounded size. Timeout/abnormal exit with a possible committed file produces an
 uncertain result and never an automatic retry or deletion of that file.
+
+This is an internal app/helper contract, not a public integration API. Invocations
+without v3, `--job-id`, `--snapshot-id`, `--expected-document-sha256`, and
+`--expected-cert-sha256` fail before authentication. Old direct invocations must be
+replaced by explicitly approved snapshot jobs. Signum's CLI uses the same Core
+snapshot/job invariants for CAdES and asks for approval before the PIN prompt.
+
+Acquisition currently requires a filesystem supporting native CoW cloning on the
+same volume as the private macOS temporary area. Unsupported/cross-volume inputs
+fail closed; there is no streaming-copy fallback that could mix concurrent source
+writes. Later original-file edits never update an approved snapshot. Re-select the
+file to acquire/approve a new version. See the part 5 report for cleanup limits.
 
 `scripts/build-app.sh` can bundle `.build/signum-pades/signum-pades-local` in a
 separate development app. Native runtime libraries still require a reproducible

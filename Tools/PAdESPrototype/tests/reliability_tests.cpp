@@ -70,6 +70,13 @@ struct Identity {
         expect(count > 0, "Key encoding failed"); privateDER.assign(reinterpret_cast<char*>(bytes), count); OPENSSL_free(bytes);
     }
 };
+static std::string sha256(const Bytes& data) {
+    unsigned char digest[32]; unsigned int count = 0;
+    expect(EVP_Digest(data.data(), data.size(), digest, &count, EVP_sha256(), nullptr) == 1 && count == 32, "Hash fixture failed");
+    std::string result; const char* hex = "0123456789abcdef";
+    for (auto byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; }
+    return result;
+}
 static Bytes sourcePDF() {
     PdfMemDocument doc;
     auto& page = doc.GetPages().CreatePage(PoDoFo::Rect(0, 0, 595, 842));
@@ -309,7 +316,9 @@ int main(int argc, char** argv) {
             { TransactionalOutput recovery(output.string()); }
             expect(fs::is_empty(f.path), "Abandoned staging not recovered");
         });
-        test("standalone helper rejects malformed mock certificate before reading PIN", [&] {
+        for (int scenario = 0; scenario < 7; ++scenario) test(scenario == 0
+            ? "standalone helper rejects malformed mock certificate before reading PIN"
+            : "helper snapshot failure before PIN, scenario " + std::to_string(scenario), [&] {
             expect(argc == 4 && std::string(argv[1]) == "--helper-integration", "Pass helper and synthetic provider paths to this suite");
             Folder f(fs::absolute(argv[0]).parent_path());
             auto input = f.path / "source.pdf", output = f.path / "result.pdf", log = f.path / "diagnostic";
@@ -326,9 +335,17 @@ int main(int argc, char** argv) {
             posix_spawn_file_actions_adddup2(&actions, diagnostics, STDOUT_FILENO);
             posix_spawn_file_actions_addclose(&actions, diagnostics);
             std::string executable = argv[2], sourcePath = input.string(), destination = output.string(), middleware = mock.string();
-            char* args[] = {executable.data(), sourcePath.data(), destination.data(), middleware.data(),
-                            const_cast<char*>("7"), const_cast<char*>("53"), const_cast<char*>("--pin-stdin"), nullptr};
-            pid_t pid; const int spawned = posix_spawn(&pid, executable.c_str(), &actions, nullptr, args, environ);
+            std::string expectedHash = scenario == 1 ? std::string(64, '0') : scenario == 6 ? std::string(64, 'Z') : sha256(source);
+            if (scenario == 2) fs::remove(input);
+            if (scenario == 3) { auto alias = f.path / "alias.pdf"; fs::create_symlink(input, alias); sourcePath = alias.string(); }
+            if (scenario == 5) { auto changed = source; changed.push_back(' '); put(input, changed); }
+            const Bytes mockDER{0x30,0x03,0x02,0x01,0x01};
+            std::vector<std::string> values{executable, sourcePath, destination, middleware, "7", "53", "--pin-stdin",
+                "--job-id", "11111111-1111-4111-8111-111111111111", "--snapshot-id", "22222222-2222-4222-8222-222222222222",
+                "--expected-document-sha256", expectedHash, "--expected-cert-sha256", sha256(mockDER)};
+            if (scenario != 4) values.push_back("--verified-output-v3");
+            std::vector<char*> args; for (auto& value : values) args.push_back(value.data()); args.push_back(nullptr);
+            pid_t pid; const int spawned = posix_spawn(&pid, executable.c_str(), &actions, nullptr, args.data(), environ);
             posix_spawn_file_actions_destroy(&actions); close(channel[0]); close(diagnostics);
             if (spawned) { close(channel[1]); throw std::runtime_error("Cannot spawn helper fixture"); }
             // Keep stdin's writer open without writing credentials. A helper
@@ -339,11 +356,20 @@ int main(int argc, char** argv) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             if (result == 0) { kill(pid, SIGKILL); waitpid(pid, &status, 0); }
             close(channel[1]);
-            expect(result == pid && WIFEXITED(status) && WEXITSTATUS(status) == 1, "Helper waited for PIN or failed unexpectedly");
+            expect(result == pid && WIFEXITED(status) && WEXITSTATUS(status) == (scenario == 4 ? 2 : 1), "Helper waited for PIN or failed unexpectedly");
             auto bytes = fileBytes(log); std::string reason(bytes.begin(), bytes.end());
-            expect(reason.find("malformato") != std::string::npos, "Missing shared policy diagnostic: " + reason);
+            const std::string expected = scenario == 0 ? "malformato" : scenario == 2 || scenario == 3 ? "Cannot open" :
+                scenario == 4 ? "Snapshot protocol" : scenario == 6 ? "Invalid expected document" : "approved SHA-256";
+            expect(reason.find(expected) != std::string::npos, "Missing rejection diagnostic: " + reason);
             expect(!fs::exists(output), "Rejected certificate exposed output");
-            expect(std::distance(fs::directory_iterator(f.path), fs::directory_iterator{}) == 3, "Rejected helper leaked staging");
+            for (const auto& entry : fs::directory_iterator(f.path))
+                expect(entry.path().filename().string().find(".signum-pades-staging-") != 0, "Rejected helper leaked staging");
+        });
+        test("document SHA-256 is checked against the exact PDF source", [&] {
+            requireExpectedDocument(source, sha256(source));
+            auto changed = source; changed.push_back(' ');
+            bool rejected = false; try { requireExpectedDocument(changed, sha256(source)); } catch (...) { rejected = true; }
+            expect(rejected, "Different approved content accepted");
         });
         test("shared certificate policy keeps missing KeyUsage indeterminate", [&] {
             const auto a = sg_certificate_assess(reinterpret_cast<const uint8_t*>(identity.der.data()), identity.der.size(), sg_certificate_now());

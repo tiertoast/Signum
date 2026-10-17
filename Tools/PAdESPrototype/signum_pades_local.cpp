@@ -1,4 +1,5 @@
 #include "SignumCertificatePolicy.h"
+#include <cctype>
 // Experimental local PAdES-B proof of concept.
 // Uses PoDoFo for incremental PDF signing, Bit4id/OpenSC PKCS#11 for RSA.
 // Does NOT export the private key or validate trust; visible AP is an experimental text-only stream.
@@ -187,15 +188,28 @@ static std::string read_appearance_name() {
 
 int main(int argc, char** argv) {
     // GUI requires this protocol marker, so an older bundled helper fails closed.
-    const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v2") == 0;
+    const bool verifiedProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v3") == 0;
     int protocolCount = argc - (verifiedProtocol ? 1 : 0);
-    std::string expectedFingerprint;
-    if (protocolCount >= 3 && std::strcmp(argv[protocolCount - 2], "--expected-cert-sha256") == 0) {
-        expectedFingerprint = argv[protocolCount - 1];
-        protocolCount -= 2;
-    }
-    if (verifiedProtocol && expectedFingerprint.empty()) {
-        std::cerr << "Verified output protocol requires the selected certificate fingerprint\n";
+    auto option = [&](const char* key) -> std::string {
+        if (protocolCount >= 3 && std::strcmp(argv[protocolCount - 2], key) == 0) {
+            std::string value = argv[protocolCount - 1]; protocolCount -= 2; return value;
+        }
+        return {};
+    };
+    const auto expectedFingerprint = option("--expected-cert-sha256");
+    const auto expectedDocument = option("--expected-document-sha256");
+    const auto snapshotID = option("--snapshot-id");
+    const auto jobID = option("--job-id");
+    auto uuid = [](const std::string& text) {
+        if (text.size() != 36) return false;
+        for (size_t i = 0; i < text.size(); ++i) {
+            if (i == 8 || i == 13 || i == 18 || i == 23) { if (text[i] != '-') return false; }
+            else if (!std::isxdigit(static_cast<unsigned char>(text[i]))) return false;
+        }
+        return true;
+    };
+    if (!verifiedProtocol || expectedFingerprint.size() != 64 || expectedDocument.size() != 64 || !uuid(snapshotID) || !uuid(jobID)) {
+        std::cerr << "Snapshot protocol v3 requires job, snapshot and both approved SHA-256 fingerprints\n";
         return 2;
     }
     const bool appearanceFromPipe = protocolCount > 1 &&
@@ -217,11 +231,12 @@ int main(int argc, char** argv) {
         const fs::path middleware = argv[3];
         const auto slot = static_cast<unsigned long>(std::stoul(argv[4]));
         auto certificateID = parse_hex(argv[5]);
-        require_driver_readonly(middleware);
 
         if (fs::absolute(input).lexically_normal() == fs::absolute(output).lexically_normal())
             throw std::runtime_error("Output conflicts with input");
         const auto source = signum::readSource(input.string());
+        signum::requireExpectedDocument(source, expectedDocument);
+        require_driver_readonly(middleware);
         signum::TransactionalOutput transaction(output.string());
         // PoDoFo operates on the bounded source bytes, never on a public or
         // re-opened temporary pathname. The input is never opened for writing.

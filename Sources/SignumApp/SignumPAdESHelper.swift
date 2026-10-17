@@ -1,6 +1,5 @@
 #if os(macOS)
 import Foundation
-import CryptoKit
 import SignumCore
 
 /// Launches the separately built PoDoFo proof-of-concept with a private stdin pipe.
@@ -24,21 +23,18 @@ enum SignumPAdESHelper {
         let height: Double
     }
 
-    static func sign(input: URL,
-                     output: URL,
-                     modulePath: String,
-                     slot: UInt,
-                     certificateID: String,
-                     expectedCertificate: Data,
-                     pin: String,
-                     appearanceName: String,
-                     field: Field?) throws {
+    static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?) throws {
+        defer { job.snapshot.close() }
+        guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
+        _ = try job.verifiedBytes()
+        let input = job.snapshot.fileURL, output = job.destination
+        let modulePath = job.providerPath, slot = job.slot, certificateID = job.certificate.id
+        let expectedCertificate = job.certificateDER
         try CertificateEligibility.requireEligible(certificateDER: expectedCertificate)
         guard available else {
             throw SignumError.module("Motore PAdES non installato nel bundle. Compila PoDoFo in locale.")
         }
         guard input.isFileURL, output.isFileURL,
-              input.pathExtension.lowercased() == "pdf",
               output.pathExtension.lowercased() == "pdf",
               input.standardizedFileURL != output.standardizedFileURL else {
             throw SignumError.module("Input e output devono essere PDF differenti.")
@@ -96,8 +92,10 @@ enum SignumPAdESHelper {
             secret.append(0x0A)
         }
         defer { secret.resetBytes(in: 0..<secret.count) }
-        let fingerprint = SHA256.hash(data: expectedCertificate).map { String(format: "%02x", $0) }.joined()
-        args += ["--expected-cert-sha256", fingerprint, "--verified-output-v2"]
+        let fingerprint = job.certificateSHA256
+        args += ["--job-id", job.id.uuidString, "--snapshot-id", job.snapshotIdentity.id.uuidString,
+                 "--expected-document-sha256", job.contentSHA256,
+                 "--expected-cert-sha256", fingerprint, "--verified-output-v3"]
         switch PAdESHelperProcess.run(executable: executableURL, arguments: args,
                                       input: &secret, destination: output) {
         case .published: return

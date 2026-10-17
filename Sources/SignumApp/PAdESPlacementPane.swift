@@ -2,6 +2,7 @@
 import SwiftUI
 import AppKit
 import PDFKit
+import SignumCore
 
 /// Coordinates are PDF page space (points, origin bottom-left), NOT view pixels.
 /// They can be passed to the eventual PoDoFo signature widget.
@@ -13,7 +14,8 @@ struct PAdESPlacement: Equatable {
 /// PDFKit is used exclusively for preview and interactive field placement.
 /// NEVER save PDFKit's temporary annotation as though it were a PAdES signature.
 struct PAdESPlacementPane: View {
-    let fileURL: URL
+    let snapshot: DocumentSnapshot
+    let previewReady: (UUID, Bool) -> Void
     let holder: String
     @Binding var placement: PAdESPlacement?
     @State private var page = 0
@@ -42,7 +44,8 @@ struct PAdESPlacementPane: View {
                     SignaturePlacementPDFView(
                         document: pdfDocument, selectedPage: $page,
                         placement: $placement, holder: holder,
-                        visible: visible
+                        visible: visible,
+                        onDisplayed: { previewReady(snapshot.identity.id, true) }
                     )
                     .frame(minHeight: 350, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -83,13 +86,24 @@ struct PAdESPlacementPane: View {
             .padding(5)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { pdfDocument = PDFDocument(url: fileURL) }
-        .onChange(of: fileURL) { _ in
+        .onAppear { loadPreview() }
+        .onChange(of: snapshot.identity.id) { _ in
             page = 0
             placement = nil
-            pdfDocument = PDFDocument(url: fileURL)
+            loadPreview()
         }
         .onChange(of: visible) { newValue in if !newValue { placement = nil } }
+    }
+    private func loadPreview() {
+        // PDFKit parses precisely the immutable value hashed at acquisition.
+        // Never load, save or reopen the original URL, including at signing time.
+        let loaded = PDFDocument(data: snapshot.approvedBytes)
+        if let loaded, !loaded.isEncrypted, !loaded.isLocked, loaded.pageCount > 0 {
+            pdfDocument = loaded
+        } else {
+            pdfDocument = nil
+            previewReady(snapshot.identity.id, false)
+        }
     }
 }
 
@@ -137,6 +151,7 @@ private struct SignaturePlacementPDFView: NSViewRepresentable {
     @Binding var placement: PAdESPlacement?
     let holder: String
     let visible: Bool
+    let onDisplayed: () -> Void
 
     func makeNSView(context: Context) -> PlacementPDFView {
         let viewer = PlacementPDFView()
@@ -156,6 +171,7 @@ private struct SignaturePlacementPDFView: NSViewRepresentable {
             viewer.autoScales = true
             viewer.previewAnnotation = nil
             viewer.currentPreviewPlacement = nil
+            DispatchQueue.main.async { self.onDisplayed() }
         }
 
         viewer.onChoose = { [weak viewer] page, point in

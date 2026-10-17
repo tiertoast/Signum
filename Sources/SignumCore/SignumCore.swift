@@ -66,7 +66,7 @@ public struct SignumToken: Identifiable, Hashable {
     }
 }
 
-public struct SignumCertificate: Identifiable, Hashable {
+public struct SignumCertificate: Identifiable, Hashable, Sendable {
     public let label: String
     public let identifier: Data
     public var id: String { identifier.map { String(format: "%02X", $0) }.joined() }
