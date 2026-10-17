@@ -9,7 +9,12 @@ typedef struct SGContext SGContext;
 typedef struct { unsigned long slot; char label[33]; char manufacturer[33]; char model[17]; char reader[65]; } SGToken;
 typedef struct { char label[129]; uint8_t id[64]; size_t id_length; } SGCertificate;
 int sg_open(const char *path, SGContext **out, char *error, size_t error_size);
-void sg_close(SGContext *context);
+// Distinct contexts may be used concurrently. A caller must keep its context
+// alive throughout each call; closing the SAME context concurrently is invalid.
+// Coordination is in-process only; forked children must exec before using it.
+const char *sg_canonical_path(SGContext *context); // borrowed until close
+int sg_close_checked(SGContext *context, char *error, size_t error_size);
+void sg_close(SGContext *context); // compatibility wrapper; discards cleanup RV
 // A token may be temporarily unrecognized during card/reader initialization.
 // Ignore known transient slot failures and report the number skipped.
 int sg_tokens(SGContext *context, SGToken *out, size_t capacity,

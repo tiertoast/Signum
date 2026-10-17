@@ -4,12 +4,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include <sys/stat.h>
+#include <errno.h>
 
-struct SGContext {
+typedef struct SGProvider {
+    char *canonical_path;
+    dev_t device;
+    ino_t inode;
     void *library;
     CK_FUNCTION_LIST_PTR api;
+    size_t references;
     int owns_initialization;
+    int quarantined;
+    enum { SG_LOADING, SG_READY, SG_FINALIZING, SG_RETAINED_FAILURE } state;
+    pthread_mutex_t operations;
+    struct SGProvider *next;
+} SGProvider;
+
+struct SGContext {
+    SGProvider *provider;
+    CK_FUNCTION_LIST_PTR api;
 };
+
+// The registry mutex never spans vendor code or waiting for an operation mutex.
+// Loading/finalizing records are waited on using a global condition (waiters
+// re-lookup by identity and never retain a pointer that could be freed).
+// Operations never acquire the registry. This is in-process coordination only.
+static pthread_mutex_t registry_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t registry_changed = PTHREAD_COND_INITIALIZER;
+static SGProvider *providers;
+static size_t provider_count;
+#define SG_MAX_PROVIDERS 64
 
 static int failed(char *error, size_t size, const char *operation, CK_RV rv) {
     if (error && size) snprintf(error, size, "%s failed (PKCS#11 RV=0x%lX)", operation, (unsigned long)rv);
@@ -27,34 +53,219 @@ static void copy_padded(char *target, size_t capacity, const unsigned char *sour
     target[n] = '\0';
 }
 
-int sg_open(const char *path, SGContext **out, char *error, size_t error_size) {
-    if (!out || !path || path[0] != '/') return invalid(error, error_size, "Use an absolute module path");
-    *out = NULL;
-    SGContext *ctx = calloc(1, sizeof(*ctx));
-    if (!ctx) return invalid(error, error_size, "Out of memory");
-    ctx->library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (!ctx->library) {
-        const char *reason = dlerror();
-        if (error && error_size) snprintf(error, error_size, "Cannot load module: %s", reason ? reason : "unknown error");
-        free(ctx);
-        return -1;
+static int complete_api(CK_FUNCTION_LIST_PTR a) {
+    return a && a->C_Initialize && a->C_Finalize && a->C_GetSlotList &&
+        a->C_GetTokenInfo && a->C_GetSlotInfo && a->C_OpenSession &&
+        a->C_CloseSession && a->C_GetSessionInfo && a->C_Login &&
+        a->C_FindObjectsInit && a->C_FindObjects && a->C_FindObjectsFinal &&
+        a->C_GetAttributeValue && a->C_SignInit && a->C_Sign;
+}
+
+static void unlink_provider(SGProvider *provider) { // registry lock held
+    SGProvider **entry = &providers;
+    while (*entry != provider) entry = &(*entry)->next;
+    *entry = provider->next;
+    --provider_count;
+}
+
+static void free_provider(SGProvider *provider) { // no registry lock
+    pthread_mutex_destroy(&provider->operations);
+    if (provider->library) dlclose(provider->library);
+    free(provider->canonical_path);
+    free(provider);
+}
+
+static int finish_attach(SGProvider *provider, SGContext *context, SGContext **out,
+                         char *error, size_t error_size) {
+    // A provisional reference, already taken under the registry mutex, keeps
+    // the record alive while we wait for the current transaction to finish.
+    context->provider = provider;
+    context->api = provider->api;
+    pthread_mutex_lock(&provider->operations);
+    const int quarantined = provider->quarantined;
+    pthread_mutex_unlock(&provider->operations);
+    if (quarantined) {
+        (void)sg_close_checked(context, NULL, 0);
+        return invalid(error, error_size,
+            "Provider quarantined after uncertain cleanup; release all contexts or restart the process");
     }
-    CK_C_GetFunctionList get_list = (CK_C_GetFunctionList)dlsym(ctx->library, "C_GetFunctionList");
-    if (!get_list) { sg_close(ctx); return invalid(error, error_size, "Module lacks C_GetFunctionList"); }
-    CK_RV rv = get_list(&ctx->api);
-    if (rv != CKR_OK || !ctx->api) { sg_close(ctx); return failed(error, error_size, "C_GetFunctionList", rv); }
-    rv = ctx->api->C_Initialize(NULL);
-    if (rv == CKR_OK) ctx->owns_initialization = 1;
-    else if (rv != CKR_CRYPTOKI_ALREADY_INITIALIZED) { sg_close(ctx); return failed(error, error_size, "C_Initialize", rv); }
-    *out = ctx;
+    *out = context;
     return 0;
 }
 
-void sg_close(SGContext *ctx) {
-    if (!ctx) return;
-    if (ctx->owns_initialization && ctx->api) ctx->api->C_Finalize(NULL);
-    if (ctx->library) dlclose(ctx->library);
+int sg_open(const char *path, SGContext **out, char *error, size_t error_size) {
+    if (out) *out = NULL;
+    if (!out || !path || path[0] != '/') return invalid(error, error_size, "Use an absolute module path");
+    SGContext *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) return invalid(error, error_size, "Out of memory");
+retry:;
+    char *canonical = realpath(path, NULL);
+    struct stat identity;
+    if (!canonical || stat(canonical, &identity) || !S_ISREG(identity.st_mode)) {
+        free(canonical); free(ctx);
+        return invalid(error, error_size, "Cannot resolve a regular provider file");
+    }
+    pthread_mutex_lock(&registry_lock);
+    for (SGProvider *p = providers; p; p = p->next) {
+        if (!strcmp(p->canonical_path, canonical) && (p->device != identity.st_dev || p->inode != identity.st_ino)) {
+            pthread_mutex_unlock(&registry_lock); free(canonical); free(ctx);
+            return invalid(error, error_size, "Provider file changed while loaded; release contexts or restart");
+        }
+        if (p->device == identity.st_dev && p->inode == identity.st_ino) {
+            if (p->state == SG_LOADING || p->state == SG_FINALIZING) {
+                pthread_cond_wait(&registry_changed, &registry_lock);
+                pthread_mutex_unlock(&registry_lock); free(canonical);
+                goto retry; // refresh identity; record may have disappeared
+            }
+            if (p->state == SG_RETAINED_FAILURE) {
+                pthread_mutex_unlock(&registry_lock); free(canonical); free(ctx);
+                return invalid(error, error_size, "Provider retained after failed finalization; restart the process");
+            }
+            ++p->references;
+            pthread_mutex_unlock(&registry_lock); free(canonical);
+            return finish_attach(p, ctx, out, error, error_size);
+        }
+    }
+    if (provider_count >= SG_MAX_PROVIDERS) {
+        pthread_mutex_unlock(&registry_lock); free(canonical); free(ctx);
+        return invalid(error, error_size, "Too many retained providers");
+    }
+    SGProvider *p = calloc(1, sizeof(*p));
+    if (!p || pthread_mutex_init(&p->operations, NULL)) {
+        pthread_mutex_unlock(&registry_lock); free(p); free(canonical); free(ctx);
+        return invalid(error, error_size, "Cannot allocate provider owner/mutex");
+    }
+    p->canonical_path = canonical;
+    p->device = identity.st_dev; p->inode = identity.st_ino;
+    p->state = SG_LOADING;
+    p->next = providers; providers = p; ++provider_count;
+    pthread_mutex_unlock(&registry_lock);
+
+    int status = -1;
+    p->library = dlopen(canonical, RTLD_NOW | RTLD_LOCAL);
+    if (!p->library) {
+        const char *reason = dlerror();
+        if (error && error_size) snprintf(error, error_size, "Cannot load module: %s", reason ? reason : "unknown error");
+        goto load_failed;
+    }
+    CK_C_GetFunctionList get_list = (CK_C_GetFunctionList)dlsym(p->library, "C_GetFunctionList");
+    CK_FUNCTION_LIST_PTR api = NULL;
+    CK_RV rv = get_list ? get_list(&api) : CKR_FUNCTION_NOT_SUPPORTED;
+    if (rv != CKR_OK) { failed(error, error_size, "C_GetFunctionList", rv); goto load_failed; }
+    if (!complete_api(api)) { invalid(error, error_size, "Provider exposes an incomplete function table"); goto load_failed; }
+
+    // Handle additional aliases deduplicated by the dynamic loader itself.
+    pthread_mutex_lock(&registry_lock);
+    for (SGProvider *existing = providers; existing; existing = existing->next) {
+        if (existing != p && existing->api == api) {
+            const int state = existing->state;
+            const int ready = state == SG_READY;
+            if (ready) ++existing->references;
+            unlink_provider(p);
+            pthread_cond_broadcast(&registry_changed);
+            if (state == SG_LOADING || state == SG_FINALIZING)
+                pthread_cond_wait(&registry_changed, &registry_lock);
+            pthread_mutex_unlock(&registry_lock);
+            free_provider(p);
+            if (ready) return finish_attach(existing, ctx, out, error, error_size);
+            // No reference to the old record survives a wait/unlock: another
+            // thread may have removed it. Only the captured state is used here.
+            if (state == SG_RETAINED_FAILURE) {
+                free(ctx);
+                return invalid(error, error_size, "Provider alias retained after failed finalization; restart");
+            }
+            goto retry;
+        }
+    }
+    p->api = api;
+    pthread_mutex_unlock(&registry_lock);
+    CK_C_INITIALIZE_ARGS arguments = {0};
+    arguments.flags = CKF_OS_LOCKING_OK;
+    rv = p->api->C_Initialize(&arguments);
+    if (rv == CKR_OK) p->owns_initialization = 1;
+    else if (rv != CKR_CRYPTOKI_ALREADY_INITIALIZED) {
+        status = failed(error, error_size, "C_Initialize", rv);
+        goto load_failed;
+    }
+    pthread_mutex_lock(&registry_lock);
+    p->references = 1;
+    p->state = SG_READY;
+    pthread_cond_broadcast(&registry_changed);
+    pthread_mutex_unlock(&registry_lock);
+    ctx->provider = p; ctx->api = p->api; *out = ctx;
+    return 0;
+load_failed:
+    pthread_mutex_lock(&registry_lock);
+    unlink_provider(p);
+    pthread_cond_broadcast(&registry_changed);
+    pthread_mutex_unlock(&registry_lock);
+    free_provider(p); free(ctx);
+    return status;
+}
+
+const char *sg_canonical_path(SGContext *ctx) { return ctx ? ctx->provider->canonical_path : NULL; }
+
+int sg_close_checked(SGContext *ctx, char *error, size_t error_size) {
+    if (!ctx) return 0;
+    SGProvider *p = ctx->provider;
+    pthread_mutex_lock(&registry_lock);
+    --p->references;
+    if (p->references || !p->owns_initialization) {
+        // An externally initialized provider is never finalized/unloaded by
+        // Signum, even at ref=0. Its owner must maintain its lifetime.
+        pthread_mutex_unlock(&registry_lock); free(ctx); return 0;
+    }
+    p->state = SG_FINALIZING;
+    pthread_mutex_unlock(&registry_lock);
+    pthread_mutex_lock(&p->operations);
+    CK_RV rv = p->api->C_Finalize(NULL);
+    if (rv != CKR_OK) p->quarantined = 1;
+    pthread_mutex_unlock(&p->operations);
+    pthread_mutex_lock(&registry_lock);
+    if (rv == CKR_OK) unlink_provider(p);
+    else p->state = SG_RETAINED_FAILURE;
+    pthread_cond_broadcast(&registry_changed);
+    pthread_mutex_unlock(&registry_lock);
+    if (rv == CKR_OK) free_provider(p);
     free(ctx);
+    return rv == CKR_OK ? 0 : failed(error, error_size, "C_Finalize (provider retained)", rv);
+}
+
+void sg_close(SGContext *ctx) { (void)sg_close_checked(ctx, NULL, 0); }
+
+static int enter(SGContext *ctx, char *error, size_t size) {
+    if (!ctx) return invalid(error, size, "Invalid provider context");
+    pthread_mutex_lock(&ctx->provider->operations);
+    if (ctx->provider->quarantined) {
+        pthread_mutex_unlock(&ctx->provider->operations);
+        return invalid(error, size, "Provider quarantined after uncertain session cleanup; release contexts or restart");
+    }
+    return 0;
+}
+
+static int close_session(SGContext *ctx, CK_SESSION_HANDLE session, int status, char *error, size_t size) {
+    CK_RV rv = ctx->api->C_CloseSession(session);
+    if (rv == CKR_OK) return status;
+    // No CloseAllSessions/Logout: these could invalidate another owner's state.
+    ctx->provider->quarantined = 1;
+    if (!status) return failed(error, size, "C_CloseSession (provider quarantined)", rv);
+    if (error && size) {
+        const size_t used = strnlen(error, size);
+        if (used < size) snprintf(error + used, size - used, "; cleanup C_CloseSession RV=0x%lX (quarantined)", (unsigned long)rv);
+    }
+    return -1;
+}
+
+static int login_user(SGContext *ctx, CK_SESSION_HANDLE session, const uint8_t *pin, size_t pin_length,
+                       char *error, size_t size) {
+    CK_SESSION_INFO info;
+    CK_RV rv = ctx->api->C_GetSessionInfo(session, &info);
+    if (rv != CKR_OK) return failed(error, size, "C_GetSessionInfo", rv);
+    if (info.state != CKS_RO_PUBLIC_SESSION && info.state != CKS_RW_PUBLIC_SESSION)
+        return invalid(error, size, "Provider already authenticated elsewhere; supplied PIN not verified; no logout performed");
+    rv = ctx->api->C_Login(session, CKU_USER, (CK_UTF8CHAR_PTR)pin, pin_length);
+    if (rv != CKR_OK) return failed(error, size, "C_Login USER (no retry)", rv);
+    return 0;
 }
 
 static int transient_slot_error(CK_RV rv) {
@@ -62,7 +273,7 @@ static int transient_slot_error(CK_RV rv) {
            rv == CKR_SLOT_ID_INVALID || rv == CKR_DEVICE_REMOVED;
 }
 
-int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity,
+static int sg_tokens_impl(SGContext *ctx, SGToken *out, size_t capacity,
               size_t *count, size_t *unavailable, char *error, size_t error_size) {
     if (!ctx || !out || !count || !unavailable)
         return invalid(error, error_size, "Invalid token arguments");
@@ -130,7 +341,7 @@ static int find_one(SGContext *ctx, CK_SESSION_HANDLE session, CK_OBJECT_CLASS k
     return 0;
 }
 
-int sg_certificates(SGContext *ctx, unsigned long slot, SGCertificate *out,
+static int sg_certificates_impl(SGContext *ctx, unsigned long slot, SGCertificate *out,
                     size_t capacity, size_t *count, char *error, size_t error_size) {
     if (!ctx || !out || !count) return invalid(error, error_size, "Invalid certificate arguments");
     *count = 0;
@@ -139,7 +350,10 @@ int sg_certificates(SGContext *ctx, unsigned long slot, SGCertificate *out,
     CK_OBJECT_CLASS kind = CKO_CERTIFICATE;
     CK_ATTRIBUTE filter = {CKA_CLASS, &kind, sizeof(kind)};
     CK_RV rv = ctx->api->C_FindObjectsInit(session, &filter, 1);
-    if (rv != CKR_OK) { ctx->api->C_CloseSession(session); return failed(error, error_size, "C_FindObjectsInit", rv); }
+    if (rv != CKR_OK) {
+        int status = failed(error, error_size, "C_FindObjectsInit", rv);
+        return close_session(ctx, session, status, error, error_size);
+    }
     int status = 0;
     for (;;) {
         CK_OBJECT_HANDLE object;
@@ -164,11 +378,10 @@ int sg_certificates(SGContext *ctx, unsigned long slot, SGCertificate *out,
     }
     CK_RV end = ctx->api->C_FindObjectsFinal(session);
     if (!status && end != CKR_OK) status = failed(error, error_size, "C_FindObjectsFinal", end);
-    ctx->api->C_CloseSession(session);
-    return status;
+    return close_session(ctx, session, status, error, error_size);
 }
 
-int sg_certificate_der(SGContext *ctx, unsigned long slot, const uint8_t *id,
+static int sg_certificate_der_impl(SGContext *ctx, unsigned long slot, const uint8_t *id,
                        size_t id_length, uint8_t *out, size_t capacity,
                        size_t *length, char *error, size_t error_size) {
     if (!ctx || !id || !id_length || !length) return invalid(error, error_size, "Invalid DER arguments");
@@ -196,11 +409,10 @@ int sg_certificate_der(SGContext *ctx, unsigned long slot, const uint8_t *id,
             }
         }
     }
-    ctx->api->C_CloseSession(session);
-    return status;
+    return close_session(ctx, session, status, error, error_size);
 }
 
-int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id,
+static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *id,
                  size_t id_length, const uint8_t *pin, size_t pin_length,
                  const uint8_t *message, size_t message_length,
                  uint8_t *signature, size_t signature_capacity,
@@ -211,11 +423,9 @@ int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id,
     *signature_length = 0;
     CK_SESSION_HANDLE session;
     if (open_session(ctx, slot, &session, error, error_size)) return -1;
-    CK_RV rv = ctx->api->C_Login(session, CKU_USER, (CK_UTF8CHAR_PTR)pin, pin_length);
-    int status = 0;
-    if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
-        status = failed(error, error_size, "C_Login USER", rv);
-    } else {
+    CK_RV rv;
+    int status = login_user(ctx, session, pin, pin_length, error, error_size);
+    if (!status) {
         CK_OBJECT_HANDLE key;
         status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length, &key, error, error_size);
         if (!status) {
@@ -241,15 +451,16 @@ int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id,
             }
         }
     }
-    // Closing the session also ends authenticated use and releases the key handle.
-    ctx->api->C_CloseSession(session);
+    // Close only our session. Other owners' sessions may keep a shared login.
+    status = close_session(ctx, session, status, error, error_size);
+    if (status) { memset(signature, 0, signature_capacity); *signature_length = 0; }
     return status;
 }
 
 // Raw PKCS#1 v1.5 signature of *already ASN.1 wrapped* SHA-256 digest.
 // Never supply arbitrary data here. Higher-level code must have calculated
 // a matching signed digest; this entry point does not hash.
-int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot,
+static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                            const uint8_t *id, size_t id_length,
                            const uint8_t *pin, size_t pin_length,
                            const uint8_t *digestinfo, size_t digestinfo_length,
@@ -269,11 +480,9 @@ int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot,
     *signature_length = 0;
     CK_SESSION_HANDLE session;
     if (open_session(ctx, slot, &session, error, error_size)) return -1;
-    CK_RV rv = ctx->api->C_Login(session, CKU_USER, (CK_UTF8CHAR_PTR)pin, pin_length);
-    int status = 0;
-    if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
-        status = failed(error, error_size, "C_Login USER", rv);
-    } else {
+    CK_RV rv;
+    int status = login_user(ctx, session, pin, pin_length, error, error_size);
+    if (!status) {
         CK_OBJECT_HANDLE key;
         status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length,
                           &key, error, error_size);
@@ -303,6 +512,48 @@ int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot,
             }
         }
     }
-    ctx->api->C_CloseSession(session);
+    status = close_session(ctx, session, status, error, error_size);
+    if (status) { memset(signature, 0, signature_capacity); *signature_length = 0; }
+    return status;
+}
+
+int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity, size_t *count, size_t *unavailable, char *error, size_t error_size) {
+    if (count) *count = 0;
+    if (unavailable) *unavailable = 0;
+    if (enter(ctx, error, error_size)) return -1;
+    int status = sg_tokens_impl(ctx, out, capacity, count, unavailable, error, error_size);
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return status;
+}
+
+int sg_certificates(SGContext *ctx, unsigned long slot, SGCertificate *out, size_t capacity, size_t *count, char *error, size_t error_size) {
+    if (count) *count = 0;
+    if (enter(ctx, error, error_size)) return -1;
+    int status = sg_certificates_impl(ctx, slot, out, capacity, count, error, error_size);
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return status;
+}
+
+int sg_certificate_der(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, uint8_t *out, size_t capacity, size_t *length, char *error, size_t error_size) {
+    if (length) *length = 0;
+    if (enter(ctx, error, error_size)) return -1;
+    int status = sg_certificate_der_impl(ctx, slot, id, id_length, out, capacity, length, error, error_size);
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return status;
+}
+
+int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length, uint8_t *signature, size_t signature_capacity, size_t *signature_length, char *error, size_t error_size) {
+    if (signature_length) *signature_length = 0;
+    if (enter(ctx, error, error_size)) return -1;
+    int status = sg_sign_test_impl(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, signature_capacity, signature_length, error, error_size);
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return status;
+}
+
+int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, const uint8_t *pin, size_t pin_length, const uint8_t *digestinfo, size_t digestinfo_length, uint8_t *signature, size_t signature_capacity, size_t *signature_length, char *error, size_t error_size) {
+    if (signature_length) *signature_length = 0;
+    if (enter(ctx, error, error_size)) return -1;
+    int status = sg_sign_encoded_digest_impl(ctx, slot, id, id_length, pin, pin_length, digestinfo, digestinfo_length, signature, signature_capacity, signature_length, error, error_size);
+    pthread_mutex_unlock(&ctx->provider->operations);
     return status;
 }
