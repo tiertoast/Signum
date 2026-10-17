@@ -24,6 +24,12 @@ private enum SignumFormat: String, Hashable {
     case cades, pades, xades
 }
 
+private struct LoadedCertificates {
+    var certificates: [SignumCertificate] = []
+    var identities: [String: SignumCertificateIdentity] = [:]
+    var derByID: [String: Data] = [:]
+}
+
 struct SignumWindow: View {
     @State private var modulePath = "/Library/bit4id/pkcs11/libbit4xpki.dylib"
     @State private var module: PKCS11Module?
@@ -43,6 +49,7 @@ struct SignumWindow: View {
     @State private var pin = ""
     @State private var status = "Collega un dispositivo e premi Carica."
     @State private var busy = false
+    @State private var discoveryID = UUID()
 
     private var canSign: Bool {
         guard !busy, !pin.isEmpty, selectedSlot != nil,
@@ -304,82 +311,105 @@ struct SignumWindow: View {
         }
     }
 
+    private static func readCertificates(_ module: PKCS11Module, slot: UInt?) throws -> LoadedCertificates {
+        dispatchPrecondition(condition: .notOnQueue(.main))
+        guard let slot else { return LoadedCertificates() }
+        var result = LoadedCertificates()
+        result.certificates = try module.certificates(slot: slot)
+        for certificate in result.certificates {
+            // A DER failure must not leave a stale signer selectable. Display
+            // parsing can still fall back to the certificate label.
+            let der = try module.certificateDER(slot: slot, certificate: certificate)
+            result.derByID[certificate.id] = der
+            if let identity = try? SignumCertificateIdentity(certificateDER: der) {
+                result.identities[certificate.id] = identity
+            }
+        }
+        return result
+    }
+
+    private func applyCertificates(_ loaded: LoadedCertificates) {
+        certificates = loaded.certificates
+        certificateIdentities = loaded.identities
+        certificateDERs = loaded.derByID
+        selectedCertificateID = loaded.certificates.first?.id
+        status = "\(loaded.certificates.count) certificati · \(loaded.identities.count) identità lette."
+    }
+
     private func load(allowRetry: Bool = true) {
+        guard !busy else { return }
         let path = modulePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        do {
-            let loaded: PKCS11Module
-            if let existing = module, activeModulePath == path {
-                loaded = existing
-            } else {
-                selectedSlot = nil
-                selectedCertificateID = nil
-                certificates = []
-                certificateIdentities = [:]
-                certificateDERs = [:]
-                tokens = []
-                module = nil // Finalize the previous module before opening another.
-                activeModulePath = nil
-                loaded = try PKCS11Module(path: path)
-                module = loaded
-                activeModulePath = path
+        let previous = activeModulePath == path ? module : nil
+        let previousSlot = selectedSlot
+        let request = UUID()
+        discoveryID = request
+        selectedCertificateID = nil
+        busy = true
+        status = "Lettura del dispositivo in corso…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { () -> (PKCS11Module, SignumTokenScan, UInt?, LoadedCertificates) in
+                let loaded = try previous ?? PKCS11Module(path: path)
+                let scan = try loaded.scanTokens()
+                let next = scan.tokens.first(where: { $0.slot == previousSlot })?.slot ?? scan.tokens.first?.slot
+                return (loaded, scan, next, try Self.readCertificates(loaded, slot: next))
             }
-
-            let scan = try loaded.scanTokens()
-            let previousSlot = selectedSlot
-            tokens = scan.tokens
-            let nextSlot: UInt?
-            if let previousSlot, scan.tokens.contains(where: { $0.slot == previousSlot }) {
-                nextSlot = previousSlot
-            } else {
-                nextSlot = scan.tokens.first?.slot
-            }
-            selectedSlot = nextSlot
-            loadCertificates(slot: nextSlot)
-
-            if scan.unavailableSlots > 0 {
-                status = "\(scan.tokens.count) dispositivi pronti; \(scan.unavailableSlots) in inizializzazione."
-                if allowRetry {
-                    // The card reader can temporarily return CKR_TOKEN_NOT_RECOGNIZED (0xE1).
-                    // Only one automatic retry; never retry PIN authentication.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(450)) {
-                        guard !self.busy, self.activeModulePath == path else { return }
-                        self.load(allowRetry: false)
+            DispatchQueue.main.async {
+                guard self.discoveryID == request else { return }
+                self.busy = false
+                switch result {
+                case .success(let (loaded, scan, slot, cache)):
+                    self.module = loaded
+                    self.activeModulePath = loaded.modulePath
+                    self.tokens = scan.tokens
+                    self.selectedSlot = slot
+                    self.applyCertificates(cache)
+                    if scan.unavailableSlots > 0 {
+                        self.status = "\(scan.tokens.count) dispositivi pronti; \(scan.unavailableSlots) in inizializzazione."
+                        if allowRetry {
+                            // Discovery retry only; never resubmit a signing/PIN request.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(450)) {
+                                guard !self.busy, self.discoveryID == request,
+                                      self.modulePath.trimmingCharacters(in: .whitespacesAndNewlines) == path else { return }
+                                self.load(allowRetry: false)
+                            }
+                        }
+                    } else if scan.tokens.isEmpty {
+                        self.status = "Nessun dispositivo riconosciuto."
                     }
+                case .failure(let error):
+                    self.module = nil
+                    self.activeModulePath = nil
+                    self.tokens = []
+                    self.selectedSlot = nil
+                    self.applyCertificates(LoadedCertificates())
+                    self.status = "Caricamento non riuscito: \(error.localizedDescription)"
                 }
-            } else if scan.tokens.isEmpty {
-                status = "Nessun dispositivo riconosciuto."
             }
-        } catch {
-            status = "Caricamento non riuscito: \(error.localizedDescription)"
-            // Keep the successfully initialized module for a manual refresh.
         }
     }
 
     private func loadCertificates(slot: UInt?) {
+        guard !busy else { return }
         selectedCertificateID = nil
         certificates = []
         certificateIdentities = [:]
         certificateDERs = [:]
+        let request = UUID()
+        discoveryID = request
         guard let module, let slot else { return }
-        do {
-            let found = try module.certificates(slot: slot)
-            var identities: [String: SignumCertificateIdentity] = [:]
-            var derByID: [String: Data] = [:]
-            for certificate in found {
-                if let der = try? module.certificateDER(slot: slot, certificate: certificate) {
-                    derByID[certificate.id] = der
-                    if let identity = try? SignumCertificateIdentity(certificateDER: der) {
-                        identities[certificate.id] = identity
-                    }
+        busy = true
+        status = "Lettura certificati in corso…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try Self.readCertificates(module, slot: slot) }
+            DispatchQueue.main.async {
+                guard self.discoveryID == request else { return }
+                self.busy = false
+                guard self.selectedSlot == slot else { return }
+                switch result {
+                case .success(let cache): self.applyCertificates(cache)
+                case .failure(let error): self.status = "Lettura certificati non riuscita: \(error.localizedDescription)"
                 }
             }
-            certificates = found
-            certificateIdentities = identities
-            certificateDERs = derByID
-            selectedCertificateID = found.first?.id
-            status = "\(found.count) certificati · \(identities.count) identità lette."
-        } catch {
-            status = "Lettura certificati non riuscita: \(error.localizedDescription)"
         }
     }
 
@@ -455,8 +485,8 @@ struct SignumWindow: View {
         lastSignedFile = nil
         status = "Creazione della firma CAdES in corso…"
 
-        // Keep module alive and disable all UI operations using this PKCS#11
-        // provider while the signature is running.
+        // Keep this context alive and disable this window's edits. The native
+        // provider owner serializes transactions from the other windows.
         DispatchQueue.global(qos: .userInitiated).async {
             let result: Result<URL, Error>
             do {

@@ -77,9 +77,12 @@ public struct SignumTokenScan {
     public let unavailableSlots: Int
 }
 
-/// Loads an installed PKCS#11 provider. Do not share an instance between threads.
-/// The PKCS#11 driver executes inside this process: use trusted modules only.
-public final class PKCS11Module {
+/// Loads an installed PKCS#11 provider. Native calls share an in-process owner
+/// per canonical module and serialize complete session transactions. Retain the
+/// object during a call. Higher-level multi-call jobs still need their own state.
+/// The driver executes in-process: use trusted modules and call off the UI thread.
+public final class PKCS11Module: @unchecked Sendable {
+    // Immutable Swift state; each C entry point serializes the shared provider.
     private let context: OpaquePointer
     public let modulePath: String
 
@@ -95,10 +98,21 @@ public final class PKCS11Module {
         }
         guard status == 0, let pointer else { throw SignumError.module(Self.diagnostic(diagnostics)) }
         context = pointer
-        modulePath = path
+        modulePath = sg_canonical_path(pointer).map { String(cString: $0) } ?? path
     }
 
-    deinit { sg_close(context) }
+    private final class RetiredContext: @unchecked Sendable {
+        let pointer: OpaquePointer
+        init(_ pointer: OpaquePointer) { self.pointer = pointer }
+    }
+    private static let releaseQueue = DispatchQueue(label: "Signum.provider.release", qos: .utility, attributes: .concurrent)
+
+    deinit {
+        // Finalization may block in vendor code. Never run it while SwiftUI
+        // releases a View's last reference on the main thread.
+        let retired = RetiredContext(context)
+        Self.releaseQueue.async { sg_close(retired.pointer) }
+    }
 
     public func tokens() throws -> [SignumToken] {
         try scanTokens().tokens
@@ -294,7 +308,9 @@ public final class PKCS11Module {
 
     private func execute(_ perform: (UnsafeMutableBufferPointer<CChar>) -> Int32) throws {
         var diagnostics = [CChar](repeating: 0, count: 512)
-        let result = diagnostics.withUnsafeMutableBufferPointer { buffer in perform(buffer) }
+        let result = withExtendedLifetime(self) {
+            diagnostics.withUnsafeMutableBufferPointer { buffer in perform(buffer) }
+        }
         guard result == 0 else { throw SignumError.module(Self.diagnostic(diagnostics)) }
     }
 
