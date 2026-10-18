@@ -153,8 +153,8 @@ private enum SignumFormat: String, Hashable {
             .padding(.bottom, 12)
 
             Picker("Sezione", selection: $operation) {
-                Text("Firma documento").tag(SignumOperation.sign)
-                Text("Verifica .p7m").tag(SignumOperation.verify)
+                Text("Firma").tag(SignumOperation.sign)
+                Text("Verifica").tag(SignumOperation.verify)
                 Text("Impostazioni").tag(SignumOperation.settings)
             }
             .labelsHidden()
@@ -188,7 +188,7 @@ private enum SignumFormat: String, Hashable {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if operation == .verify {
-                            CAdESVerificationPane()
+                            UnifiedVerificationPane()
                         } else {
                             Button("Configura dispositivo…") { showDeviceConfiguration = true }
                             Picker("Autenticazione nella firma multipla", selection: $authenticationModeRaw) {

@@ -12,6 +12,21 @@
 #include <time.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <libproc.h>
+#include <sys/proc.h>
+
+int sg_process_resident_bytes(int pid, uint64_t *bytes) {
+    struct proc_taskinfo info;
+    if (!bytes) return -1;
+    if (proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, sizeof(info)) != sizeof(info)) {
+        struct proc_bsdinfo state;
+        if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &state, sizeof(state)) == sizeof(state))
+            return state.pbi_status == SZOMB ? 1 : -1;
+        return errno == ESRCH ? 1 : -1;
+    }
+    *bytes = info.pti_resident_size;
+    return 0;
+}
 
 struct SGTokenLease { int provider, token; };
 static uint64_t milliseconds(void) {

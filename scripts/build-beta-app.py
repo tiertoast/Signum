@@ -208,7 +208,7 @@ def build(output, configuration, native_prefix, cmake):
                     "minimumOSFromMachO": ".".join(map(str, max(versions))), "declaredMinimumOS": declared_target, "native": native_metadata,
                     "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
                     "signing": "ad-hoc only; no Developer ID, hardened runtime or notarization",
-                    "external": "User-installed PKCS#11 middleware; system /usr/bin/openssl for CAdES verification"}
+                    "external": "User-installed PKCS#11 middleware for signing/discovery; bundled OpenSSL for unified verification; system /usr/bin/openssl for legacy verify-cades"}
         # Inner dylibs, helpers, main executable, then the enclosing bundle.
         ordered = sorted(files.values(), key=lambda p: (p.parent.name != "Frameworks", p.parent.name == "MacOS", str(p)))
         for dest in ordered:

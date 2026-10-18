@@ -356,3 +356,25 @@ tag, release, PR #3, GitHub Actions o accesso ad altri repository.
 Checkpoint B **`9f7684b`**, seguito da bundle Debug/Release build 7 verificati
 anche dopo rilocazione; manifest senza modifiche tracciate pendenti. Disponibili
 in `.build/04b-bundles/checkpoint-{debug,release}/Signum.app`. Da qui inizia C.
+
+
+## 18 ottobre 2026 — 0.4-C Unified Verification
+
+Dopo B `9f7684b`/bundle verificati `d7d02d4`, nuova sezione **Verifica** autonoma
+e senza PIN/provider: riconoscimento strutturale CAdES/PAdES nel processo
+supervisionato, firma per firma, certificati, revisioni, modifiche successive,
+preview PDFKit in memoria ed estrazione esplicita/no-overwrite del CMS verificato.
+Backend OpenSSL già incorporato/SG-03, niente nuovo parser CMS; CLI `verify`.
+Fiducia, revoca, qualificazione e accettabilità DocMDP/FieldMDP non valutate.
+
+Swift **317/317**, PKCS#11 **40/40**, PAdES Debug/Release **63/63** ciascuna,
+packaging **10/10**, build Debug/Release passate. ASAN/TSAN mirati **54/54**
+ciascuno, native ASAN **63/63**, confronto crittografico indipendente positivo.
+Ulteriori regressioni scroll reale e pagine differenti: suite B/C **24/24**.
+Zero skip/fallimenti finali; fixture da 100 MiB incluse. Fonte build **8**.
+
+[Architettura, policy effettiva, test, limiti e collaudo](SIGNUM_0.4_UNIFIED_VERIFICATION.md).
+Profilo PDF deliberatamente limitato a quello SG-03; niente validazione legale,
+XAdES operativo o hardware nuovo. Runtime macOS 13/14 e GUI interattiva completa
+ancora da collaudare. Main, Alpha/build 6, review non tracciata e PR #3 preservati;
+nessun push/merge/tag/release, GitHub Actions o altro repository.

@@ -10,6 +10,7 @@
 #include "SignumPKCS11.h"
 #include "TransactionalOutput.h"
 #include "PAdESAppearance.h"
+#include "UnifiedVerification.h"
 
 #include <algorithm>
 #include <array>
@@ -222,6 +223,7 @@ static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, co
 
 int main(int argc, char** argv) {
     if (sg_worker_watch_parent() != 0) return 2;
+    if (argc == 2 && std::strcmp(argv[1], "--verify-stdin-v1") == 0) return signum::verificationMain();
     const bool statusProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v4") == 0;
     // Reserve the only status descriptor before loading any vendor code. Vendor
     // stdout/stderr cannot masquerade as a pre-authentication rejection.

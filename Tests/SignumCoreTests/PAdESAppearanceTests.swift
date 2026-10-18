@@ -83,6 +83,12 @@ final class PAdESAppearanceTests: XCTestCase {
                 view.scaleFactor=zoom
                 let original=CGPoint(x:140,y:180), point=view.convert(original,from:page), back=view.convert(point,to:page)
                 XCTAssertEqual(original.x,back.x,accuracy:0.01); XCTAssertEqual(original.y,back.y,accuracy:0.01)
+                let beforeScroll=view.convert(original,from:page)
+                view.go(to:PDFDestination(page:page,at:CGPoint(x:200,y:300)))
+                view.documentView?.scroll(CGPoint(x:40,y:60))
+                let scrolled=view.convert(view.convert(original,from:page),to:page)
+                XCTAssertEqual(original.x,scrolled.x,accuracy:0.01);XCTAssertEqual(original.y,scrolled.y,accuracy:0.01)
+                if zoom == 2 { XCTAssertNotEqual(beforeScroll,view.convert(original,from:page),"A zoomed preview must actually scroll") }
             }
         }
     }
@@ -121,7 +127,8 @@ final class PAdESAppearanceTests: XCTestCase {
             var font:CGPDFDictionaryRef?; XCTAssertTrue(CGPDFDictionaryGetDictionary(try XCTUnwrap(resources),"Font",&font))
             if c.image != nil { var images:CGPDFDictionaryRef?; XCTAssertTrue(CGPDFDictionaryGetDictionary(try XCTUnwrap(resources),"XObject",&images)); XCTAssertGreaterThan(CGPDFDictionaryGetCount(try XCTUnwrap(images)),0) }
             let outputDocument=try XCTUnwrap(PDFDocument(data:bytes)), previewDocument=try XCTUnwrap(PDFDocument(data:original))
-            let outputPage=try XCTUnwrap(outputDocument.page(at:c.pageIndex)), previewPage=try XCTUnwrap(previewDocument.page(at:c.pageIndex))
+            _ = try XCTUnwrap(outputDocument.page(at:c.pageIndex))
+            let previewPage=try XCTUnwrap(previewDocument.page(at:c.pageIndex))
             previewPage.addAnnotation(try XCTUnwrap(AppearancePDFAnnotation(appearance:appearance)))
             func raster(_ page:PDFPage) throws -> (pixels:[UInt8],image:CGImage) {
                 let thumbnail=page.thumbnail(of:CGSize(width:600,height:600),for:.mediaBox)

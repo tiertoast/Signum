@@ -108,3 +108,10 @@ Mach-O minimo 13.0, dipendenze incorporate, smoke e 63 casi PAdES anche nei
 bundle rilocati. Percorsi `.build/04b-bundles/checkpoint-debug/Signum.app` e
 `.build/04b-bundles/checkpoint-release/Signum.app`. Log `04b-package-{debug,release}`.
 Questi bundle sono checkpoint B; la candidata finale includerà C se verificata.
+
+
+Durante C rafforzate anche le regressioni B: conversione coordinate dopo scrolling
+programmatico reale a zoom 2 (spostamento verificato su tutte le rotazioni),
+e PDF con pagine di dimensioni/CropBox differenti nel test multifirma. Le suite
+appearance + verifica aggiornate sono passate **24/24**; nessuna modifica al
+renderer B o alle primitive di firma. Il collaudo interattivo umano resta distinto.

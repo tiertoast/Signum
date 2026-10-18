@@ -6,7 +6,7 @@ A lightweight, native macOS application for signing documents with local PKCS#11
 
 Signum aims to make document signing practical and understandable, particularly in document-heavy workflows such as the Italian public administration, without locking users into a particular token vendor's desktop interface.
 
-> **Current status — 17 October 2026:** **0.3.3 Alpha · Beta Foundation integrated into `main`.**
+> **Development status — 18 October 2026:** **0.4.0 / build 8 candidate on `codex/signum-0.4-pades-verification`.** Main and the working Alpha/build 6 remain preserved. Local candidate only; see the milestone reports below.
 > CAdES and PAdES have both passed real DigitalDNA/DS3 signing tests and independent checks with InfoCamere Sign. **This is not a public Beta or production-ready eIDAS validation product.** No signed, notarized distribution is available yet.
 
 ## Capabilities
@@ -14,15 +14,15 @@ Signum aims to make document signing practical and understandable, particularly 
 | Area | Current implementation |
 | --- | --- |
 | **CAdES** | Attached CMS/`.p7m` signing with PKCS#11 RSA/SHA-256, signed attributes including `signingCertificateV2`; cryptographic verification before publication. |
-| **PAdES** | Incremental PDF signing through the bundled PoDoFo helper; optional minimal text-based visible signature appearance. |
+| **PAdES** | Incremental PDF signing through the bundled PoDoFo helper; customizable visible/invisible appearance with frozen text, certificate name, local date and embedded PNG/JPEG; preview and output share the same resources. |
 | **Devices** | Local PKCS#11 module discovery, reader/token selection, certificate display and local X.509 signing-eligibility checks. Tested with Bit4id DigitalDNA/DS3; other middleware requires its own validation. |
 | **User interface** | Native resizable SwiftUI workspace, PDFKit preview, interactive PDF signature-field placement and explicit document approval. |
-| **CLI** | Device discovery, certificate listing, signing diagnostic, CAdES signing and attached-CMS integrity verification. |
-| **Local verification** | Verify `.p7m` CMS integrity and extract the original content. This is **not** certificate trust or qualified-signature validation. |
+| **CLI** | Device discovery, certificate listing, signing diagnostic, CAdES signing, unified `verify`, and legacy attached-CMS verification/extraction. |
+| **Local verification** | Automatic CAdES/PAdES recognition, batch integrity reports per signature, revisions, readonly PDF preview and explicit verified CMS extraction. **Trust, revocation and qualification are not assessed.** |
 | **XAdES** | Planned, **not implemented**. |
 | **Remote signing** | Future possibility, **not implemented**. |
 
-The current PDF appearance is intentionally limited: custom image/logo and date profiles are **not yet embedded** in the produced signature appearance.
+Appearance and verification have explicit resource/profile limits. Read [PAdES Appearance](docs/SIGNUM_0.4_PADES_APPEARANCE.md) and [Unified Verification](docs/SIGNUM_0.4_UNIFIED_VERIFICATION.md) before testing; the latter currently reuses the conservative SG-03 PDF signature profile, not every third-party PDF signature type.
 
 ## The invisible work that makes signing reliable
 
@@ -42,7 +42,9 @@ Read [the Beta Foundation engineering report](docs/SIGNUM_BETA_FOUNDATION_REPORT
 
 ## Validation evidence
 
-The latest correction cycle recorded these **local, synthetic** results:
+The 0.4-B/C cycle passed **317/317 Swift**, **40/40 PKCS#11**, **63/63 PAdES Debug/Release** each, **10/10 packaging**, and targeted **54/54 ASAN and 54/54 TSAN**. Native ASAN passed 63/63; independent system OpenSSL verified the CMS from the actual signed appearance fixtures. See the 0.4 reports for exact runs, candidate paths and limits. No new real hardware test was performed.
+
+The earlier PR #2 correction cycle recorded these **historical local, synthetic** results:
 
 | Verification | Reported result |
 | --- | --- |

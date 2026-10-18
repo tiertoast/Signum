@@ -1,4 +1,5 @@
 #include "PAdESVerification.h"
+#include "UnifiedVerification.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <openssl/cms.h>
 #include <openssl/x509.h>
@@ -48,7 +49,11 @@ void fields(CGPDFArrayRef array, std::vector<CGPDFDictionaryRef>& signatures, un
         const char* type = nullptr;
         const bool signature = CGPDFDictionaryGetName(field, "FT", &type) ? std::strcmp(type, "Sig") == 0 : inheritedSignature;
         CGPDFDictionaryRef value = nullptr;
-        if (signature && CGPDFDictionaryGetDictionary(field, "V", &value)) signatures.push_back(value);
+        CGPDFObjectRef rawValue = nullptr;
+        if (signature && CGPDFDictionaryGetObject(field, "V", &rawValue) && CGPDFObjectGetType(rawValue) != kCGPDFObjectTypeNull) {
+            require(CGPDFDictionaryGetDictionary(field,"V",&value),"Invalid signature value");
+            signatures.push_back(value);
+        }
         CGPDFArrayRef kids = nullptr;
         if (CGPDFDictionaryGetArray(field, "Kids", &kids)) fields(kids, signatures, depth + 1, budget, signature);
     }
@@ -243,6 +248,53 @@ size_t verifySignature(CGPDFDictionaryRef signature, const Bytes& pdf, const std
     verifyCMS(decoded, signedBytes, expected);
     return revisionEnd;
 }
+}
+
+Inspection inspectPAdES(const Bytes& pdf) {
+    Inspection report; report.format="pades"; report.state="unsigned";
+    Document document(pdf);
+    require(CGPDFDocumentGetNumberOfPages(document.value)>0 && CGPDFDocumentGetNumberOfPages(document.value)<=1000,"Unsupported PDF page count (1–1000)");
+    const auto entries=signatures(document);
+    if(!entries.empty())report.state="signed";
+    for(auto dictionary:entries) {
+        InspectedSignature result;
+        try {
+            CGPDFStringRef value=nullptr;
+            require(CGPDFDictionaryGetString(dictionary,"Contents",&value),"Signature Contents missing");
+            Bytes cms(CGPDFStringGetBytePtr(value),CGPDFStringGetBytePtr(value)+CGPDFStringGetLength(value));
+            CGPDFArrayRef ranges=nullptr;
+            require(CGPDFDictionaryGetArray(dictionary,"ByteRange",&ranges) && CGPDFArrayGetCount(ranges)==4,"Invalid ByteRange");
+            std::array<size_t,4> r{};
+            for(size_t i=0;i<4;++i) {CGPDFInteger n=-1;require(CGPDFArrayGetInteger(ranges,i,&n)&&n>=0&&uint64_t(n)<=pdf.size(),"Invalid ByteRange number");r[i]=size_t(n);}
+            require(r[0]==0&&r[1]<r[2]&&r[3]<=pdf.size()-r[2],"Invalid ByteRange coverage");
+            Bytes signedBytes(pdf.begin(),pdf.begin()+r[1]);
+            signedBytes.insert(signedBytes.end(),pdf.begin()+r[2],pdf.begin()+r[2]+r[3]);
+            auto signers=inspectCMS(cms,&signedBytes,nullptr);
+            // The inspection scope deliberately matches SG-03: one CMS signer
+            // per signature dictionary, SHA-256, Adobe.PPKLite/ETSI detached.
+            require(signers.size()==1,"Unsupported multi-signer PDF CMS");
+            result=std::move(signers.front());
+            result.revisionEnd=r[2]+r[3]; result.laterChanges=result.revisionEnd<pdf.size();
+            result.revisionEnd=verifySignature(dictionary,pdf,nullptr);
+            require(result.integrity=="verified","PDF CMS could not be verified");
+            result.laterChanges=result.revisionEnd<pdf.size();
+        } catch(const std::exception& error) {
+            const std::string message=error.what();
+            if(result.integrity=="verified"||result.reason.empty()) {
+                result.integrity=message.find("Unsupported")!=std::string::npos || message.find("CMS")!=std::string::npos ? "notVerifiable":"invalid";
+                if(message=="PDF CMS integrity verification failed")result.integrity="invalid";
+                result.reason=message;
+            }
+        }
+        report.signatures.push_back(std::move(result));
+    }
+    std::stable_sort(report.signatures.begin(),report.signatures.end(),[](const auto& a,const auto& b){return a.revisionEnd<b.revisionEnd;});
+    return report;
+}
+
+bool isPreviewablePDF(const Bytes& bytes) {
+    try { Document document(bytes); const auto pages=CGPDFDocumentGetNumberOfPages(document.value);return pages>0&&pages<=1000; }
+    catch(...) { return false; }
 }
 
 void requireExpectedCertificate(const std::string& certificate, const std::string& sha256) {
