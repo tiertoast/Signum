@@ -55,3 +55,11 @@ Pannello SwiftUI/PDFKit reale in finestra sintetica, A0 con 10.000 vettori, sequ
 | PNG 2800² | 30 / 120 | 30 / 120 | 0 / 0 | 2,66/3,21 ms · 2,48/3,03 ms |
 
 Nessuna readiness positiva durante il movimento; una al rilascio, inclusi clic no-op. Questo conta il gate del preflight, non un riepilogo con provider nel test del pannello. Decodifiche immagine e hash del PDF durante movimento sono assenti nel percorso riusato (render zero, hash già memorizzato). Il picco RSS cumulativo dell’intero processo di test cresce da 162 a 297 MB: include framework, fixture e precedenti iterazioni; non è il consumo isolato dell’app o una prova di leak. I tempi non sono frame presentati: non si dichiara 60 fps. Le misure M5 del solo aggiornamento geometrico e queste del pannello completo sono metriche distinte.
+
+## M7 — Regressioni e candidata
+
+Suite Swift completa **333/333**, zero skip/fallimenti (317 storici + 16 regressioni). PKCS#11 **40/40**; PAdES nativi Debug/Release **63/63** ciascuno; packaging unit **10/10**; ASAN/TSAN Swift mirati **34/34** ciascuno, nessuna diagnostica. Le primitive/autenticazione Secure Batch PIN, discovery, worker/lifecycle, atomicità e no-overwrite sono rimaste inalterate e sono incluse nella suite completa.
+
+Nuovo end-to-end: job con artwork spostato e congelato, quattro PDF vettoriali firmati con provider software, rotazioni 0/90/180/270, crop/MediaBox traslati, pagina superiore A0/UserUnit 10. Controllati /AP/N, /Rect finale, aggiornamento incrementale, verifica unificata (ByteRange/CMS), originali invariati. Poppler sul vero PDF firmato e sul riferimento appiattito: centroidi dei pixel rossi coincidenti per tutte le rotazioni, non soltanto confronto dell’overlay.
+
+Incrementata soltanto la nuova candidata a **0.4.0/build 10**, minimo 13.0. Bundle Debug/Release da produrre in `.build/04stabilization-bundles/build10-{debug,release}/Signum.app`, mai nelle directory delle build precedenti. La verifica finale dei bundle viene registrata dopo la compilazione dal commit sorgente pulito.
