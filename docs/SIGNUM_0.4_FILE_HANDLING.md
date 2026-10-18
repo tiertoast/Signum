@@ -12,6 +12,7 @@ Baseline rieseguita prima delle modifiche al prodotto: Swift **221/221**, PKCS#1
 esplicita: lo script storico test-pades-local.sh imposta sempre Debug, anche
 se CMAKE_BUILD_TYPE viene passato come variabile ambiente. Non confondere quel
 run con Release; evidenza corretta separata `04a31-baseline-native-release.log`.
+Release corretta **63/63**, build Swift baseline Debug/Release entrambe passate.
 
 Percorso: NSOpenPanel/FileDropResolution → addDocuments MainActor → capture su
 Task separata → fclonefileat dal descriptor originale → lettura/hash del clone
@@ -141,7 +142,7 @@ e verifica restano attivi, ora con il tetto output dichiarato.
 
 **M4: 37/37** Swift mirati, PKCS#11 **40/40**, PAdES Debug/Release **63/63**
 ciascuno, build Debug/Release passate. Sei nuovi test generano/eliminano fixture
-temporanee: 1, 16, 16+1 byte, 50 e 100 MiB nei due formati; esclusione 100+1 e
+temporanee: 1 MiB, 16 MiB, 16 MiB+1 byte, 50 MiB e 100 MiB nei due formati; esclusione 100 MiB+1 byte e
 200 MiB; CAdES da 100 MiB tramite worker sintetico con verifica CMS/payload;
 PAdES da 100 MiB con helper/CoW/hash/receipt verificata; batch 50+50 accettato e
 terzo 50 respinto dal budget sessione; timeout/annullamento durante lettura grande;
@@ -173,3 +174,138 @@ consenso, una seconda selezione e un annullamento prima che la Task parta: nessu
 vecchio piano approvabile, nessun file aggiunto dalla callback annullata.
 Le verifiche/bundle iniziali su `9e830a5` saranno sostituiti come riferimento di
 consegna da nuovi bundle separati contenenti questa correzione, senza sovrascriverli.
+
+## M5 — Risultati finali e consegna
+
+Codice finale `daca4cf`, candidata **0.4.0/build 4**, albero tracciato pulito al
+packaging. Il commit di consegna successivo aggiorna solo i due rapporti.
+
+| Verifica eseguita localmente | Esito |
+| --- | --- |
+| Swift completo, helper Release esplicito | **240/240**, zero skip/fallimenti |
+| PKCS#11 provider/lifecycle sintetico | **40/40** |
+| PAdES Debug e Release | **63/63** ciascuno |
+| Packaging Python | **10/10** |
+| Swift build Debug/Release | passate |
+| Bundle Debug/Release, originali e rilocati | passati |
+| ASAN mirato | **63/63**, zero skip/fallimenti |
+| TSAN mirato | **63/63**, zero skip/fallimenti |
+| Firma ad hoc strict, hash annidati, portabilità, metadata e minos | passati |
+
+19 nuovi test: 6 acquisizione, 7 review/consenso e 6 file grandi. Regresse anche
+le suite precedenti: CAdES/PAdES singoli, batch misto, discovery/selezione,
+snapshot immutabili, certificati, lifecycle/lease, crash/timeout/cancel, esiti
+incerti, ACL, output atomico e no-overwrite. Nessuna regressione rilevata.
+I 63 casi PAdES girano anche nell'esatta copia di ciascun bundle e dopo rilocazione.
+Una verifica aggiuntiva del PDF da 100 MiB usa l'helper del bundle Release di
+consegna, non soltanto quello nella cartella di sviluppo.
+
+Sanitizer sui componenti acquisizione/review/consenso/PIN/workspace/destinazioni
+e regressioni batch/snapshot; i sei test grandi sono misurati nei run normali.
+ASAN con `detect_leaks=0`, quindi nessuna attestazione di assenza di leak; TSAN
+senza segnalazioni di race. Avvisi non fatali: risultato inutilizzato nel test
+ProviderSelection precedente, PCM debug mancanti nella toolchain Release,
+invalidazione delle firme intermedie durante strip/install_name_tool seguita da
+firma finale valida. Non soppressi con deroghe ai controlli.
+
+Due rendering nativi NSHostingView/NSWindow prodotti e ispezionati in
+`.build/04a31-ui`: campo PIN vuoto raggiungibile con 32 documenti a 650 punti,
+PDFView sullo snapshot e controlli preservati. La versione 16.0/build 25229
+visibile nei PNG appartiene a XCTest; i bundle consegnati sono 0.4.0/build 4.
+PDFKit usa rendering GPU non interamente catturato dal PNG: pagina/doc verificati
+nella gerarchia nativa, non dichiarato un collaudo visivo completo del PDF.
+Discovery reale disattivata tramite iniezione interna ai test, nessun middleware
+installato caricato. Nessuna interazione automatica con altre applicazioni.
+
+### Candidati da usare
+
+- **Release:** `/Users/andreaoregioni/Developer/Signum-Reliability/.build/04a31-bundles/delivery-release/Signum.app`
+- **Debug:** `/Users/andreaoregioni/Developer/Signum-Reliability/.build/04a31-bundles/delivery-debug/Signum.app`
+
+SourceCommit `daca4cf`, sourceTrackedDirty false, version/build/Info.plist coerenti;
+cinque Mach-O per bundle arm64 con target **13.0**, verificati anche i rispettivi
+hash e `codesign --verify --deep --strict`. Solo firma ad hoc locale, nessuna
+notarizzazione o distribuzione. I percorsi `04a31-bundles/final-*` sono candidati
+intermedi precedenti alla correzione della selezione accodata: usare delivery-*.
+Alpha e build 2/3 preservate, nessuna sostituzione della versione originale.
+
+Evidenze: `.build/reliability/evidence/04a31-*`; risultati definitivi nei log
+`04a31-delivery-*`, suite native `04a31-final-{pkcs,pades-debug,pades-release}.log`.
+Le misure M4 separate restano osservazioni, non limiti di memoria garantiti.
+
+### Riproduzione software locale
+
+```sh
+cd /Users/andreaoregioni/Developer/Signum-Reliability
+SIGNUM_TEST_PADES_HELPER="$PWD/.build/04a31-bundles/delivery-release/Signum.app/Contents/Helpers/signum-pades-local" swift test --scratch-path .build/reliability
+scripts/test-pkcs11-local.sh
+.build/native-tools/cmake/data/bin/ctest --test-dir .build/04a31-pades-debug --output-on-failure --verbose
+.build/native-tools/cmake/data/bin/ctest --test-dir .build/04a31-pades-release --output-on-failure --verbose
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
+swift build --scratch-path .build/reliability -c debug
+swift build --scratch-path .build/reliability -c release
+```
+
+Le cartelle native sono state configurate esplicitamente Debug/Release sul
+prefisso privato macOS 13 `.build/pr2-native-macos13/prefix`. Per nuove build
+native ripetere configure/build prima di ctest; il solo ctest non ricompila.
+Per il packaging usare sempre un percorso nuovo, per esempio:
+
+```sh
+/usr/bin/python3 scripts/build-beta-app.py --configuration release --native-prefix .build/pr2-native-macos13/prefix --output .build/04a31-rebuild/Signum.app
+```
+
+### Procedura di collaudo manuale, ancora da eseguire
+
+Demo sintetica fresca `.build/04a31-demo` preparata, discovery pubblica CLI/worker
+del candidato verificata senza hardware. Certificato valido sette giorni; se
+scaduto rigenerare con `scripts/prepare-batch-demo.py --output` in directory nuova.
+
+1. Per il collaudo solo software scollegare i token reali, aprire la candidata
+   **delivery-release** e configurare esplicitamente il modulo
+   `/Users/andreaoregioni/Developer/Signum-Reliability/.build/04a31-demo/synthetic-provider.dylib`.
+   Selezionare il certificato sintetico. Utilizzare solo stringhe PIN fittizie.
+2. Lasciare OFF «Richiedi conferma aggiuntiva prima della firma». Aggiungere i tre
+   `.txt` della demo; attendere il riepilogo con destinazioni effettive. Verificare
+   che Firma resti disabilitato durante acquisizione/preflight e che non compaia
+   alcun campo PIN prima dell'approvazione.
+3. Premere «Firma 3 documenti»: deve apparire direttamente «Firma 1 di 3 — Inserisci
+   PIN», senza popup Conferma firma. Autenticare esplicitamente ogni documento
+   con una stringa fittizia; campo svuotato e nessun retry/riuso automatico.
+4. Nuova sessione; provare un documento `.pdf` in PAdES, aprire l'anteprima e
+   tornare a Documenti ed esiti prima di Firma. Verificare copia `-firmato.pdf`,
+   esiti e originale invariato. Provare anche cartella comune e nomi già occupati.
+5. Nuova sessione; nelle Impostazioni attivare la conferma aggiuntiva e tornare
+   alla firma: provare Annulla nel modal, poi confermare. Nessun output se annullato.
+   Verificare persistenza OFF/ON al riavvio; cambiamenti prima del clic devono
+   invalidare il vecchio riepilogo, mai aggiornare silenziosamente job approvati.
+6. I test LargeDocumentTests generano temporaneamente le taglie fino a 100 MiB,
+   eseguono le due firme da 100 MiB e ripuliscono le fixture. Per un ulteriore
+   collaudo manuale dimensionale usare solo nuovi PDF sintetici: sopra 100 MiB
+   deve apparire l'errore dimensionale, senza classificarli come modificati.
+
+### Problemi aperti e stato Git
+
+- Causa del falso positivo **riprodotta nel codice**, ma non identificato quale
+  processo/servizio aggiornasse i metadati dei PDF reali in Download. Nessun file
+  personale esaminato; il riscontro su quei casi resta un collaudo successivo.
+- Scritture osservate, sostituzioni e metadati che cambiano continuamente durante
+  la corroborazione fanno fallire in sicurezza; filesystem/volumi senza CoW o
+  diverso volume dell'area privata restano esclusi. Nessun confronto hash usato
+  come unica prova di assenza di modifiche transitorie.
+- **200 MiB non supportati**; snapshot ancora con cache Data e copie CMS/PDF.
+  Budget batch 128 MiB, non 32×100 MiB. GUI/preview di PDF complessi e uso su Mac
+  con poca RAM non misurati; serve ulteriore architettura prima di aumentare.
+- Deadline cooperativa non interrompe un syscall bloccato; nessuna cancellazione
+  forense promessa. PIN per documento e limiti di zeroizzazione Swift invariati.
+- GUI interattiva completa, hardware, macOS 13/14 e Mac pulito non collaudati.
+  Target 13 dimostrato staticamente e nel packaging, non come prova runtime.
+
+Commit locali: M1 `866a749`; M2 `8fdcea4`; M3 `ef7e147`; M4 `a43162c`;
+preparazione M5/build 4 `9e830a5`; correzione finale selezione `daca4cf`;
+seguiti dal commit documentale contenente questa consegna.
+Branch `codex/signum-0.4-file-handling`; main `be84a1e` e A.3 `22fc4e0` invariati.
+Review non tracciata preservata, SHA-256
+`2f275328cdca3ebe2023ade1c87b3179bc89540af8d7a898b304241d61a168a6`.
+Nessun push/merge/tag/release/CI remoto, installazione globale, accesso a HalleyMac,
+PIN reale o test hardware. Fermata al checkpoint software M1–M5 completato.

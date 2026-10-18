@@ -233,3 +233,35 @@ Alpha e A.2 preservate. Report, commit, comandi, limiti e istruzioni nel
 PIN ancora per documento; A.4, B/C non iniziate. Hardware, GUI interattiva del
 bundle, macOS 13/14 e Mac pulito restano da collaudare. Nessun push/merge/tag,
 release, CI remoto o accesso a HalleyMac. Main invariato `be84a1e`.
+
+## 18 ottobre 2026 — 0.4-A.3.1 Signing Workflow & File Handling
+
+Branch `codex/signum-0.4-file-handling` da HEAD A.3 `22fc4e0`; collaudo reale
+positivo della build 3 riferito dall'utente, preservato senza riutilizzarlo come
+prova della nuova candidata. **M1–M5 completate software.**
+
+Riprodotto prima del fix il falso positivo da aggiornamento xattr/ctime con byte
+invariati. CoW conservato; monitor vnode su descriptor, controlli identità/mtime
+e corroborazione dei byte separano metadati da scritture, anche transitorie con
+ripristino. Errori lettura/spazio/dimensione/timeout distinti, dettagli espandibili.
+Riepilogo immutabile preparato prima del clic, che ora è il consenso diretto;
+conferma modale opzionale persistente OFF. Revisione documenti/provider/certificato/
+destinazione/discovery vincolata e selezione riservata prima di accodare la Task.
+
+Limite intermedio **100 MiB per documento CAdES/PAdES**, **128 MiB per sessione**,
+output/verifica 132 MiB. Firme sintetiche da 100 MiB verificate e pubblicate;
+200 MiB respinti esplicitamente. Memoria misurata e copie documentate: serve
+un ulteriore intervento su streaming/cache prima di aumentare ancora.
+
+Sul codice `daca4cf`: Swift **240/240** (19 nuovi), PKCS#11 **40/40**, PAdES
+Debug/Release **63/63**, packaging **10/10**, ASAN/TSAN mirati **63/63** ciascuno.
+Zero skip/fallimenti finali. Build Debug/Release, bundle rilocati, firma ad hoc,
+hash e Mach-O minimo 13.0 verificati; candidata **0.4.0/build 4**.
+
+Usare `.build/04a31-bundles/delivery-release/Signum.app` (Debug separata);
+demo `.build/04a31-demo` pronta. Alpha e build 2/3 preservate. Cause riprodotte,
+commit, limiti, memoria, comandi ed esatta procedura nel
+[rapporto File Handling](SIGNUM_0.4_FILE_HANDLING.md).
+Nessuna regressione software rilevata; GUI interattiva, casi reali Download,
+hardware e runtime macOS 13/14 restano da collaudare. Main invariato; nessun
+push/merge/tag/release, GitHub Actions o accesso a HalleyMac.
