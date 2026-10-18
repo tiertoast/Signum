@@ -9,10 +9,10 @@ final class WorkerBatchPINContext {
     enum Failure: Error { case memoryUnavailable }
     private var storage: OpaquePointer?
     let deadline: TimeInterval
-    let supervisionDeadline: TimeInterval
     init(lifetime: TimeInterval) throws {
-        deadline = sg_batch_monotonic_now() + lifetime
-        supervisionDeadline = ProcessInfo.processInfo.systemUptime + lifetime
+        let now = sg_batch_monotonic_now()
+        guard now >= 0 else { throw SupervisedProcess.Failure.launch }
+        deadline = now + lifetime
         guard let pointer = sg_secure_pin_create() else { throw Failure.memoryUnavailable }
         storage = pointer
         guard sg_secure_pin_receive(pointer, STDIN_FILENO, min(5, lifetime)) == 0 else {

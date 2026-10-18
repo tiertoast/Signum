@@ -247,5 +247,36 @@ final class BatchAuthenticationTests: XCTestCase {
         }
     }
 
+    func testTemporaryLostUSEROrRemovedTokenDoesNotReauthenticate() throws {
+        for (phase, effect, after) in [(7, 6, 2), (16, 8, 1)] {
+            try fixture(always: true, phase: phase, effect: effect, after: after, temporary: true) { mock, session in
+                let jobs = session.manifest.jobs
+                _ = try session.sign(jobID: jobs[0].id, attributes: jobs[0].attributes, pin: "synthetic-fixture")
+                XCTAssertThrowsError(try session.sign(jobID: jobs[1].id, attributes: jobs[1].attributes, pin: nil))
+                let calls = count(mock, 16)
+                XCTAssertThrowsError(try session.sign(jobID: jobs[2].id, attributes: jobs[2].attributes, pin: nil))
+                XCTAssertEqual(count(mock, 16), calls); XCTAssertEqual(count(mock, 8), 1)
+            }
+        }
+    }
+    func testTemporaryChangedModuleRetiresBeforeTheNextContextLogin() throws {
+        try fixture(always: true, temporary: true) { mock, session in
+            let jobs = session.manifest.jobs
+            _ = try session.sign(jobID: jobs[0].id, attributes: jobs[0].attributes, pin: "synthetic-fixture")
+            let handle = try FileHandle(forWritingTo: mock.path); try handle.seekToEnd(); try handle.write(contentsOf: Data([0])); try handle.close()
+            XCTAssertThrowsError(try session.sign(jobID: jobs[1].id, attributes: jobs[1].attributes, pin: nil))
+            XCTAssertEqual(count(mock, 9), 1); XCTAssertEqual(count(mock, 16), 1)
+        }
+    }
+    func testTemporaryManifestRejectsEmbeddedPINAndInvalidLimits() throws {
+        try fixture(temporary: true) { _, session in
+            var m = session.manifest
+            XCTAssertTrue(m.valid)
+            m.pin = "synthetic-fixture"; XCTAssertFalse(m.valid); m.pin = nil
+            m.pinLifetimeSeconds = 601; XCTAssertFalse(m.valid)
+            m.pinLifetimeSeconds = 30; m.pinIdleSeconds = 61; XCTAssertFalse(m.valid)
+        }
+    }
+
 }
 #endif

@@ -125,3 +125,32 @@ Run M6 **27/27**, zero skip/fallimenti (`04a41-m6-ui.log`): preferenze isolate,
 opt-in/default, modalità congelata come valore, policy formati, coordinatore,
 interazione PIN, riepilogo e viste native. Nessun Finder, token o app esterna
 avviati. L'accettazione interattiva completa resta da eseguire.
+
+## M7 — Security review mirata
+
+Review locale dell'agente sul diff limitata a buffer/IPC/autenticazione/lifetime,
+ownership, bounds, revoca e teardown; **non audit indipendente**. Clang Static
+Analyzer eseguito su `secure_pin.c` e `pkcs11_shim.c`, nessuna diagnostica.
+
+Correzioni emerse e verificate prima della consegna:
+
+- Unificato CLOCK_MONOTONIC anche per worker e canale sperimentale: nessun
+  confronto tra epoche differenti né prolungamento della durata dopo sleep.
+  Scadenza ricontrollata immediatamente prima di C_Login e C_Sign.
+- Prima chiamata temporanea restituisce ownership della sessione anche su
+  errore: il worker può cancellare il PIN **prima** di CloseSession/Finalize,
+  anziché conservarlo durante un eventuale blocco del cleanup nativo.
+- Canale inizialmente ritirato fino all'acquisizione dello slot processi:
+  inizializzazione rifiutata non rilascia uno slot posseduto da altri canali.
+- Buffer: test osserva l'intera pagina dopo clear e i byte parziali dopo errore
+  di ricezione; nessun accesso dopo destroy. Test nativo verifica che cleanup
+  non sia stato avviato prima che il worker abbia ripreso il controllo.
+
+Test aggiunti: certificato sostituito, handle chiave cambiato, sessione invalida,
+USER perso, device removed, modulo mutato, errori PIN USER e CONTEXT, scadenza
+prima di ulteriori autenticazioni, manifesto v3 con PIN/limiti invalidi.
+Run mirato finale di questa revisione **47/47**, zero skip/fallimenti
+(`04a41-m7-security.log`). Un errore di compilazione nella nuova fixture DER
+(Data passato a funzione C a puntatore) è stato corretto prima di questo run.
+Il successivo controllo completo e sanitizer usa anche le ultime guard di
+scadenza prima di Sign e di ownership del contatore processi.

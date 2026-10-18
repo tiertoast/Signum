@@ -1,18 +1,19 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import CPKCS11
 import CProcessCoordination
 
 /// Runs only behind the worker's parent-death/core-dump/vendor-output hardening.
 enum BatchWorkerServer {
     private static func readFrame(until limit: Double = .infinity, idle: Double = 60) throws -> Data? {
         var result = Data(), expected = 4, payload = false
-        let deadline = min(limit, ProcessInfo.processInfo.systemUptime + idle)
+        let deadline = min(limit, sg_batch_monotonic_now() + idle)
         while result.count < expected {
             var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
             let count = poll(&descriptor, 1, 100)
             if count < 0 && errno == EINTR { continue }
-            guard count >= 0, ProcessInfo.processInfo.systemUptime < deadline else { throw SupervisedProcess.Failure.timeout }
+            guard count >= 0, sg_batch_monotonic_now() < deadline else { throw SupervisedProcess.Failure.timeout }
             if count == 0 { continue }
             var chunk = [UInt8](repeating: 0, count: min(8192, expected-result.count))
             let n = Darwin.read(STDIN_FILENO, &chunk, chunk.count)
@@ -66,7 +67,7 @@ enum BatchWorkerServer {
                     return 0 // No provider loaded, no private operation attempted.
                 }
             }
-            let deadline = securePIN?.supervisionDeadline ?? (ProcessInfo.processInfo.systemUptime + 600)
+            let deadline = securePIN?.deadline ?? (sg_batch_monotonic_now() + 600)
             // Release the decoded PIN immediately after the first operation,
             // before reading any later job command. No PIN field in commands.
             guard let owned = sg_token_lease_acquire(start.provider, UInt64(start.slot), 0, 10000) else { return 2 }
@@ -98,7 +99,7 @@ enum BatchWorkerServer {
                 signature: first.0, reusable: true, closed: false, succeeded: true), to: reply)
             var next = 1
             while let data = try readFrame(until: deadline, idle: start.idle) {
-                guard ProcessInfo.processInfo.systemUptime < deadline,
+                guard sg_batch_monotonic_now() < deadline,
                       let command = try? JSONDecoder().decode(BatchWorkerCommand.self, from: data),
                       command.version == 2, command.batchID == start.batchID, command.index == next else { return 2 }
                 if command.finish {

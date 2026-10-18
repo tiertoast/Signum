@@ -1,18 +1,20 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import CPKCS11
 
 /// Internal bounded duplex pipe. All methods run off-main, one owner, no vendor
 /// diagnostics, no credential argv/env. Same shared process cap as one-shot jobs.
 final class SupervisedWorkerChannel {
     private let process = Process(), input = Pipe(), output = Pipe()
-    private var pending = Data(), retired = false
+    private var pending = Data(), retired = true
     private let maximumLifetime: TimeInterval
-    private let started = ProcessInfo.processInfo.systemUptime
+    private let started = sg_batch_monotonic_now()
     init(executable: URL, lifetime: TimeInterval = 600) throws {
         maximumLifetime = lifetime
-        guard lifetime.isFinite, (0.05...600).contains(lifetime) else { throw SupervisedProcess.Failure.protocolViolation }
+        guard started >= 0, lifetime.isFinite, (0.05...600).contains(lifetime) else { throw SupervisedProcess.Failure.protocolViolation }
         guard SupervisedProcess.acquire() else { throw SupervisedProcess.Failure.capacity }
+        retired = false
         do {
             process.executableURL = executable; process.arguments = ["--batch-v1"]
             process.environment = ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory(), "LC_ALL": "C",
@@ -39,11 +41,11 @@ final class SupervisedWorkerChannel {
         if let secret { guard (1...64).contains(secret.utf8.count), !secret.utf8.contains(0) else { throw SupervisedProcess.Failure.protocolViolation } }
         var secretSent = secret == nil
         var sent = 0, chunk = [UInt8](repeating: 0, count: 8192)
-        let deadline = min(ProcessInfo.processInfo.systemUptime + timeout, started + maximumLifetime)
+        let deadline = min(sg_batch_monotonic_now() + timeout, started + maximumLifetime)
         do {
             while true {
                 if isCancelled() { throw SupervisedProcess.Failure.cancelled }
-                if ProcessInfo.processInfo.systemUptime >= deadline { throw SupervisedProcess.Failure.timeout }
+                if sg_batch_monotonic_now() >= deadline { throw SupervisedProcess.Failure.timeout }
                 if sent < frame.count {
                     let count = frame.withUnsafeBytes { Darwin.write(input.fileHandleForWriting.fileDescriptor, $0.baseAddress!.advanced(by: sent), min(8192, frame.count-sent)) }
                     if count > 0 { sent += count }
@@ -83,8 +85,8 @@ final class SupervisedWorkerChannel {
         } catch { abort(); throw error }
     }
     func waitForExit() throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 3
-        while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.005) }
+        let deadline = sg_batch_monotonic_now() + 3
+        while process.isRunning && sg_batch_monotonic_now() < deadline { Thread.sleep(forTimeInterval: 0.005) }
         guard !process.isRunning else { abort(); throw SupervisedProcess.Failure.terminationPending }
         // Foundation Process.waitUntilExit can block when launch and teardown
         // run on different pool threads. isRunning=false already means reaped.
@@ -102,11 +104,11 @@ final class SupervisedWorkerChannel {
         guard !retired else { return }
         try? input.fileHandleForWriting.close()
         if process.isRunning { process.terminate() }
-        let deadline = ProcessInfo.processInfo.systemUptime + 0.25
-        while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.005) }
+        let deadline = sg_batch_monotonic_now() + 0.25
+        while process.isRunning && sg_batch_monotonic_now() < deadline { Thread.sleep(forTimeInterval: 0.005) }
         if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
-        let reapAt = ProcessInfo.processInfo.systemUptime + 2
-        while process.isRunning && ProcessInfo.processInfo.systemUptime < reapAt { Thread.sleep(forTimeInterval: 0.005) }
+        let reapAt = sg_batch_monotonic_now() + 2
+        while process.isRunning && sg_batch_monotonic_now() < reapAt { Thread.sleep(forTimeInterval: 0.005) }
         if process.isRunning {
             retired = true
             let child = process

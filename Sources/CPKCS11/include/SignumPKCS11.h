@@ -67,7 +67,8 @@ int sg_batch_next(SGBatchSession *session, const uint8_t *message, size_t messag
     uint8_t *signature, size_t capacity, size_t *length, char *error, size_t error_size);
 /* Experimental worker-only policy. PIN storage remains caller-owned; no copy
  * retained here. Monotonic deadline checked before USER/CONTEXT login. Session
- * loss is terminal: no automatic USER reauthentication. */
+ * loss is terminal: no automatic USER reauthentication. The out session may
+ * be non-NULL on error: erase caller PIN first, then sg_batch_close. */
 double sg_batch_monotonic_now(void); // deadline clock; do not mix with Foundation uptime
 int sg_batch_first_temporary(SGContext *, unsigned long, const char *, const uint8_t *, size_t,
     const uint8_t *, size_t, const uint8_t *, size_t, double,

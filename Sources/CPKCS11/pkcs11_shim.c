@@ -696,6 +696,7 @@ static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t p
             rv = status ? CKR_GENERAL_ERROR : s->ctx->api->C_Login(s->handle, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
             if (rv != CKR_OK) status = failed(error, size, "Batch C_Login CONTEXT_SPECIFIC (no retry)", rv);
         }
+        if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before Sign");
         if (!status) {
             CK_ULONG count = capacity;
             rv = s->ctx->api->C_Sign(s->handle, (CK_BYTE_PTR)message, message_length, signature, &count);
@@ -727,7 +728,12 @@ static int batch_first(SGContext *ctx, unsigned long slot, const char *serial, c
             if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before USER login");
             if (!status) status = login_user(ctx, s->handle, pin, pin_length, error, size);
             if (!status) status = batch_sign(s, 1, pin, pin_length, message, message_length, signature, capacity, length, error, size);
-            if (!status && s->reusable) { *out = s; *reusable = 1; }
+            if (temporary_pin) {
+                /* Return cleanup ownership even on error: worker must erase
+                 * the PIN BEFORE potentially blocking CloseSession/Finalize. */
+                if (status) s->failed = 1;
+                *out = s; *reusable = !status && s->reusable;
+            } else if (!status && s->reusable) { *out = s; *reusable = 1; }
             else { status = close_session(ctx, s->handle, status, error, size); free(s); }
         } else free(s);
     }

@@ -42,6 +42,8 @@ static int blocked_operation = -1, blocked, released, always_auth, external_sess
 typedef struct { int active, delivered, sign_active, context_ready; CK_OBJECT_CLASS kind; } Session;
 static Session sessions[512];
 static CK_ULONG next_session = 1;
+static CK_OBJECT_HANDLE private_key_handle = 2;
+void mock_key_handle(unsigned long value) { pthread_mutex_lock(&mutex); private_key_handle = value; pthread_mutex_unlock(&mutex); }
 void mock_stats(MockStats *out) { pthread_mutex_lock(&mutex); *out = stats; pthread_mutex_unlock(&mutex); }
 unsigned mock_call_count(int op) { pthread_mutex_lock(&mutex); unsigned count = stats.calls[op]; pthread_mutex_unlock(&mutex); return count; }
 unsigned mock_finalize_on_main(void) { pthread_mutex_lock(&mutex); unsigned value = stats.finalize_on_main; pthread_mutex_unlock(&mutex); return value; }
@@ -201,7 +203,7 @@ static CK_RV find_init(CK_SESSION_HANDLE h, CK_ATTRIBUTE_PTR attrs, CK_ULONG n) 
 }
 static CK_RV find_objects(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE_PTR out, CK_ULONG max, CK_ULONG_PTR count) {
     (void)max; BEGIN(M_FIND); VALID(h); *count = sessions[h].delivered ? 0 : 1;
-    if (*count) *out = sessions[h].kind == CKO_CERTIFICATE ? 1 : 2;
+    if (*count) *out = sessions[h].kind == CKO_CERTIFICATE ? 1 : private_key_handle;
     sessions[h].delivered = 1; return end(CKR_OK);
 }
 static CK_RV find_final(CK_SESSION_HANDLE h) { BEGIN(M_FIND_FINAL); VALID(h); return end(CKR_OK); }

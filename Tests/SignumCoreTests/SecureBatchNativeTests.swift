@@ -76,5 +76,53 @@ final class SecureBatchNativeTests: XCTestCase {
             XCTAssertEqual(mock.count(9), 1); XCTAssertEqual(mock.count(16), 1)
         }
     }
+    func testChangedCertificateKeyAndInvalidSessionStopBeforeAnotherLogin() throws {
+        for change in 0..<3 {
+            try fixture { mock, _, _, sign in
+                XCTAssertEqual(sign(true, sg_batch_monotonic_now() + 30), 0)
+                if change == 0 { let der: [UInt8] = [0x30,0]; der.withUnsafeBufferPointer { mock.replaceCertificate($0.baseAddress, $0.count, 0) } }
+                if change == 1 {
+                    let replace = unsafeBitCast(dlsym(mock.library, "mock_key_handle"), to: (@convention(c) (UInt) -> Void).self)
+                    replace(3)
+                }
+                if change == 2 {
+                    let fail = unsafeBitCast(dlsym(mock.library, "mock_fail"), to: (@convention(c) (Int32, UInt) -> Void).self)
+                    fail(7, 0xb3) // CKR_SESSION_HANDLE_INVALID
+                }
+                XCTAssertNotEqual(sign(true, 0), 0); XCTAssertNotEqual(sign(true, 0), 0)
+                XCTAssertEqual(mock.count(9), 1); XCTAssertEqual(mock.count(16), 1); XCTAssertEqual(mock.count(8), 1)
+            }
+        }
+    }
+    func testInitialUSERPINFailuresNeverRetryOrSign() throws {
+        for rv: UInt in [0xa0, 0xa3, 0xa4, 5] {
+            try fixture { mock, _, _, sign in
+                let fail = unsafeBitCast(dlsym(mock.library, "mock_fail"), to: (@convention(c) (Int32, UInt) -> Void).self)
+                fail(8, rv)
+                XCTAssertNotEqual(sign(true, sg_batch_monotonic_now() + 30), 0)
+                XCTAssertEqual(mock.count(8), 1); XCTAssertEqual(mock.count(9), 0); XCTAssertEqual(mock.count(16), 0)
+            }
+        }
+    }
+    func testExpiredRetainedPINCannotTriggerAnotherContextAuthentication() throws {
+        try fixture { mock, _, _, sign in
+            XCTAssertEqual(sign(true, sg_batch_monotonic_now() + 0.3), 0)
+            Thread.sleep(forTimeInterval: 0.4)
+            XCTAssertNotEqual(sign(true, 0), 0)
+            XCTAssertEqual(mock.count(9), 1); XCTAssertEqual(mock.count(16), 1)
+        }
+    }
+
+    func testTemporaryErrorReturnsCleanupOwnershipBeforeAnyCloseSession() throws {
+        try fixture { mock, _, session, sign in
+            let fail = unsafeBitCast(dlsym(mock.library, "mock_fail"), to: (@convention(c) (Int32, UInt) -> Void).self)
+            fail(8, 0xa0)
+            XCTAssertNotEqual(sign(true, sg_batch_monotonic_now() + 30), 0)
+            XCTAssertNotNil(session()) // Worker can erase its PIN before invoking vendor teardown.
+            XCTAssertEqual(mock.count(6), 0); XCTAssertEqual(mock.count(1), 0)
+            XCTAssertNotEqual(sign(true, 0), 0); XCTAssertEqual(mock.count(8), 1)
+        }
+    }
+
 }
 #endif
