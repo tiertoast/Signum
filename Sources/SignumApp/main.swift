@@ -193,7 +193,7 @@ private enum SignumFormat: String, Hashable {
                             Picker("Autenticazione nella firma multipla", selection: $authenticationModeRaw) {
                                 ForEach(BatchAuthenticationMode.allCases, id: \.rawValue) { mode in Text(mode.title).tag(mode.rawValue) }
                             }
-                            Text("La modalità automatica verifica il supporto al primo PIN, solo per batch CAdES. Nessun PIN viene salvato.").font(.caption).foregroundStyle(.secondary)
+                            Text(authenticationMode.explanation).font(.caption).foregroundStyle(.secondary)
                             Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
                             Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.").font(.caption).foregroundStyle(.secondary)
                             SignumGraphicSettingsPane()
@@ -747,6 +747,7 @@ private enum SignumFormat: String, Hashable {
             do {
                 authenticationSession = try BatchCAdESSession(approval: plan, serial: route.token.serial,
                     moduleIdentity: route.moduleIdentity, automaticModule: route.origin == .known,
+                    temporaryPIN: approvedAuthenticationMode == .temporaryPIN,
                     startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)))
             } catch { provider.pin = ""; status = error.localizedDescription; return }
         }
@@ -762,7 +763,9 @@ private enum SignumFormat: String, Hashable {
             lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
             if let session {
                 if session.canContinue {
-                    authenticationStatus = "Sessione autenticata per questo batch. Nessun PIN riutilizzato."
+                    authenticationStatus = approvedAuthenticationMode == .temporaryPIN
+                        ? "PIN temporaneo attivo soltanto per questo batch approvato."
+                        : "Sessione autenticata per questo batch. Nessun PIN riutilizzato."
                     Task { @MainActor in
                         await batch.continueAuthenticatedBatch(using: session)
                         lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
@@ -772,7 +775,9 @@ private enum SignumFormat: String, Hashable {
                     }
                 } else {
                     session.requestStop(); authenticationSession = nil
-                    authenticationStatus = "Sessione non riutilizzabile: PIN esplicito per le firme restanti."
+                    authenticationStatus = batch.documents.contains(where: { $0.state == .failed || $0.state == .uncertain })
+                        ? "Batch interrotto. Consulta i dettagli; nessun tentativo viene ripetuto."
+                        : "Riuso non verificabile per questa chiave o sessione: PIN esplicito per le firme restanti."
                     status = presentation.resultSummary
                 }
             } else {

@@ -30,11 +30,31 @@ final class BatchAuthenticationPreferenceTests: XCTestCase {
         }
         defer { jobs.forEach { $0.snapshot.close() } }
         XCTAssertTrue(BatchAuthenticationPolicy.canAttempt(jobs: Array(jobs.prefix(2)), serial: "synthetic", mode: .automatic))
+        XCTAssertTrue(BatchAuthenticationPolicy.canAttempt(jobs: Array(jobs.prefix(2)), serial: "synthetic", mode: .temporaryPIN))
+        XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: jobs, serial: "synthetic", mode: .temporaryPIN))
         XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: jobs, serial: "synthetic", mode: .automatic))
         XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: Array(jobs.prefix(2)), serial: "", mode: .automatic))
         XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: Array(jobs.prefix(2)), serial: "synthetic", mode: .perSignature))
         XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .pades], serial: "x", mode: .automatic).contains("PIN per ogni firma"))
         XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .cades], serial: "x", mode: .automatic).contains("potrebbe"))
     }
+    func testTemporaryModeIsExplicitOptInWithHonestDescriptionAndNoStoredCredential() throws {
+        let name = "Signum.synthetic.temp-auth." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name)); defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = SigningExperiencePreferences(defaults: defaults)
+        XCTAssertEqual(preferences.authenticationMode, .automatic)
+        preferences.authenticationMode = .temporaryPIN
+        let frozenMode = preferences.authenticationMode // Approval takes a value, not a live preference reference.
+        preferences.authenticationMode = .perSignature
+        XCTAssertEqual(frozenMode, .temporaryPIN)
+        XCTAssertEqual(preferences.authenticationMode, .perSignature)
+        XCTAssertEqual(defaults.persistentDomain(forName: name)?.count, 1)
+        XCTAssertEqual(Set(BatchAuthenticationMode.allCases).count, 3)
+        XCTAssertTrue(BatchAuthenticationMode.temporaryPIN.explanation.contains("temporaneamente in memoria"))
+        XCTAssertTrue(BatchAuthenticationMode.temporaryPIN.explanation.contains("aumenta"))
+        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .cades], serial: "x", mode: .temporaryPIN).contains("autenticazioni distinte"))
+        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .pades], serial: "x", mode: .temporaryPIN).contains("PIN per ogni firma"))
+    }
+
 }
 #endif

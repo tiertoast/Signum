@@ -110,3 +110,18 @@ fallita senza retry, crash/hang/cancel, collisione secondo output, batch/job/ord
 estranei, nuova sessione senza segreto, mlock rifiutato nel worker via limite
 risorse ereditato. Il mock sperimentale richiede effettivamente un nuovo CONTEXT
 tra SignInit e ogni Sign; non basta contarne le chiamate.
+
+## M6 — Opt-in e UI
+
+Terza modalità «PIN temporaneo per il batch», default ancora Automatica. Solo
+il valore della preferenza viene persistito, mai un segreto; la scelta viene
+congelata all'approvazione. Descrizione esplicita della conservazione temporanea
+e della maggiore esposizione rispetto al PIN per firma. Durante la continuazione
+non viene più mostrata la frase «Nessun PIN riutilizzato» in modalità temporanea.
+Nessun redesign o conferma modale aggiuntiva. PAdES/misti/identità insufficiente
+restano per documento, con spiegazione. Candidata portata a **0.4.0/build 6**.
+
+Run M6 **27/27**, zero skip/fallimenti (`04a41-m6-ui.log`): preferenze isolate,
+opt-in/default, modalità congelata come valore, policy formati, coordinatore,
+interazione PIN, riepilogo e viste native. Nessun Finder, token o app esterna
+avviati. L'accettazione interattiva completa resta da eseguire.
