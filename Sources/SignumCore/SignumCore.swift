@@ -330,6 +330,7 @@ public final class PKCS11Module: @unchecked Sendable {
         let result = withExtendedLifetime(self) {
             diagnostics.withUnsafeMutableBufferPointer { buffer in perform(buffer) }
         }
+        if result == -2 { throw IsolatedPKCS11Client.Failure.authenticationRequired }
         guard result == 0 else { throw SignumError.module(Self.diagnostic(diagnostics)) }
     }
 

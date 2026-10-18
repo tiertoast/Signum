@@ -13,6 +13,8 @@ struct PKCS11WorkerRequest: Codable {
     let certificate: WorkerCertificate?
     let attributes: Data?
     var pin: String?
+    var expectedModule: MiddlewareFileIdentity? = nil
+    var automaticModule: Bool? = nil
     init(id: UUID = UUID(), action: Action, provider: String, slot: UInt? = nil,
          certificate: WorkerCertificate? = nil, attributes: Data? = nil, pin: String? = nil, leaseWaitMilliseconds: UInt = 10000) {
         self.version = 1; self.id = id; self.action = action; self.provider = provider
@@ -21,6 +23,7 @@ struct PKCS11WorkerRequest: Codable {
     }
     var valid: Bool {
         guard version == 1, leaseWaitMilliseconds <= 30000, provider.hasPrefix("/"), provider.utf8.count <= 4096, !provider.utf8.contains(0) else { return false }
+        if automaticModule == true && expectedModule == nil { return false }
         switch action {
         case .scan: return slot == nil && certificate == nil && attributes == nil && pin == nil
         case .certificates: return slot != nil && certificate == nil && attributes == nil && pin == nil

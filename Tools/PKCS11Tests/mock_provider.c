@@ -78,6 +78,8 @@ static CK_RV begin(int op) {
         raise(SIGABRT);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 4
         faults[op] = CKR_GENERAL_ERROR;
+#elif SIGNUM_MOCK_WORKER_EFFECT == 6
+        faults[op] = CKR_USER_NOT_LOGGED_IN;
 #elif SIGNUM_MOCK_WORKER_EFFECT == 7
 #ifdef SIGNUM_MOCK_AUDIT_PATH
         int claim = open(SIGNUM_MOCK_AUDIT_PATH ".once", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);

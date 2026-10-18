@@ -40,7 +40,7 @@ static size_t provider_count;
 
 static int failed(char *error, size_t size, const char *operation, CK_RV rv) {
     if (error && size) snprintf(error, size, "%s failed (PKCS#11 RV=0x%lX)", operation, (unsigned long)rv);
-    return -1;
+    return rv == CKR_USER_NOT_LOGGED_IN ? -2 : -1;
 }
 static int invalid(char *error, size_t size, const char *reason) {
     if (error && size) snprintf(error, size, "%s", reason);
@@ -370,6 +370,7 @@ static int sg_certificates_impl(SGContext *ctx, unsigned long slot, SGCertificat
             {CKA_ID, cert->id, sizeof(cert->id)}
         };
         rv = ctx->api->C_GetAttributeValue(session, object, attrs, 2);
+        if (rv == CKR_USER_NOT_LOGGED_IN) { status = failed(error, error_size, "C_GetAttributeValue", rv); break; }
         if (rv != CKR_OK || attrs[1].ulValueLen > sizeof(cert->id) || attrs[0].ulValueLen > sizeof(cert->label) - 1) {
             status = invalid(error, error_size, "Cannot read certificate label/ID"); break;
         }
@@ -394,6 +395,7 @@ static int sg_certificate_der_impl(SGContext *ctx, unsigned long slot, const uin
     if (!status) {
         CK_ATTRIBUTE attr = {CKA_VALUE, NULL, 0};
         CK_RV rv = ctx->api->C_GetAttributeValue(session, object, &attr, 1);
+        if (rv == CKR_USER_NOT_LOGGED_IN) return close_session(ctx, session, failed(error, error_size, "C_GetAttributeValue DER", rv), error, error_size);
         if (rv != CKR_OK || attr.ulValueLen == CK_UNAVAILABLE_INFORMATION || attr.ulValueLen > 65536) {
             status = invalid(error, error_size, "Cannot obtain X.509 DER size");
         } else {

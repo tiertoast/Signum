@@ -31,6 +31,7 @@ public enum PKCS11WorkerEntrypoint {
             provider: request.provider, tokens: [], unavailable: 0, certificates: [], signature: nil, succeeded: false)
         do { response = try perform(request) }
         catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
+        catch IsolatedPKCS11Client.Failure.authenticationRequired { response.failureKind = "authenticationRequired" }
         catch { /* Never return vendor diagnostics or request bytes. */ }
         guard var output = try? JSONEncoder().encode(response), output.count <= 2 * 1024 * 1024 else { return 2 }
         defer { output.resetBytes(in: 0..<output.count) }
@@ -49,6 +50,10 @@ public enum PKCS11WorkerEntrypoint {
             throw SupervisedProcess.Failure.launch
         }
         defer { sg_token_lease_release(lease) }
+        if let expected = request.expectedModule {
+            let inspected = try MiddlewareFileSecurity.inspect(request.provider, automatic: request.automaticModule == true)
+            guard inspected.identity == expected, inspected.canonicalPath == request.provider else { throw MiddlewareFileSecurity.Failure.changed }
+        }
         let module = try PKCS11Module(path: request.provider)
         let result = Result { () -> PKCS11WorkerResponse in
             var tokens: [WorkerToken] = [], certificates: [WorkerCertificate] = [], unavailable = 0

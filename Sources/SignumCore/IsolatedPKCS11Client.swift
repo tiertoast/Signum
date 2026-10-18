@@ -7,7 +7,13 @@ import Security
 public final class IsolatedPKCS11Client: @unchecked Sendable {
     public enum Failure: Error, LocalizedError {
         case busy
-        public var errorDescription: String? { "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al provider." }
+        case authenticationRequired
+        public var errorDescription: String? {
+            switch self {
+            case .busy: return "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al provider."
+            case .authenticationRequired: return "Il dispositivo richiede autenticazione per leggere i certificati. La ricerca non invia PIN."
+            }
+        }
     }
     public let executable: URL
     private let leaseWaitMilliseconds: UInt
@@ -31,8 +37,11 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
         public let der: Data
     }
     public func scan(provider: String, timeout: TimeInterval = 30,
+                     expectedModule: MiddlewareFileIdentity? = nil, automatic: Bool = false,
                      isCancelled: () -> Bool = { false }) throws -> Scan {
-        let result = try exchange(.init(action: .scan, provider: provider, leaseWaitMilliseconds: leaseWaitMilliseconds), timeout: timeout, isCancelled: isCancelled)
+        var request = PKCS11WorkerRequest(action: .scan, provider: provider, leaseWaitMilliseconds: leaseWaitMilliseconds)
+        request.expectedModule = expectedModule; request.automaticModule = automatic
+        let result = try exchange(request, timeout: timeout, isCancelled: isCancelled)
         guard result.tokens.count <= 256, result.unavailable >= 0, result.unavailable <= 256,
               result.certificates.isEmpty, result.signature == nil,
               result.tokens.allSatisfy({ $0.label.utf8.count <= 128 && $0.model.utf8.count <= 128 &&
@@ -40,8 +49,11 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
         return Scan(provider: result.provider, tokens: result.tokens.map(\.value), unavailableSlots: result.unavailable)
     }
     public func certificates(provider: String, slot: UInt, timeout: TimeInterval = 30,
+                             expectedModule: MiddlewareFileIdentity? = nil, automatic: Bool = false,
                              isCancelled: () -> Bool = { false }) throws -> [Certificate] {
-        let result = try exchange(.init(action: .certificates, provider: provider, slot: slot, leaseWaitMilliseconds: leaseWaitMilliseconds), timeout: timeout, isCancelled: isCancelled)
+        var request = PKCS11WorkerRequest(action: .certificates, provider: provider, slot: slot, leaseWaitMilliseconds: leaseWaitMilliseconds)
+        request.expectedModule = expectedModule; request.automaticModule = automatic
+        let result = try exchange(request, timeout: timeout, isCancelled: isCancelled)
         guard result.tokens.isEmpty, result.signature == nil, result.certificates.count <= 256,
               result.certificates.allSatisfy(\.valid), result.certificates.reduce(0, { $0 + $1.der.count }) <= 1024 * 1024,
               Set(result.certificates.map { $0.value.id }).count == result.certificates.count else { throw SupervisedProcess.Failure.protocolViolation }
@@ -79,7 +91,12 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
               response.provider.hasPrefix("/"), response.provider.utf8.count <= 4096,
               !response.provider.utf8.contains(0) else { throw SupervisedProcess.Failure.protocolViolation }
         if !response.succeeded, response.failureKind == "busy" { throw Failure.busy }
+        if !response.succeeded, response.failureKind == "authenticationRequired", request.action != .rsaSHA256 { throw Failure.authenticationRequired }
         guard response.succeeded, response.failureKind == nil else { throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.") }
+        if let expected = request.expectedModule {
+            let inspected = try MiddlewareFileSecurity.inspect(request.provider, automatic: request.automaticModule == true)
+            guard inspected.identity == expected, inspected.canonicalPath == response.provider else { throw MiddlewareFileSecurity.Failure.changed }
+        }
         return response
     }
 }
