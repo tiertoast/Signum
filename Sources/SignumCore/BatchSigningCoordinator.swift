@@ -110,6 +110,19 @@ public struct BatchApproval: Sendable {
         documents.map { "\($0.snapshot.originalURL.lastPathComponent) · \($0.snapshot.format.rawValue.uppercased()) · \($0.state.message)\n\($0.destination?.path ?? "Destinazione da scegliere")\n\($0.result)" }.joined(separator: "\n\n")
     }
 
+    /// Reserve the UI selection synchronously, before scheduling a Task. A click
+    /// in that scheduling gap must never approve the preceding displayed list.
+    @discardableResult public func enqueueDocuments(_ urls: [URL], format: SigningFormat) -> Task<Void, Never>? {
+        guard !isFrozen, !isPreparing, !isRunning else { return nil }
+        invalidateReview(); revision = UUID(); isPreparing = true
+        let ticket = UUID(); acquisitionID = ticket
+        return Task { @MainActor in
+            guard acquisitionID == ticket, !Task.isCancelled else { isPreparing = false; return }
+            isPreparing = false
+            await addDocuments(urls, format: format)
+        }
+    }
+
     public func addDocuments(_ urls: [URL], format: SigningFormat) async {
         guard !isFrozen, !isPreparing, !isRunning else { return }
         invalidateReview(); revision = UUID()

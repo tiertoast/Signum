@@ -95,6 +95,24 @@ import XCTest
             XCTAssertFalse(batch.isApproved); XCTAssertFalse(batch.isFrozen); XCTAssertNil(batch.approval)
         }
     }
+    func testQueuedAcquisitionInvalidatesConsentBeforeItsTaskCanStart() async throws {
+        try await fixture { root, batch, context in
+            let review = SigningReview()
+            await review.prepare(context, batch: batch, validate: {})
+            let old = try XCTUnwrap(review.approval)
+            let file = root.appendingPathComponent("queued.txt"); try Data("queued synthetic document".utf8).write(to: file)
+            let acquisition = try XCTUnwrap(batch.enqueueDocuments([file], format: .cades))
+            XCTAssertTrue(batch.isPreparing) // No await: reservation is already visible.
+            XCTAssertNil(batch.review); XCTAssertFalse(review.matches(context, batch: batch))
+            XCTAssertThrowsError(try batch.freezeReview(old))
+            XCTAssertNil(batch.enqueueDocuments([file], format: .pades))
+            batch.cancelAll() // Cancel before the queued task can start.
+            await acquisition.value
+            XCTAssertFalse(batch.isPreparing); XCTAssertFalse(batch.isApproved)
+            XCTAssertEqual(batch.documents.count, 1)
+            XCTAssertFalse(batch.documents.contains { $0.snapshot.originalURL.lastPathComponent == "queued.txt" })
+        }
+    }
     func testPreflightCollisionNameIsVisibleBeforeClickAndLateCollisionDoesNotRename() async throws {
         try await fixture { root, batch, context in
             let existing = root.appendingPathComponent("synthetic.txt.p7m"); try Data("preserve".utf8).write(to: existing)

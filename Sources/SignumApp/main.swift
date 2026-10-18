@@ -659,8 +659,9 @@ private enum SignumFormat: String, Hashable {
     private func addDocuments(_ urls: [URL]) {
         guard !interfaceLocked, !batch.isFrozen, let kind = SigningFormat(rawValue: format.rawValue) else { return }
         provider.pin = ""
+        guard let acquisition = batch.enqueueDocuments(urls, format: kind) else { return }
         Task { @MainActor in
-            await batch.addDocuments(urls, format: kind)
+            await acquisition.value
             if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
             status = "\(batch.documents.count) documenti nella selezione. Controlla il riepilogo prima di firmare."
         }

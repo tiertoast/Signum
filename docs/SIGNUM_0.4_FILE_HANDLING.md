@@ -162,3 +162,14 @@ e quello dell'helper possono sommarsi: non sono intercambiabili. Nessuna prova
 su Mac con poca RAM, nessuna promessa di 200 MiB. Per arrivarci in sicurezza serve
 ridurre le copie CMS/parser e rendere lo snapshot prevalentemente su disco o
 streaming, con ulteriori test; refactoring rinviato al checkpoint successivo.
+
+### Controllo finale M5: prenotazione della selezione
+
+Individuato nel controllo finale un ulteriore intervallo da chiudere: la GUI
+accettava NSOpenPanel e schedulava una Task prima che Core segnalasse acquisizione
+in corso. enqueueDocuments ora invalida il riepilogo e riserva la selezione
+sincronicamente, prima della Task. Il test deterministico tenta subito il vecchio
+consenso, una seconda selezione e un annullamento prima che la Task parta: nessun
+vecchio piano approvabile, nessun file aggiunto dalla callback annullata.
+Le verifiche/bundle iniziali su `9e830a5` saranno sostituiti come riferimento di
+consegna da nuovi bundle separati contenenti questa correzione, senza sovrascriverli.
