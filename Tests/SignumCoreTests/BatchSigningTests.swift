@@ -172,6 +172,59 @@ import CoreGraphics
             XCTAssertTrue(plan.jobs.allSatisfy { FileManager.default.fileExists(atPath: $0.destination.path) })
         }
     }
+    func testThreePAdESUseExplicitDiscoveredRouteAndImmutableApprovedPDFs() async throws {
+        guard let helper = ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Native helper required") }
+        try await fixture { root, _, mock, batch, _ in
+            var paths: [URL] = [], approved: [Data] = []
+            for index in 0..<3 {
+                let bytes = NSMutableData()
+                let consumer = try XCTUnwrap(CGDataConsumer(data: bytes as CFMutableData))
+                var box = CGRect(x: 0, y: 0, width: 400, height: 500)
+                let context = try XCTUnwrap(CGContext(consumer: consumer, mediaBox: &box, nil))
+                context.beginPDFPage(nil)
+                context.setFillColor(CGColor(gray: CGFloat(index + 1) / 4, alpha: 1))
+                context.fill(CGRect(x: 20, y: 20, width: 30 + index, height: 20))
+                context.endPDFPage(); context.closePDF()
+                let path = root.appendingPathComponent("approved-\(index).pdf")
+                try (bytes as Data).write(to: path); paths.append(path); approved.append(bytes as Data)
+            }
+            await batch.addDocuments(paths, format: .pades)
+            XCTAssertEqual(batch.documents.count, 3)
+            let worker = worker, modulePath = mock.path.path
+            let providers = await Task.detached {
+                MiddlewareDiscovery(client: .init(executable: worker)).discover(registry: [], manualPaths: [modulePath])
+            }.value
+            var selection = DeviceSelection(); let request = selection.beginDiscovery()
+            XCTAssertTrue(selection.accept(providers, request: request)); XCTAssertNil(selection.selectedRoute)
+            XCTAssertTrue(selection.select(routeID: selection.certificates.first?.routes.first?.id))
+            let route = try XCTUnwrap(selection.selectedRoute)
+            let plan = try await batch.prepareApproval(provider: route.providerPath, slot: route.token.slot,
+                certificate: route.certificate, der: route.der, directory: root)
+            try batch.confirm(plan)
+            let ids = plan.jobs.map(\.id), hashes = plan.jobs.map(\.contentSHA256)
+            for path in paths { try Data("Changed after approval".utf8).write(to: path) }
+            // A separate new discovery must not retarget already approved jobs.
+            selection.beginDiscovery(); XCTAssertNil(selection.selectedRoute)
+            for index in 0..<3 {
+                try await batch.authorizeNext(pin: "synthetic-fixture") { job, pin, operation in
+                    try route.requireCurrentModule()
+                    try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: "Synthetic", field: nil,
+                        operation: operation, executable: URL(fileURLWithPath: helper))
+                }
+                XCTAssertEqual(batch.finishedCount, index + 1)
+                XCTAssertEqual(audit(mock, "8"), index + 1); XCTAssertEqual(audit(mock, "16"), index + 1)
+                XCTAssertEqual(batch.approval?.jobs.map(\.id), ids); XCTAssertEqual(batch.approval?.jobs.map(\.contentSHA256), hashes)
+                let signed = try Data(contentsOf: plan.jobs[index].destination)
+                XCTAssertTrue(signed.starts(with: approved[index])) // Verified incremental PAdES over approved bytes.
+                XCTAssertEqual(plan.jobs[index].providerPath, route.providerPath)
+                XCTAssertEqual(plan.jobs[index].certificateDER, route.der)
+            }
+            XCTAssertEqual(audit(mock, "10"), 0) // No indiscriminate Logout.
+            XCTAssertTrue(batch.documents.allSatisfy { $0.state == .completed })
+            XCTAssertTrue(batch.documents.allSatisfy { !FileManager.default.fileExists(atPath: $0.snapshot.fileURL.path) })
+            for path in paths { XCTAssertEqual(try Data(contentsOf: path), Data("Changed after approval".utf8)) }
+        }
+    }
     func testDropCallbacksKeepOrderAndIgnoreLateOrDuplicateReplies() {
         var collected: [[URL]] = []
         let state = FileDropResolution(count: 3) { collected.append($0) }
