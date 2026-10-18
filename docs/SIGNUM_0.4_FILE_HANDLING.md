@@ -39,3 +39,34 @@ Limiti individuati separatamente: CAdES 16 MiB, PAdES 64 MiB, sessione 128 MiB;
 IPC firma trasporta attributi/digest e certificato, non l'intero documento.
 Il clone è su disco ma DocumentSnapshot conserva anche una Data completa; CMS
 costruisce ulteriori Data. Non basta alzare una costante per promettere 200 MiB.
+
+## M2 — Acquisizione coerente e diagnosi distinta
+
+Registrazione vnode kqueue/kevent64 sul descriptor prima dello stat iniziale;
+NOTE_WRITE/EXTEND/RENAME/DELETE/REVOKE causano rifiuto. NOTE_ATTRIB da solo non è
+una scrittura. Il clone CoW conserva un'immagine coerente; device/inode/size/mtime
+e binding del percorso restano controllati. Se cambia soltanto ctime, confronto
+completo sul descriptor originale con il clone, con stat prima/dopo la lettura.
+Non basta che due hash coincidano: il test scrive/ripristina byte e mtime e viene
+comunque rifiutato per evento WRITE. Nessun fallback streaming su filesystem che
+non supportano clone/eventi. Errori di monitoraggio falliscono in sicurezza.
+
+La garanzia è uno snapshot coerente del clone approvato, non l'immobilità eterna
+dell'originale: modifiche successive non vengono firmate. Non protegge da un
+avversario con controllo del processo/kernel/account. Aggiornamenti continui
+durante la lettura di corroborazione possono ancora causare un rifiuto conservativo.
+
+DocumentAcquisitionFailure separa changed/unavailable/read/tooLarge/space/timeout/
+cancelled/unsupported. Messaggi semplici in GUI; syscall/errno in dettagli tecnici
+espandibili, senza contenuto, credenziali o stack trace. Read EINTR ripetuto, EIO e
+permessi non trasformati in «documento modificato». Deadline monotona 30 secondi,
+controllata fra chunk/fasi; un syscall bloccato non può essere interrotto da questa
+deadline. Annullamento cooperativo ora passa anche all'acquisizione del batch.
+Callback obsoleta chiude lo snapshot e non ripopola la sessione annullata.
+
+Regressioni deterministiche aggiunte: metadati xattr innocui, scrittura transitoria
+con ripristino, troncamento, rename/sostituzione, EINTR/EIO/EACCES/ENOSPC, file
+assente, timeout con clock iniettato, annullamento e callback tardiva/concorrenza
+con barriera. Le 18 regressioni snapshot precedenti restano attive, incluse symlink,
+corruzione e cleanup crash. Prima compilazione del monitor corretta da kevent
+(collisione nome tipo/funzione Swift) a kevent64; nessuna rinuncia al controllo.

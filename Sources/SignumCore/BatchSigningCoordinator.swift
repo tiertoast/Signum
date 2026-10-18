@@ -45,6 +45,7 @@ public struct BatchApproval: Sendable {
     public static let maximumTotalBytes = 128 * 1024 * 1024
     @Published public private(set) var documents: [BatchDocument] = []
     @Published public private(set) var selectionIssues: [String] = []
+    @Published public private(set) var selectionTechnicalDetails: [String] = []
     @Published public private(set) var isPreparing = false
     @Published public private(set) var isFrozen = false
     @Published public private(set) var isApproved = false
@@ -54,7 +55,12 @@ public struct BatchApproval: Sendable {
     public private(set) var approval: BatchApproval?
     private var acquisitionID = UUID()
     private var activeID: UUID?
+    private var acquisitionOperation: SigningOperation?
+    private var captureDocument: @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot = {
+        url, format, operation in try DocumentSnapshot.capture(source: url, format: format, isCancelled: { operation.isCancellationRequested })
+    }
     public init() {}
+    init(capture: @escaping @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot) { captureDocument = capture }
 
     public var nextDocument: BatchDocument? { documents.first { !$0.state.isTerminal } }
     public var finishedCount: Int { documents.filter { $0.state.isTerminal }.count }
@@ -64,10 +70,12 @@ public struct BatchApproval: Sendable {
 
     public func addDocuments(_ urls: [URL], format: SigningFormat) async {
         guard !isFrozen, !isPreparing, !isRunning else { return }
-        isPreparing = true; selectionIssues = []
+        isPreparing = true; selectionIssues = []; selectionTechnicalDetails = []
         if urls.count > Self.maximumDocuments { selectionIssues.append("Acquisiti soltanto i primi 32 elementi della selezione.") }
         let request = UUID(); acquisitionID = request
-        defer { isPreparing = false }
+        let operation = SigningOperation(), capture = captureDocument
+        acquisitionOperation = operation
+        defer { isPreparing = false; acquisitionOperation = nil }
         for url in urls.prefix(Self.maximumDocuments) {
             guard acquisitionID == request else { break }
             guard documents.count < Self.maximumDocuments else {
@@ -76,10 +84,12 @@ public struct BatchApproval: Sendable {
             if documents.contains(where: { $0.snapshot.originalURL.standardizedFileURL == url.standardizedFileURL }) {
                 selectionIssues.append("\(url.lastPathComponent): documento già selezionato."); continue
             }
-            let captured = await Task.detached(priority: .userInitiated) { Result { try DocumentSnapshot.capture(source: url, format: format) } }.value
+            let captured = await Task.detached(priority: .userInitiated) { Result { try capture(url, format, operation) } }.value
             guard acquisitionID == request else { if case .success(let snapshot) = captured { snapshot.close() }; break }
             switch captured {
-            case .failure(let error): selectionIssues.append("\(url.lastPathComponent): \(error.localizedDescription)")
+            case .failure(let error):
+                selectionIssues.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                if let failure = error as? DocumentAcquisitionFailure { selectionTechnicalDetails.append("\(url.lastPathComponent): \(failure.kind.rawValue) · \(failure.technicalDetails)") }
             case .success(let snapshot):
                 if documents.contains(where: { $0.snapshot.identity.sha256 == snapshot.identity.sha256 && $0.snapshot.format == format }) {
                     snapshot.close(); selectionIssues.append("\(url.lastPathComponent): contenuto duplicato nello stesso formato.")
@@ -97,7 +107,7 @@ public struct BatchApproval: Sendable {
     public func reset() {
         guard !isRunning, !isPreparing else { return }
         documents.forEach { $0.snapshot.close() }
-        documents = []; approval = nil; selectionIssues = []
+        documents = []; approval = nil; selectionIssues = []; selectionTechnicalDetails = []
         isFrozen = false; isApproved = false; needsOutcomeReview = false
     }
 
@@ -145,6 +155,7 @@ public struct BatchApproval: Sendable {
     }
 
     public func cancelPending() {
+        acquisitionOperation?.requestCancellation()
         acquisitionID = UUID()
         for id in documents.map(\.id) { cancelDocument(id) }
     }

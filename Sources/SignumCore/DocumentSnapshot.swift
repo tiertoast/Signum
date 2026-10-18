@@ -35,15 +35,24 @@ public final class DocumentSnapshot: @unchecked Sendable {
         var sourceOpened: (Int32) throws -> Void = { _ in }
         var clone: (Int32, Int32, String) -> Int32 = { fclonefileat($0, $1, $2, UInt32(CLONE_NOOWNERCOPY)) }
         var read: (Int32, UnsafeMutableRawPointer, Int) -> Int = { Darwin.read($0, $1, $2) }
+        var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     }
 
-    public static func capture(source: URL, format: SigningFormat) throws -> DocumentSnapshot {
+    public static func capture(source: URL, format: SigningFormat, timeout: TimeInterval = 30,
+                               isCancelled: @escaping () -> Bool = { false }) throws -> DocumentSnapshot {
         try capture(source: source, format: format,
-                    privateRoot: FileManager.default.temporaryDirectory, io: CaptureIO())
+                    privateRoot: FileManager.default.temporaryDirectory, io: CaptureIO(), timeout: timeout, isCancelled: isCancelled)
     }
 
     static func capture(source: URL, format: SigningFormat, privateRoot: URL,
-                        io: CaptureIO = CaptureIO()) throws -> DocumentSnapshot {
+                        io: CaptureIO = CaptureIO(), timeout: TimeInterval = 30,
+                        isCancelled: @escaping () -> Bool = { false }) throws -> DocumentSnapshot {
+        let deadline = io.clock() + max(0, timeout)
+        let check = {
+            if isCancelled() { throw DocumentAcquisitionFailure(.cancelled, "capture cancellation") }
+            if io.clock() >= deadline { throw DocumentAcquisitionFailure(.timeout, "capture deadline") }
+        }
+        try check()
         guard source.isFileURL, !source.lastPathComponent.isEmpty else { throw error("Sorgente non valido.") }
         let original = nativeURL(source)
         let privateRoot = nativeURL(privateRoot)
@@ -53,16 +62,16 @@ public final class DocumentSnapshot: @unchecked Sendable {
         // O_NOFOLLOW_ANY also rejects symlinks in ancestors. Pin the parent and
         // file separately, then check the path still denotes that inode.
         let parent = Darwin.open(original.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_CLOEXEC)
-        guard parent >= 0 else { throw error("Percorso non disponibile o con collegamenti simbolici.") }
+        guard parent >= 0 else { throw DocumentAcquisitionFailure.system("open source parent") }
         defer { Darwin.close(parent) }
         let sourceFD = openat(parent, original.lastPathComponent, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-        guard sourceFD >= 0 else { throw error("Sorgente non disponibile o collegamento simbolico.") }
+        guard sourceFD >= 0 else { throw DocumentAcquisitionFailure.system("open source") }
         defer { Darwin.close(sourceFD) }
+        let watch = try AcquisitionWatch(sourceFD)
         var sourceIdentity = stat()
-        guard fstat(sourceFD, &sourceIdentity) == 0, sourceIdentity.st_mode & S_IFMT == S_IFREG,
-              sourceIdentity.st_size > 0, sourceIdentity.st_size <= format.maximumDocumentBytes else {
-            throw error("Serve un file regolare non vuoto entro il limite di \(format.maximumDocumentBytes / 1024 / 1024) MiB.")
-        }
+        guard fstat(sourceFD, &sourceIdentity) == 0 else { throw DocumentAcquisitionFailure.system("stat source") }
+        guard sourceIdentity.st_mode & S_IFMT == S_IFREG, sourceIdentity.st_size > 0 else { throw DocumentAcquisitionFailure(.read, "source is empty or not regular") }
+        guard sourceIdentity.st_size <= format.maximumDocumentBytes else { throw DocumentAcquisitionFailure(.tooLarge, "source exceeds \(format.maximumDocumentBytes) bytes") }
         guard sourceIdentity.st_flags & UInt32(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND) == 0 else {
             throw error("Il file ha flag che impediscono la pulizia della copia. Crea una copia locale e riselezionala.")
         }
@@ -79,7 +88,7 @@ public final class DocumentSnapshot: @unchecked Sendable {
         }
         recover(in: root)
         let name = prefix + UUID().uuidString
-        guard mkdirat(root, name, 0o700) == 0 else { throw error("Impossibile creare lo snapshot privato.") }
+        guard mkdirat(root, name, 0o700) == 0 else { throw DocumentAcquisitionFailure.system("create private snapshot directory") }
         var createdDirectory = stat()
         guard fstatat(root, name, &createdDirectory, AT_SYMLINK_NOFOLLOW) == 0 else {
             throw error("Impossibile identificare la cartella privata.")
@@ -107,8 +116,9 @@ public final class DocumentSnapshot: @unchecked Sendable {
             throw error("Impossibile rimuovere ACL ereditate dall'area privata.")
         }
         try io.sourceOpened(sourceFD)
+        try check()
         guard io.clone(sourceFD, directory, payload) == 0 else {
-            throw error("Il filesystem non consente un clone CoW coerente (errno \(errno)). Nessuna firma avviata.")
+            throw DocumentAcquisitionFailure.system("fclonefileat")
         }
         var clonedIdentity = stat()
         guard fstatat(directory, payload, &clonedIdentity, AT_SYMLINK_NOFOLLOW) == 0 else {
@@ -125,12 +135,20 @@ public final class DocumentSnapshot: @unchecked Sendable {
               info.st_ino != sourceIdentity.st_ino, fchmod(fd, 0o400) == 0 else {
             throw error("Identità o permessi dello snapshot non validi.")
         }
-        let content = try readBounded(fd, maximum: format.maximumDocumentBytes, read: io.read)
+        let content = try readBounded(fd, maximum: format.maximumDocumentBytes, read: io.read, check: check)
         var after = stat()
-        guard fstat(sourceFD, &after) == 0, unchanged(sourceIdentity, after),
-              same(in: parent, name: original.lastPathComponent, identity: sourceIdentity) else {
-            throw error("Il documento è cambiato durante l'acquisizione. Riselezionalo prima di approvare.")
+        guard fstat(sourceFD, &after) == 0 else { throw DocumentAcquisitionFailure.system("stat source after clone") }
+        guard sameContentAttributes(sourceIdentity, after), same(in: parent, name: original.lastPathComponent, identity: sourceIdentity) else {
+            throw DocumentAcquisitionFailure(.changed, "source identity/size/mtime or pathname changed")
         }
+        // A ctime-only change needs corroboration, not blind timestamp omission.
+        // Read the original through the pinned descriptor and compare with CoW.
+        if !unchanged(sourceIdentity, after) {
+            let current = try readBounded(sourceFD, maximum: format.maximumDocumentBytes, check: check)
+            guard current == content else { throw DocumentAcquisitionFailure(.changed, "source bytes differ from coherent clone") }
+        }
+        try watch.requireUnchanged()
+        try check()
         let result = DocumentSnapshot(source: original, format: format, bytes: content, root: root,
                                       directory: directory, fd: fd, name: name,
                                       directoryIdentity: directoryIdentity, fileIdentity: info, privateRoot: privateRoot)
@@ -194,27 +212,34 @@ public final class DocumentSnapshot: @unchecked Sendable {
     static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     private static func error(_ text: String) -> SignumError { .module(text) }
     private static func unchanged(_ a: stat, _ b: stat) -> Bool {
-        a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_size == b.st_size &&
-        a.st_mtimespec.tv_sec == b.st_mtimespec.tv_sec && a.st_mtimespec.tv_nsec == b.st_mtimespec.tv_nsec &&
+        sameContentAttributes(a, b) &&
         a.st_ctimespec.tv_sec == b.st_ctimespec.tv_sec && a.st_ctimespec.tv_nsec == b.st_ctimespec.tv_nsec
     }
+    private static func sameContentAttributes(_ a: stat, _ b: stat) -> Bool {
+        a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_size == b.st_size &&
+        a.st_mtimespec.tv_sec == b.st_mtimespec.tv_sec && a.st_mtimespec.tv_nsec == b.st_mtimespec.tv_nsec
+    }
     private static func readBounded(_ fd: Int32, maximum: Int,
-                                    read: (Int32, UnsafeMutableRawPointer, Int) -> Int = { Darwin.read($0, $1, $2) }) throws -> Data {
+                                    read: (Int32, UnsafeMutableRawPointer, Int) -> Int = { Darwin.read($0, $1, $2) },
+                                    check: () throws -> Void = {}) throws -> Data {
         var info = stat()
-        guard fstat(fd, &info) == 0, info.st_size > 0, info.st_size <= maximum,
-              lseek(fd, 0, SEEK_SET) == 0 else { throw error("Dimensione o lettura dello snapshot non valida.") }
+        guard fstat(fd, &info) == 0 else { throw DocumentAcquisitionFailure.system("stat capture input") }
+        guard info.st_size <= maximum else { throw DocumentAcquisitionFailure(.tooLarge, "capture input exceeds \(maximum) bytes") }
+        guard info.st_size > 0, lseek(fd, 0, SEEK_SET) == 0 else { throw DocumentAcquisitionFailure.system("seek capture input") }
         var result = Data(), chunk = [UInt8](repeating: 0, count: 65536)
         while true {
+            try check()
             let count = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress!, $0.count) }
             if count < 0 && errno == EINTR { continue }
-            guard count >= 0, count <= chunk.count else { throw error("Lettura dello snapshot non riuscita.") }
+            guard count >= 0, count <= chunk.count else { throw DocumentAcquisitionFailure.system("read capture input") }
             if count == 0 { break }
-            guard count <= maximum - result.count else { throw error("Lo snapshot supera il limite consentito.") }
+            guard count <= maximum - result.count else { throw DocumentAcquisitionFailure(.tooLarge, "capture input grew beyond limit") }
             result.append(contentsOf: chunk.prefix(count))
         }
         var after = stat()
-        guard fstat(fd, &after) == 0, unchanged(info, after), result.count == info.st_size else {
-            throw error("Snapshot modificato durante la lettura.")
+        guard fstat(fd, &after) == 0 else { throw DocumentAcquisitionFailure.system("stat capture input after read") }
+        guard unchanged(info, after), result.count == info.st_size else {
+            throw DocumentAcquisitionFailure(.changed, "capture input changed or short read")
         }
         return result
     }
