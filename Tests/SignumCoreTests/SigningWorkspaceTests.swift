@@ -44,7 +44,7 @@ import CoreGraphics
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let bytes = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let folder = root.appendingPathComponent(".build/04a3-ui")
+        let folder = root.appendingPathComponent(".build/04a31-ui")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try bytes.write(to: folder.appendingPathComponent(name + ".png"))
     }
