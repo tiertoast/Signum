@@ -1,7 +1,7 @@
 # Signum 0.4-A.2 — Device Discovery
 
 **18 ottobre 2026 — implementazione M1–M4 completata, M5 analizzata con comportamento
-sicuro conservato. Checkpoint M6: validazione finale della preparazione off-main in corso.** GUI interattiva e middleware reali
+sicuro conservato, M6 verificata localmente.** GUI interattiva e middleware reali
 restano da collaudare su questo candidato. Non è una release pubblica.
 
 ```mermaid
@@ -172,13 +172,14 @@ persistente implementata o dichiarata testata; nessun hardware usato.
 
 Ulteriori casi: symlink root verso antenato non privilegiato, versione C_GetInfo
 opzionale e positiva, vecchio reply senza prova d'identità rifiutato, cancellazione
-che invalida callback/stato. Totale nuovo: **29 test**. Messaggi di file cambiato/
+che invalida callback/stato, tre PAdES da route scoperta e applicazione di una
+valutazione preparata off-main. Totale nuovo: **31 test**. Messaggi di file cambiato/
 assente/non sicuro comprensibili, senza errori numerici generici. Il certificato
 mostrato conserva il dispositivo della route effettivamente scelta, inclusa la via
 alternativa. DER Base64 e metadata del token rimangono nei dettagli tecnici.
 Metadati candidato **0.4.0/build 2**, macOS minimo 13.0, nessuna release.
 
-Prima della creazione dei bundle: Swift completa **195/195**, zero skip; nativa
+Prima della creazione dei primi bundle: Swift completa **195/195**, zero skip; nativa
 PKCS#11 **40/40**, PAdES Debug **63/63**, packaging Python **10/10**; ASAN e TSAN
 mirati **33/33** ciascuno senza segnalazioni nei runner. ASAN leak detection
 spenta; mock/terze parti non completamente strumentati, niente garanzia universale
@@ -188,21 +189,25 @@ originale, senza portare il dettaglio tecnico nel flusso GUI. Suite ripetuta 195
 Un errore di ordine degli argomenti nel nuovo test versione è stato corretto
 prima dei run positivi. Esiti finali e packaging sono registrati sotto.
 
-### Risultati del checkpoint prima del consolidamento off-main
+### Risultati finali effettivamente eseguiti
 
 Tutti i seguenti controlli sono locali, con documenti/certificati/chiavi software
 sintetici, senza PIN personali o middleware hardware. I runner Swift finali sono
-stati ripetuti sul codice committato `02f94a3`.
+stati ripetuti sul codice committato `2a27cad`. Il nuovo test tre PAdES usa
+la route scelta esplicitamente, conserva snapshot/job/hash e richiede tre azioni
+distinte, senza Logout. `DeviceDiscoveryResult` prepara valutazioni X.509 e
+raggruppamento fuori dal thread GUI; il callback applica soltanto quel risultato
+immutabile, senza nuove letture di file/provider o analisi dei certificati.
 
 | Controllo | Risultato |
 |---|---|
-| Suite Swift completa, helper PAdES esplicito | **195/195**, nessuno skip o fallimento |
+| Suite Swift completa, helper PAdES esplicito | **197/197**, nessuno skip o fallimento |
 | PKCS#11 C/C++ | **40/40** |
 | PAdES Debug / Release | **63/63** per configurazione |
 | Build Swift di tutti i prodotti Debug / Release | riuscite |
 | Test Python packaging | **10/10** |
-| ASAN mirato discovery/selezione/preferenze e regressioni provider | **33/33**, nessuna segnalazione nel runner |
-| TSAN sugli stessi casi | **33/33**, nessuna segnalazione nel runner |
+| ASAN mirato discovery/selezione/preferenze, provider e tre PAdES | **35/35**, nessuna segnalazione nel runner |
+| TSAN sugli stessi casi | **35/35**, nessuna segnalazione nel runner |
 | Bundle Debug / Release | ad hoc, audit dipendenze/percorsi/Mach-O, firma stretta e rilocazione riusciti |
 | Helper PAdES incorporato, prima/dopo rilocazione | **63/63** per configurazione e posizione |
 | Nuova demo sintetica + discovery/certificato via CLI/worker del bundle Release | riuscite, ID pubblico 53, idoneo localmente, nessuna firma avviata dalla demo |
@@ -215,13 +220,15 @@ interamente strumentati. I canali vendor dei figli restano silenziati dal prodot
 nessuna deduzione di assenza universale di race/leak dai soli runner positivi.
 
 Bundle nuovi, precedenti Alpha e candidati preservati:
-- `.build/04a2-bundles/debug/Signum.app`
-- `.build/04a2-bundles/release/Signum.app`
+- `.build/04a2-bundles/final-debug/Signum.app`
+- `.build/04a2-bundles/final-release/Signum.app`
 
-Manifesti: `sourceCommit: 02f94a3`, `sourceTrackedDirty: false`, versione
+Manifesti: `sourceCommit: 2a27cad`, `sourceTrackedDirty: false`, versione
 **0.4.0/build 2**, arm64, minimo Info.plist e massimo Mach-O **13.0**.
 Verifica finale `codesign --verify --deep --strict` riuscita per entrambi.
-Firma solo **ad hoc**; nessun Developer ID, notarizzazione, DMG o release.
+I precedenti checkpoint `debug/release` restano sul disco e sono superati da
+questi due candidati finali. Hash del codice annidato ricontrollati; helper nativo
+identico in byte a quello usato nell’ultima suite Swift. Firma solo **ad hoc**; nessun Developer ID, notarizzazione, DMG o release.
 Nessun bundle è stato avviato automaticamente nella GUI per caricare i provider
 installati. La costruzione/verifica non equivale a click/layout interattivi.
 
@@ -273,8 +280,8 @@ scripts/test-pkcs11-local.sh
 swift build -c debug --scratch-path .build/reliability
 swift build -c release --scratch-path .build/reliability
 /usr/bin/python3 -m unittest discover -s scripts/tests -v
-ASAN_OPTIONS=detect_leaks=0 swift test --scratch-path .build/reliability-asan --sanitize address --filter 'MiddlewareRegistryTests|MiddlewareDiscoveryTests|DeviceSelectionTests|DiscoveryExperienceTests|ProviderSelectionTests'
-swift test --scratch-path .build/beta-tsan --sanitize thread --filter 'MiddlewareRegistryTests|MiddlewareDiscoveryTests|DeviceSelectionTests|DiscoveryExperienceTests|ProviderSelectionTests'
+ASAN_OPTIONS=detect_leaks=0 swift test --scratch-path .build/reliability-asan --sanitize address --filter 'MiddlewareRegistryTests|MiddlewareDiscoveryTests|DeviceSelectionTests|DiscoveryExperienceTests|ProviderSelectionTests|BatchSigningTests.testThreePAdES'
+swift test --scratch-path .build/beta-tsan --sanitize thread --filter 'MiddlewareRegistryTests|MiddlewareDiscoveryTests|DeviceSelectionTests|DiscoveryExperienceTests|ProviderSelectionTests|BatchSigningTests.testThreePAdES'
 ```
 
 La ricetta `scripts/build-beta-app.py --configuration debug|release` con
@@ -331,6 +338,8 @@ Per rigenerare scegliere un altro output nuovo con `scripts/prepare-batch-demo.p
 | M4 | `eeac0c3` | GUI certificato-first, configurazione avanzata e consenso |
 | M5 | `cfb5905` | Analisi autenticazione, mantenuta autorizzazione per documento |
 | M6 codice | `02f94a3` | Regressioni aggiuntive, messaggi, candidato build 2 |
+| M6 PAdES batch | `eacc41b` | Tre PDF approvati da route scoperta, tre azioni distinte |
+| M6 reattività | `2a27cad` | Preparazione certificati off-main, 8 test selezione |
 
 Il commit documentale di consegna successivo registra questi risultati e aggiorna
 il file progressi. Branch `codex/signum-0.4-device-discovery`, da `dd1e786`;
@@ -340,19 +349,3 @@ il precedente branch 0.4-A resta invariato. `main` resta
 `2f275328cdca3ebe2023ade1c87b3179bc89540af8d7a898b304241d61a168a6`.
 Nessun push/merge/tag/release/GitHub Actions; nessun accesso o modifica a HalleyMac,
 nessuna sostituzione dell'Alpha, nessun hardware/PIN personale usato.
-
-
-### Checkpoint preparazione fuori dal thread GUI
-
-Dopo i dati sopra: aggiunta prova end-to-end di tre PAdES da route scoperta e
-scelta esplicitamente, con originali cambiati, snapshot/hash/job conservati,
-verifica pre-commit del helper e tre azioni Login/Sign distinte. Test aggiuntivo
-`eacc41b`: suite **196/196**, ASAN/TSAN mirati **34/34**.
-
-L'ultima revisione ha spostato anche valutazione X.509 e raggruppamento dei DER
-fuori dal main thread, prima dell'applicazione dello stato UI. Nuovo risultato
-immutabile `DeviceDiscoveryResult`; applicazione vincolata alla generazione, senza
-filesystem/provider/crypto nel callback GUI. Test selezione **8/8** riusciti,
-inclusa preparazione off-main e rifiuto del risultato tardivo. Le suite e i nuovi
-bundle finali di questo ulteriore consolidamento sono da registrare alla chiusura.
-I bundle `debug/release` citati sopra restano preservati come checkpoint `02f94a3`.

@@ -181,27 +181,25 @@ certificati raggruppati per DER con route esplicite, selezione senza fallback,
 GUI centrata sul certificato e configurazione manuale avanzata. Ricerca al lancio
 oppure esplicita; nessun monitoraggio USB continuo o autenticazione di discovery.
 Consenso batch semplificato, nomi omonimi distinguibili, dettagli tecnici separati.
+Valutazione X.509 e raggruppamento preparati off-main in un risultato immutabile.
+Verificato anche un batch di tre PDF PAdES da route scelta, con originali modificati
+e tre sole autorizzazioni esplicite, senza riuso PIN.
 
 **M5 analizzata:** sessione batch/autenticazione unica non dimostrate sicure sui
 percorsi CAdES/PAdES, quindi rimangono autorizzazioni per documento, nessuna cache
 PIN, nessun retry e nessun toggle ingannevole. Causa della policy hardware non
 attribuita al produttore senza prove.
 
-**M6 verificata sul codice `02f94a3`:** Swift **195/195**, 29 nuovi test;
+**M6 verificata sul codice `2a27cad`:** Swift **197/197**, 31 nuovi test;
 PKCS#11 **40/40**; PAdES Debug/Release **63/63**; packaging **10/10**;
-ASAN e TSAN mirati **33/33** ciascuno. Zero skip/fallimenti nei runner finali;
+ASAN e TSAN mirati **35/35** ciascuno. Zero skip/fallimenti nei runner finali;
 build Swift Debug/Release e nuovi bundle ad hoc/rilocati passati, 0.4.0/build 2,
 minimo dichiarato/Mach-O 13.0. Nessun hardware o middleware installato caricato
 nelle prove. GUI interattiva, compatibilità reale OpenSC/Bit4id del nuovo flusso,
 macOS 13/14 e Mac pulito restano da collaudare. Non è una release pubblica.
 
-Candidato: `.build/04a2-bundles/release/Signum.app` (Debug separato);
+Candidato: `.build/04a2-bundles/final-release/Signum.app` (final-debug separato);
 demo manuale sintetica pronta in `.build/04a2-demo`. Precedenti bundle preservati.
 Architettura, policy, esiti, commit, limiti e procedura di collaudo sono nel
 [rapporto Device Discovery](SIGNUM_0.4_DEVICE_DISCOVERY.md). B/C della roadmap
 funzionale non iniziate in questa porzione. Nessun push/merge/tag o CI remoto.
-
-Checkpoint successivo M6: test esplicito di tre PAdES nella stessa coda da una
-route scoperta, suite 196/196 e ASAN/TSAN 34/34. Ultimo consolidamento: valutazione
-X.509/raggruppamento fuori dal main thread con `DeviceDiscoveryResult`, test
-selezione 8/8; ripetizione finale e nuovi bundle ancora in verifica.
