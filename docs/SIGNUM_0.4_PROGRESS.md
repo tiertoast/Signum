@@ -203,3 +203,33 @@ demo manuale sintetica pronta in `.build/04a2-demo`. Precedenti bundle preservat
 Architettura, policy, esiti, commit, limiti e procedura di collaudo sono nel
 [rapporto Device Discovery](SIGNUM_0.4_DEVICE_DISCOVERY.md). B/C della roadmap
 funzionale non iniziate in questa porzione. Nessun push/merge/tag o CI remoto.
+
+## 18 ottobre 2026 — 0.4-A.3 Signing Experience
+
+Baseline A.2 `a468c42`, collaudo DigitalDNA/DS3/InfoCamere positivo riferito
+dall'utente per quella versione. Nuovo branch `codex/signum-0.4-signing-experience`;
+nessun trasferimento automatico del collaudo hardware alla nuova candidata.
+
+**M1–M6 implementate e verificate software:** filtro predefinito solo idonei
+SG-04 con preferenza persistente e accesso distinto agli indeterminati; output
+accanto a ogni originale o in cartella comune scelta prima del consenso; nomi
+senza collisioni fissati nell'approvazione; una conferma per tutto il batch;
+PIN monouso vincolato al documento corrente, senza retry/riuso; workspace destra
+per documenti/progressi/esiti e campo PIN fuori dallo scorrimento. PDFKit mantiene
+l'anteprima dello snapshot. Primitive, worker, lifecycle e pubblicazione Foundation
+preservati; nessuna ottimizzazione dell'autenticazione batch.
+
+Sul codice `68bf61b`: Swift **221/221**, 24 nuovi test; PKCS#11 **40/40**;
+PAdES Debug/Release **63/63**; packaging **10/10**; ASAN/TSAN mirati **37/37**
+ciascuno. Zero skip/fallimenti finali. Build Debug/Release e bundle rilocati passati;
+versione **0.4.0/build 3**, firma ad hoc e Mach-O minimo 13.0 verificati.
+Due test nativi/rendering ispezionati: PIN raggiungibile con 32 documenti a 650
+punti e PDFView sullo snapshot. Non equivalgono a un collaudo interattivo completo.
+
+Candidata: `.build/04a3-bundles/final-release/Signum.app`, Debug separata;
+demo sintetica `.build/04a3-demo` preparata con discovery CLI verificata.
+Alpha e A.2 preservate. Report, commit, comandi, limiti e istruzioni nel
+[rapporto Signing Experience](SIGNUM_0.4_SIGNING_EXPERIENCE.md).
+PIN ancora per documento; A.4, B/C non iniziate. Hardware, GUI interattiva del
+bundle, macOS 13/14 e Mac pulito restano da collaudare. Nessun push/merge/tag,
+release, CI remoto o accesso a HalleyMac. Main invariato `be84a1e`.
