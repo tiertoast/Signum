@@ -546,7 +546,7 @@ private enum SignumFormat: String, Hashable {
                     ProgressView(workPhase.message).controlSize(.small)
                     Button("Annulla lettura") { work.requestCancellation() }
                 }
-                Text("Il clic su Firma approva questi documenti. Il PIN non viene conservato fra documenti; il riuso della sessione dipende dalla policy della chiave. Nessun tentativo automatico aggiuntivo.")
+                Text("Il clic su Firma approva questi documenti. " + authenticationExplanation + " Nessun tentativo automatico aggiuntivo.")
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
