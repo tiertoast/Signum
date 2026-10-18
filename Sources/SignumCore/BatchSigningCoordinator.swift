@@ -77,13 +77,19 @@ public struct BatchApproval: Sendable {
     /// create output or ask for a PIN; edits invalidate the plan by revision.
     public func prepareReview(provider: String, slot: UInt, certificate: SignumCertificate,
                               der: Data, destination: BatchOutputDestination,
-                              appearances: [UUID: RenderedPAdESAppearance] = [:]) async throws -> BatchApproval {
+                              appearances: [UUID: RenderedPAdESAppearance] = [:],
+                              isCancelled: @escaping @Sendable () -> Bool = { false }) async throws -> BatchApproval {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
         invalidateReview()
         let request = reviewRequest, version = revision, selected = documents.map(\.snapshot)
         let result = try await Task.detached(priority: .userInitiated) {
+            if isCancelled() { throw CancellationError() }
             try CertificateEligibility.requireEligible(certificateDER: der)
-            for snapshot in selected { _ = try snapshot.verifiedBytes() }
+            for snapshot in selected {
+                if isCancelled() { throw CancellationError() }
+                _ = try snapshot.verifiedBytes()
+            }
+            if isCancelled() { throw CancellationError() }
             let outputs = try destination.plan(selected)
             let jobs = try zip(selected, outputs).map { snapshot, output in
                 try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot, certificate: certificate,
@@ -92,7 +98,7 @@ public struct BatchApproval: Sendable {
             }
             return BatchApproval(id: UUID(), jobs: jobs)
         }.value
-        guard !Task.isCancelled, reviewRequest == request, revision == version, !isFrozen, !isPreparing else {
+        guard !Task.isCancelled, !isCancelled(), reviewRequest == request, revision == version, !isFrozen, !isPreparing else {
             throw Self.failure("Il riepilogo è cambiato. Controlla la nuova lista prima di firmare.")
         }
         review = result

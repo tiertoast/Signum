@@ -39,3 +39,19 @@ Prima del fix il test del fit falliva; dopo: geometria+preview 6/6 e geometria f
 Il renderer conserva hash PDF e identità dell’artwork immutabili. `placed` consente solo pagina/origine nuove con lo stesso contenuto/dimensioni, validando il crop; non decodifica, non impagina, non crea PDF e non ricalcola SHA-256 del payload. L’identità approvabile include sempre la geometria. PDFKit riusa la stessa annotazione e aggiorna i bounds, invalidando la regione interessata. Modificare testo, dimensioni, visibilità o risorse richiede invece nuovo artwork. Il drag invalida subito la readiness e il rilascio la ripristina solo dopo l’annotazione aggiornata.
 
 Geometria+prestazioni 4/4, zero skip/fallimenti. Per testo/PNG 1024²/PNG 2800², ciascuno con 30 e 120 spostamenti: una sola costruzione dell’annotazione, byte/hash/artwork identici, geometria aggiornata a ogni evento. Mediane del solo percorso placement+aggiornamento annotazione 0,033–0,046 ms, p95 0,036–0,073 ms sul Mac di sviluppo. Non sono frame presentati né misura dell’intera GUI. La baseline circa 63 ms riguardava invece la rigenerazione del PDF ora evitata dal movimento.
+
+## M6 — Coalescing, cancellazione e preflight
+
+Coordinatore grafico per pannello con un’operazione attiva e una sola pending sostituibile; sparisce la coda globale. Checkpoint cooperativi prima/fra le fasi ImageIO/CoreText/PDF; nessuna pretesa di interrompere chiamate sincrone a metà. Ogni modifica invalida immediatamente ID/readiness; chiusura e cambio contesto revocano le callback. Il riepilogo mantiene al massimo una preparazione attiva: i richiedenti superati vengono scartati prima di nuove letture. Conservati `verifiedBytes`, hash, controlli certificato/destinazione e quelli prima della firma.
+
+Verifiche: coordinamento+review+geometria 14/14; coordinamento+misure finali 6/6; ultima protezione chiusura 7/7, zero skip/fallimenti. Con 120 sostituzioni mentre il primo render è bloccato: due render effettivi, uno scartato, solo l’ultimo pubblicato. Con 31 contesti di preflight e snapshot 64 MiB: due preparazioni avviate, 30 richieste superate, soltanto la finale raggiunge la verifica snapshot; nessuna moltiplicazione delle letture. Cancellazione senza retry e pending eliminata alla chiusura.
+
+Pannello SwiftUI/PDFKit reale in finestra sintetica, A0 con 10.000 vettori, sequenze 30 e 120 eventi inviate con scadenze assolute 60 Hz:
+
+| Immagine | Eventi | Placement pubblicati | Nuovi render/annotazioni durante drag | Latenza evento→binding mediana/p95 |
+|---|---:|---:|---:|---:|
+| Testo | 30 / 120 | 30 / 120 | 0 / 0 | 2,61/2,87 ms · 2,23/3,00 ms |
+| PNG 1024² | 30 / 120 | 30 / 120 | 0 / 0 | 2,92/3,35 ms · 2,67/3,66 ms |
+| PNG 2800² | 30 / 120 | 30 / 120 | 0 / 0 | 2,66/3,21 ms · 2,48/3,03 ms |
+
+Nessuna readiness positiva durante il movimento; una al rilascio, inclusi clic no-op. Questo conta il gate del preflight, non un riepilogo con provider nel test del pannello. Decodifiche immagine e hash del PDF durante movimento sono assenti nel percorso riusato (render zero, hash già memorizzato). Il picco RSS cumulativo dell’intero processo di test cresce da 162 a 297 MB: include framework, fixture e precedenti iterazioni; non è il consumo isolato dell’app o una prova di leak. I tempi non sono frame presentati: non si dichiara 60 fps. Le misure M5 del solo aggiornamento geometrico e queste del pannello completo sono metriche distinte.

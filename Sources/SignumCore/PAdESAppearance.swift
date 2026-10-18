@@ -140,7 +140,8 @@ public struct RenderedPAdESAppearance: Equatable, Sendable {
 
 public enum PAdESAppearanceRenderer {
     public static let maximumPDFBytes = 8 * 1024 * 1024
-    public static func render(_ configuration: PAdESAppearanceConfiguration, certificateDER: Data, cropBox: CGRect) throws -> RenderedPAdESAppearance {
+    public static func render(_ configuration: PAdESAppearanceConfiguration, certificateDER: Data, cropBox: CGRect, isCancelled: () -> Bool = { false }) throws -> RenderedPAdESAppearance {
+        if isCancelled() { throw CancellationError() }
         try configuration.validate(cropBox: cropBox)
         let fingerprint = SHA256.hash(data: certificateDER).map { String(format:"%02x", $0) }.joined()
         guard configuration.visible else { return .init(configuration: configuration, pdf: Data(), certificateSHA256: fingerprint) }
@@ -160,12 +161,14 @@ public enum PAdESAppearanceRenderer {
         context.setFillColor(CGColor(gray:1,alpha:1)); context.fill(box)
         context.setStrokeColor(CGColor(gray:0.45,alpha:1)); context.setLineWidth(0.7); context.stroke(box.insetBy(dx:0.5,dy:0.5))
         var textBox = box.insetBy(dx:7,dy:7)
+        if isCancelled() { throw CancellationError() }
         if let image = configuration.image, let source = CGImageSourceCreateWithData(image.data as CFData, nil), let cg = CGImageSourceCreateImageAtIndex(source,0,nil) {
             let region = CGRect(x:7,y:7,width: lines.isEmpty ? box.width-14 : box.width*0.32,height:box.height-14)
             let scale = min(region.width/CGFloat(image.width),region.height/CGFloat(image.height))
             context.draw(cg, in:CGRect(x:region.midX-CGFloat(image.width)*scale/2,y:region.midY-CGFloat(image.height)*scale/2,width:CGFloat(image.width)*scale,height:CGFloat(image.height)*scale))
             if !lines.isEmpty { textBox.origin.x = region.maxX+7; textBox.size.width = box.maxX-textBox.minX-7 }
         }
+        if isCancelled() { throw CancellationError() }
         if !lines.isEmpty {
             var alignment: CTTextAlignment = configuration.alignment == .leading ? .left : (configuration.alignment == .center ? .center : .right)
             let paragraph = withUnsafePointer(to:&alignment) { pointer in
@@ -181,8 +184,10 @@ public enum PAdESAppearanceRenderer {
             guard CTFrameGetVisibleStringRange(frame).length == attributed.length else { throw SignumError.module("Testo troppo lungo per il riquadro: aumenta le dimensioni o riduci il testo.") }
             CTFrameDraw(frame,context)
         }
+        if isCancelled() { throw CancellationError() }
         context.endPDFPage(); context.closePDF()
         guard output.length <= maximumPDFBytes else { throw SignumError.module("Appearance superiore a 8 MiB.") }
+        if isCancelled() { throw CancellationError() }
         return .init(configuration:configuration,pdf:output as Data,certificateSHA256:fingerprint)
     }
 }

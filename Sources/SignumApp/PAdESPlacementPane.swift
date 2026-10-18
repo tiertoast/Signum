@@ -11,13 +11,6 @@ struct PAdESPlacement: Equatable {
     var appearance: RenderedPAdESAppearance? = nil
 }
 
-private actor AppearanceRenderWorker {
-    static let shared = AppearanceRenderWorker()
-    func render(_ config:PAdESAppearanceConfiguration,der:Data,crop:CGRect) throws -> RenderedPAdESAppearance {
-        try Task.checkCancellation()
-        return try PAdESAppearanceRenderer.render(config,certificateDER:der,cropBox:crop)
-    }
-}
 struct PAdESPlacementPane: View {
     let snapshot: DocumentSnapshot
     let previewReady: (UUID, Bool) -> Void
@@ -33,9 +26,18 @@ struct PAdESPlacementPane: View {
     @State private var annotationReady = false
     @State private var renderedDER: Data?
     @State private var isPlacing = false
-    @State private var renderTask: Task<Void,Never>?
-    private var crop: CGRect {
-        guard let page = pdfDocument?.page(at: configuration.pageIndex)?.pageRef else { return .zero }
+    @State private var isActive = false
+    @StateObject private var renderCoordinator = PAdESRenderCoordinator()
+    init(snapshot:DocumentSnapshot, previewReady:@escaping (UUID,Bool)->Void, holder:String,
+         certificateDER:Data? = nil, placement:Binding<PAdESPlacement?>,
+         renderCoordinator:PAdESRenderCoordinator? = nil) {
+        self.snapshot = snapshot; self.previewReady = previewReady; self.holder = holder
+        self.certificateDER = certificateDER; _placement = placement
+        _renderCoordinator = StateObject(wrappedValue:renderCoordinator ?? PAdESRenderCoordinator())
+    }
+    private var crop: CGRect { crop(for:configuration.pageIndex) }
+    private func crop(for index:Int)->CGRect {
+        guard let page = pdfDocument?.page(at:index)?.pageRef else { return .zero }
         return page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox))
     }
     var body: some View {
@@ -52,12 +54,12 @@ struct PAdESPlacementPane: View {
                     HStack {
                         Toggle("Nome dal certificato",isOn:editing(\.showSigner))
                         Toggle("Firmato digitalmente",isOn:editing(\.showLabel))
-                        Toggle("Data locale",isOn:Binding(get:{configuration.localDate != nil},set:{previewReady(snapshot.identity.id,false); configuration.localDate = $0 ? Date() : nil}))
+                        Toggle("Data locale",isOn:Binding(get:{configuration.localDate != nil},set:{ value in change { $0.localDate = value ? Date() : nil } }))
                     }.font(.caption)
                     TextField("Testo personalizzato (distinto dall'identità del certificato)",text:editing(\.customText)).textFieldStyle(.roundedBorder)
                     HStack {
                         Button("PNG o JPEG…") { chooseImage() }
-                        if configuration.image != nil { Button("Rimuovi immagine") { previewReady(snapshot.identity.id,false); configuration.image = nil } }
+                        if configuration.image != nil { Button("Rimuovi immagine") { change { $0.image = nil } } }
                         Picker("Allineamento",selection:editing(\.alignment)) {
                             Text("Sinistra").tag(PAdESAppearanceConfiguration.Alignment.leading)
                             Text("Centro").tag(PAdESAppearanceConfiguration.Alignment.center)
@@ -66,8 +68,8 @@ struct PAdESPlacementPane: View {
                         Stepper("Testo \(Int(configuration.fontSize)) pt",value:editing(\.fontSize),in:7...18)
                     }
                     HStack {
-                        Stepper("Larghezza \(Int(configuration.rectangle.width)) pt",value:Binding(get:{configuration.rectangle.width},set:{previewReady(snapshot.identity.id,false); configuration.rectangle.size.width=$0}),in:80...800,step:5)
-                        Stepper("Altezza \(Int(configuration.rectangle.height)) pt",value:Binding(get:{configuration.rectangle.height},set:{previewReady(snapshot.identity.id,false); configuration.rectangle.size.height=$0}),in:40...500,step:5)
+                        Stepper("Larghezza \(Int(configuration.rectangle.width)) pt",value:Binding(get:{configuration.rectangle.width},set:{ value in change { $0.rectangle.size.width=value } }),in:80...800,step:5)
+                        Stepper("Altezza \(Int(configuration.rectangle.height)) pt",value:Binding(get:{configuration.rectangle.height},set:{ value in change { $0.rectangle.size.height=value } }),in:40...500,step:5)
                     }.font(.caption)
                 }
                 if rendering { ProgressView("Preparazione appearance…").controlSize(.small) }
@@ -83,7 +85,7 @@ struct PAdESPlacementPane: View {
                             if active { previewReady(snapshot.identity.id,false) }
                             else if annotationReady, !rendering, issue.isEmpty { previewReady(snapshot.identity.id,true) }
                         }, displayed: { identity, error in
-                            guard !rendering, rendered?.approvalIdentity == identity else { return }
+                            guard isActive, !rendering, rendered?.approvalIdentity == identity else { return }
                             annotationReady = error == nil
                             issue = error ?? ""
                             previewReady(snapshot.identity.id, error == nil && !isPlacing)
@@ -97,6 +99,7 @@ struct PAdESPlacementPane: View {
             }.padding(5)
         }
         .onAppear {
+            isActive = true
             pdfDocument = PDFDocument(data:snapshot.approvedBytes)
             if let saved = placement?.appearance { configuration = saved.configuration }
             else {
@@ -108,10 +111,21 @@ struct PAdESPlacementPane: View {
         }
         .onChange(of:configuration) { _ in render() }
         .onChange(of:certificateDER) { _ in render() }
-        .onDisappear { renderID = UUID(); renderTask?.cancel() }
+        .onDisappear { isActive = false; renderID = UUID(); renderCoordinator.cancel() }
+    }
+    private func change(_ mutation:(inout PAdESAppearanceConfiguration)->Void) {
+        var next = configuration; mutation(&next)
+        guard next != configuration else { return }
+        if next.pageIndex != configuration.pageIndex {
+            let box = crop(for:next.pageIndex)
+            if !box.contains(next.rectangle) { next.rectangle.origin = CGPoint(x:box.minX+10,y:box.minY+10) }
+        }
+        renderCoordinator.cancel(); renderID = UUID(); annotationReady = false
+        previewReady(snapshot.identity.id,false)
+        configuration = next
     }
     private func editing<T>(_ path:WritableKeyPath<PAdESAppearanceConfiguration,T>)->Binding<T> {
-        Binding(get:{configuration[keyPath:path]},set:{previewReady(snapshot.identity.id,false); configuration[keyPath:path]=$0})
+        Binding(get:{configuration[keyPath:path]},set:{ value in change { $0[keyPath:path] = value } })
     }
     private func resetRectangleIfNeeded() { if !crop.contains(configuration.rectangle) { resetRectangle() } }
     private func resetRectangle() {
@@ -120,23 +134,20 @@ struct PAdESPlacementPane: View {
     private func choose(_ index:Int,_ point:CGPoint,_ resize:Bool) {
         var next = configuration
         next.pageIndex = index
-        let r = next.rectangle
+        let r = next.rectangle, crop = crop(for:index)
         if resize {
             next.rectangle.size = CGSize(width:min(max(80,point.x-r.minX),min(800,crop.maxX-r.minX)),height:min(max(40,point.y-r.minY),min(500,crop.maxY-r.minY)))
         } else {
             next.rectangle.origin = CGPoint(x:min(max(point.x-r.width/2,crop.minX),crop.maxX-r.width),y:min(max(point.y-r.height/2,crop.minY),crop.maxY-r.height))
         }
-        guard next != configuration else { return }
-        renderTask?.cancel(); renderID = UUID()
-        previewReady(snapshot.identity.id,false)
-        configuration = next
+        change { $0 = next }
     }
     private func render() {
-        renderTask?.cancel(); renderID = UUID(); annotationReady = false
+        renderCoordinator.cancel(); renderID = UUID(); annotationReady = false
         guard let pdfDocument, !pdfDocument.isEncrypted, pdfDocument.pageCount > configuration.pageIndex, !crop.isEmpty else {
             issue="PDF non disponibile o protetto."; rendered=nil; rendering=false; previewReady(snapshot.identity.id,false); return
         }
-        renderTask?.cancel()
+        renderCoordinator.cancel()
         let id=UUID(); renderID=id; rendering=true; issue=""; previewReady(snapshot.identity.id,false)
         let config=configuration, der=certificateDER ?? Data(), bounds=crop
         if let previous = rendered, renderedDER == der, previous.configuration.hasSameArtwork(as: config) {
@@ -147,11 +158,10 @@ struct PAdESPlacementPane: View {
             } catch { issue=error.localizedDescription; rendered=nil; rendering=false }
             return
         }
-        renderTask = Task { @MainActor in
-            let result:Result<RenderedPAdESAppearance,Error>
-            do { result = .success(try await AppearanceRenderWorker.shared.render(config,der:der,crop:bounds)) }
-            catch { result = .failure(error) }
-            guard renderID == id, !Task.isCancelled else { return }; rendering=false
+        do { try config.validate(cropBox:bounds) }
+        catch { issue="Posizionamento non valido: " + error.localizedDescription; rendered=nil; rendering=false; return }
+        renderCoordinator.submit(config,der:der,crop:bounds) { result in
+            guard isActive, renderID == id else { return }; rendering=false
             switch result {
             case .success(let value): rendered=value; renderedDER=der; issue=""; placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value)
             case .failure(let error): issue=error.localizedDescription; rendered=nil; previewReady(snapshot.identity.id,false)
@@ -161,7 +171,7 @@ struct PAdESPlacementPane: View {
     private func chooseImage() {
         let chooser=NSOpenPanel(); chooser.allowedContentTypes=[.png,.jpeg]; chooser.allowsMultipleSelection=false
         guard chooser.runModal() == .OK, let url=chooser.url else { return }
-        do { let image = try PAdESAppearanceImage.load(url); previewReady(snapshot.identity.id,false); configuration.image = image } catch { issue=error.localizedDescription }
+        do { let image = try PAdESAppearanceImage.load(url); change { $0.image = image } } catch { issue=error.localizedDescription }
     }
 }
 
