@@ -268,7 +268,7 @@ private enum SignumFormat: String, Hashable {
         GroupBox("Scegli il certificato") {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(devices.certificates) { group in
-                    if let route = group.routes.first {
+                    if let route = group.routes.first(where: { $0.id == devices.selectedRouteID }) ?? group.routes.first {
                         Button {
                             if devices.selectedRoute?.certificateFingerprint != group.id {
                                 let preferred = MiddlewarePreferences().preferredPath
@@ -299,6 +299,10 @@ private enum SignumFormat: String, Hashable {
                     DisclosureGroup("Dettagli tecnici del certificato") {
                         Text("Provider: \(selected.providerPath)\nSlot: \(selected.token.slot) · ID: \(selected.certificate.id)\nSHA-256: \(selected.certificateFingerprint)\n\(selected.assessment.usageDescription)")
                             .font(.caption2).textSelection(.enabled)
+                        DisclosureGroup("Certificato pubblico DER (Base64)") {
+                            ScrollView { Text(selected.der.base64EncodedString()).font(.caption2.monospaced()).textSelection(.enabled) }
+                                .frame(maxHeight: 100)
+                        }
                     }
                 }
                 Text(CertificateEligibility.scope).font(.caption2).foregroundStyle(.secondary)

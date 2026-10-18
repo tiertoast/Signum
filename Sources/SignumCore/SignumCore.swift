@@ -52,7 +52,7 @@ public struct SignumToken: Identifiable, Hashable, Sendable {
             text.contains("smartcard") || text.contains("hamlet") {
             return "Smart card"
         }
-        return "Dispositivo di firma"
+        return "Dispositivo PKCS#11"
     }
 
     public var readerDescription: String {

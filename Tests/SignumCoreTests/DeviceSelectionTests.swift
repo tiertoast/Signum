@@ -74,5 +74,14 @@ final class DeviceSelectionTests: XCTestCase {
         XCTAssertEqual(scan.tokens.first?.serial, "SYNTHETIC-0001")
         XCTAssertNil(scan.version) // synthetic module deliberately has no C_GetInfo
     }
+    func testCancellationInvalidatesLateReplyAndDoesNotLeaveSearchingState() throws {
+        let der = try CertificateEligibilityTests.fixtures.get().der("valid")
+        var selection = DeviceSelection(); let request = selection.beginDiscovery()
+        XCTAssertTrue(selection.isSearching)
+        selection.cancelDiscovery()
+        XCTAssertFalse(selection.isSearching); XCTAssertTrue(selection.message.contains("annullata"))
+        XCTAssertFalse(selection.accept([provider(der: der)], request: request))
+        XCTAssertTrue(selection.certificates.isEmpty); XCTAssertNil(selection.selectedRoute)
+    }
 }
 #endif

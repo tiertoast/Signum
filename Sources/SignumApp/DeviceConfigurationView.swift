@@ -67,6 +67,7 @@ struct DeviceConfigurationView: View {
                                     if let identity = result.inspection?.identity { Text("File: \(identity.moduleKey), \(identity.size) byte") }
                                     ForEach(result.tokens, id: \.token.slot) { entry in
                                         Text("\(entry.token.label) · slot \(entry.token.slot) · seriale \(entry.token.serial)\n\(entry.message)")
+                                        Text("Produttore: \(entry.token.manufacturer) · modello: \(entry.token.model)\nLettore: \(entry.token.reader)")
                                     }
                                 }.font(.caption)
                             }

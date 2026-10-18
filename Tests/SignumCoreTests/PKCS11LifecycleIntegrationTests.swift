@@ -17,7 +17,7 @@ final class MockModule: @unchecked Sendable {
     let waitBlocked: @convention(c) () -> Int32
     let release: @convention(c) () -> Void
 
-    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false) throws {
+    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false, reportVersion: Bool = false) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         folder = root.appendingPathComponent(".build/swift-provider-tests/" + UUID().uuidString)
@@ -31,6 +31,7 @@ final class MockModule: @unchecked Sendable {
         if audit {
             compiler.arguments! += ["-DSIGNUM_MOCK_AUDIT_PATH=" + String(reflecting: folder.appendingPathComponent("operations").path)]
         }
+        if reportVersion { compiler.arguments! += ["-DSIGNUM_MOCK_REPORT_VERSION=1"] }
         if let workerPhase {
             compiler.arguments! += ["-DSIGNUM_MOCK_WORKER_PHASE=\(workerPhase)", "-DSIGNUM_MOCK_WORKER_EFFECT=\(workerEffect)"]
         }

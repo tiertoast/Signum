@@ -139,5 +139,39 @@ final class MiddlewareDiscoveryTests: XCTestCase {
         fs["/Library/Vendor/real"] = file; fs["/Library/Vendor/module"] = node(UInt16(S_IFLNK), owner: 501)
         XCTAssertThrowsError(try MiddlewareFileSecurity.inspect("/Library/Vendor/module", automatic: true, resolve: resolve, read: read))
     }
+
+    func testProtectedSymlinkCannotLeadThroughUnprivilegedAncestor() throws {
+        let directory = MiddlewareFileSecurity.Node(identity: identity(), owner: 0, mode: UInt16(S_IFDIR) | 0o755, aclSafe: true)
+        let link = MiddlewareFileSecurity.Node(identity: identity(), owner: 0, mode: UInt16(S_IFLNK) | 0o777, aclSafe: true)
+        let file = MiddlewareFileSecurity.Node(identity: identity(), owner: 0, mode: UInt16(S_IFREG) | 0o755, aclSafe: true)
+        let user = MiddlewareFileSecurity.Node(identity: identity(), owner: 501, mode: UInt16(S_IFDIR) | 0o755, aclSafe: true)
+        let fs = ["/": directory, "/Library": directory, "/Library/module": link, "/Users": directory,
+                  "/Users/synthetic": user, "/Users/synthetic/module": file]
+        XCTAssertThrowsError(try MiddlewareFileSecurity.inspect("/Library/module", automatic: true,
+            resolve: { $0 == "/Library/module" ? "/Users/synthetic/module" : $0 },
+            read: { guard let node = fs[$0] else { throw MiddlewareFileSecurity.Failure.missing }; return node }))
+    }
+    func testWorkerVersionIsOptionalVendorMetadata() throws {
+        let mock = try MockModule(audit: true, reportVersion: true)
+        let scan = try worker.scan(provider: mock.path.path)
+        XCTAssertEqual(scan.version, "1.2")
+        XCTAssertEqual(scan.tokens.first?.serial, "SYNTHETIC-0001")
+    }
+    func testLegacyReplyCannotClaimAutomaticPathValidation() throws {
+        let mock = try MockModule()
+        let script = mock.folder.appendingPathComponent("legacy-peer")
+        let source = """
+        #!/usr/bin/python3
+        import sys, json
+        request = json.load(sys.stdin)
+        json.dump(dict(version=1, id=request['id'], action=request['action'], provider=request['provider'],
+                       tokens=[], unavailable=0, certificates=[], succeeded=True), sys.stdout)
+        """
+        try Data(source.utf8).write(to: script); XCTAssertEqual(chmod(script.path, 0o700), 0)
+        let checked = try MiddlewareFileSecurity.inspect(mock.path.path, automatic: false)
+        XCTAssertThrowsError(try IsolatedPKCS11Client(executable: script).scan(provider: checked.canonicalPath, expectedModule: checked.identity, automatic: true)) {
+            XCTAssertEqual($0 as? SupervisedProcess.Failure, .protocolViolation)
+        }
+    }
 }
 #endif

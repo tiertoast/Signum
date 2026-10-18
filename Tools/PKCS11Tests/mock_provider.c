@@ -136,6 +136,12 @@ static CK_RV token(CK_SLOT_ID slot, CK_TOKEN_INFO_PTR out) {
     memcpy(out->label, "Signum Mock", 11); memcpy(out->model, "Synthetic", 9);
     memcpy(out->manufacturerID, "Offline fixture", 15); memcpy(out->serialNumber, "SYNTHETIC-0001", 14); return end(CKR_OK);
 }
+#ifdef SIGNUM_MOCK_REPORT_VERSION
+static CK_RV reported_info(CK_INFO_PTR out) {
+    memset(out, 0, sizeof(*out)); out->libraryVersion.major = 1; out->libraryVersion.minor = 2;
+    return CKR_OK;
+}
+#endif
 static CK_RV slot_info(CK_SLOT_ID slot, CK_SLOT_INFO_PTR out) {
     (void)slot; BEGIN(M_SLOT_INFO); memset(out, ' ', sizeof(*out));
     memcpy(out->slotDescription, "Synthetic reader", 16); return end(CKR_OK);
@@ -243,6 +249,9 @@ static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PT
 static CK_FUNCTION_LIST functions = {
     .version = {2,40}, .C_Initialize = initialize, .C_Finalize = finalize,
     .C_GetSlotList = slots, .C_GetTokenInfo = token, .C_GetSlotInfo = slot_info,
+#ifdef SIGNUM_MOCK_REPORT_VERSION
+    .C_GetInfo = reported_info,
+#endif
     .C_OpenSession = open_session, .C_CloseSession = close_session, .C_GetSessionInfo = session_info,
     .C_Login = login, .C_Logout = logout, .C_FindObjectsInit = find_init,
     .C_FindObjects = find_objects, .C_FindObjectsFinal = find_final,

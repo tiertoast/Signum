@@ -19,7 +19,16 @@ public struct MiddlewareFileIdentity: Codable, Hashable, Sendable {
 /// Root-owned paths prevent replacement by an unprivileged account. This does
 /// not establish vendor authenticity or defend against a privileged administrator.
 public enum MiddlewareFileSecurity {
-    public enum Failure: Error { case missing, unsafe, changed }
+    public enum Failure: Error, LocalizedError {
+        case missing, unsafe, changed
+        public var errorDescription: String? {
+            switch self {
+            case .missing: return "Il software del dispositivo non è più presente. Cerca nuovamente o configura il dispositivo."
+            case .unsafe: return "Il percorso del software non soddisfa i controlli di caricamento. Consulta Configura dispositivo."
+            case .changed: return "Il software del dispositivo è cambiato dopo la selezione. Cerca nuovamente e scegli il certificato prima di firmare."
+            }
+        }
+    }
     public struct Inspection: Sendable {
         public let canonicalPath: String
         public let identity: MiddlewareFileIdentity

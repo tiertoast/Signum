@@ -149,3 +149,23 @@ ALWAYS_AUTHENTICATE, stato condiviso, errori PIN senza retry, zero Logout, rimoz
 errori e cleanup. M4 ha rieseguito batch con un Login/Sign per azione, cancel/esito
 incerto e blocco della seconda autorizzazione concorrente. Nessuna sessione
 persistente implementata o dichiarata testata; nessun hardware usato.
+
+## M6 — Consolidamento del candidato
+
+Ulteriori casi: symlink root verso antenato non privilegiato, versione C_GetInfo
+opzionale e positiva, vecchio reply senza prova d'identità rifiutato, cancellazione
+che invalida callback/stato. Totale nuovo: **29 test**. Messaggi di file cambiato/
+assente/non sicuro comprensibili, senza errori numerici generici. Il certificato
+mostrato conserva il dispositivo della route effettivamente scelta, inclusa la via
+alternativa. DER Base64 e metadata del token rimangono nei dettagli tecnici.
+Metadati candidato **0.4.0/build 2**, macOS minimo 13.0, nessuna release.
+
+Prima della creazione dei bundle: Swift completa **195/195**, zero skip; nativa
+PKCS#11 **40/40**, PAdES Debug **63/63**, packaging Python **10/10**; ASAN e TSAN
+mirati **33/33** ciascuno senza segnalazioni nei runner. ASAN leak detection
+spenta; mock/terze parti non completamente strumentati, niente garanzia universale
+su race/leak. Primo run completo: una regressione sulla descrizione pubblica Core
+del tipo di dispositivo sconosciuto; ripristinata la descrizione conservativa
+originale, senza portare il dettaglio tecnico nel flusso GUI. Suite ripetuta 195/195.
+Un errore di ordine degli argomenti nel nuovo test versione è stato corretto
+prima dei run positivi. Esiti finali e packaging sono registrati sotto.
