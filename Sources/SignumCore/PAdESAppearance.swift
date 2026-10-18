@@ -19,6 +19,14 @@ public struct PAdESAppearanceConfiguration: Equatable, Sendable {
     public var fontSize: Double = 10
     public var image: PAdESAppearanceImage? = nil
     public init() {}
+    /// Page and origin place existing pixels; size and every other input may
+    /// change the artwork. Compare immutable inputs without hashing image bytes.
+    public func hasSameArtwork(as other: Self) -> Bool {
+        var a = self, b = other
+        a.pageIndex = 0; b.pageIndex = 0
+        a.rectangle.origin = .zero; b.rectangle.origin = .zero
+        return a == b
+    }
     public func validate(cropBox: CGRect) throws {
         let r = rectangle
         guard pageIndex >= 0, !visible || ([r.minX,r.minY,r.width,r.height,cropBox.minX,cropBox.minY,cropBox.width,cropBox.height].allSatisfy(\.isFinite) &&
@@ -103,11 +111,31 @@ public struct RenderedPAdESAppearance: Equatable, Sendable {
     public let configuration: PAdESAppearanceConfiguration
     public let pdf: Data
     public let certificateSHA256: String
-    public var approvalIdentity: String {
-        let c = configuration, r = c.rectangle
-        return DocumentSnapshot.digest(Data("\(c.visible)|\(c.pageIndex)|\(r.minX)|\(r.minY)|\(r.width)|\(r.height)|\(sha256)|\(certificateSHA256)".utf8))
+    public let artworkID: UUID
+    public let sha256: String
+    public let approvalIdentity: String
+
+    public init(configuration: PAdESAppearanceConfiguration, pdf: Data, certificateSHA256: String) {
+        self.init(configuration: configuration, pdf: pdf, certificateSHA256: certificateSHA256,
+                  artworkID: UUID(), sha256: DocumentSnapshot.digest(pdf))
     }
-    public var sha256: String { SHA256.hash(data: pdf).map { String(format: "%02x", $0) }.joined() }
+    private init(configuration: PAdESAppearanceConfiguration, pdf: Data, certificateSHA256: String,
+                 artworkID: UUID, sha256: String) {
+        self.configuration = configuration; self.pdf = pdf; self.certificateSHA256 = certificateSHA256
+        self.artworkID = artworkID; self.sha256 = sha256
+        let c = configuration, r = c.rectangle
+        approvalIdentity = DocumentSnapshot.digest(Data("\(c.visible)|\(c.pageIndex)|\(r.minX)|\(r.minY)|\(r.width)|\(r.height)|\(sha256)|\(certificateSHA256)".utf8))
+    }
+    /// Rebind geometry to the exact immutable bytes already displayed. Never
+    /// re-decode, lay out text, create a PDF or hash the PDF payload here.
+    public func placed(_ configuration: PAdESAppearanceConfiguration, cropBox: CGRect) throws -> Self {
+        guard self.configuration.hasSameArtwork(as: configuration) else {
+            throw SignumError.module("Il contenuto grafico è cambiato: prepara una nuova appearance.")
+        }
+        try configuration.validate(cropBox: cropBox)
+        return Self(configuration: configuration, pdf: pdf, certificateSHA256: certificateSHA256,
+                    artworkID: artworkID, sha256: sha256)
+    }
 }
 
 public enum PAdESAppearanceRenderer {

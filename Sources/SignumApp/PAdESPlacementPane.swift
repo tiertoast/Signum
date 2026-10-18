@@ -31,6 +31,8 @@ struct PAdESPlacementPane: View {
     @State private var renderID = UUID()
     @State private var rendering = false
     @State private var annotationReady = false
+    @State private var renderedDER: Data?
+    @State private var isPlacing = false
     @State private var renderTask: Task<Void,Never>?
     private var crop: CGRect {
         guard let page = pdfDocument?.page(at: configuration.pageIndex)?.pageRef else { return .zero }
@@ -76,11 +78,15 @@ struct PAdESPlacementPane: View {
                 }
                 if let pdfDocument {
                     AppearancePDFView(document:pdfDocument, page:configuration.pageIndex, appearance:rendered,
-                        choose:{ index,point,resize in choose(index,point,resize) }, displayed: { identity, error in
+                        choose:{ index,point,resize in choose(index,point,resize) }, interaction: { active in
+                            isPlacing = active
+                            if active { previewReady(snapshot.identity.id,false) }
+                            else if annotationReady, !rendering, issue.isEmpty { previewReady(snapshot.identity.id,true) }
+                        }, displayed: { identity, error in
                             guard !rendering, rendered?.approvalIdentity == identity else { return }
                             annotationReady = error == nil
                             issue = error ?? ""
-                            previewReady(snapshot.identity.id, error == nil)
+                            previewReady(snapshot.identity.id, error == nil && !isPlacing)
                         })
                         .frame(minHeight:300,maxHeight:.infinity)
                         .clipShape(RoundedRectangle(cornerRadius:6))
@@ -133,13 +139,21 @@ struct PAdESPlacementPane: View {
         renderTask?.cancel()
         let id=UUID(); renderID=id; rendering=true; issue=""; previewReady(snapshot.identity.id,false)
         let config=configuration, der=certificateDER ?? Data(), bounds=crop
+        if let previous = rendered, renderedDER == der, previous.configuration.hasSameArtwork(as: config) {
+            do {
+                let value = try previous.placed(config,cropBox:bounds)
+                rendered = value; rendering = false
+                placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value)
+            } catch { issue=error.localizedDescription; rendered=nil; rendering=false }
+            return
+        }
         renderTask = Task { @MainActor in
             let result:Result<RenderedPAdESAppearance,Error>
             do { result = .success(try await AppearanceRenderWorker.shared.render(config,der:der,crop:bounds)) }
             catch { result = .failure(error) }
             guard renderID == id, !Task.isCancelled else { return }; rendering=false
             switch result {
-            case .success(let value): rendered=value; issue=""; placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value)
+            case .success(let value): rendered=value; renderedDER=der; issue=""; placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value)
             case .failure(let error): issue=error.localizedDescription; rendered=nil; previewReady(snapshot.identity.id,false)
             }
         }
@@ -153,9 +167,10 @@ struct PAdESPlacementPane: View {
 
 final class AppearancePDFAnnotation: PDFAnnotation {
     private let artwork: CGPDFDocument
+    let artworkID: UUID
     init?(appearance:RenderedPAdESAppearance) {
         guard let source=CGDataProvider(data:appearance.pdf as CFData), let pdf=CGPDFDocument(source), pdf.numberOfPages == 1 else { return nil }
-        artwork = pdf
+        artwork = pdf; artworkID = appearance.artworkID
         super.init(bounds:appearance.configuration.rectangle,forType:.stamp,withProperties:nil)
     }
     required init?(coder:NSCoder) { nil }
@@ -179,6 +194,7 @@ final class AppearancePDFAnnotation: PDFAnnotation {
 private struct AppearancePDFView:NSViewRepresentable {
     let document:PDFDocument, page:Int, appearance:RenderedPAdESAppearance?
     let choose:(Int,CGPoint,Bool)->Void
+    let interaction:(Bool)->Void
     let displayed:(String,String?)->Void
     final class Coordinator { var reported: String? }
     func makeCoordinator()->Coordinator { Coordinator() }
@@ -187,6 +203,7 @@ private struct AppearancePDFView:NSViewRepresentable {
     }
     func updateNSView(_ v:PlacementPDFView,context:Context) {
         v.install(document:document,pageIndex:page)
+        v.onInteraction = interaction
         v.onChoose = { p,point in choose(document.index(for:p),point,false) }
         v.onResize = { p,point in choose(document.index(for:p),point,true) }
         let error = v.updateAppearance(appearance)
@@ -230,15 +247,24 @@ final class PlacementPDFView: PDFView {
         autoScales = false; minScaleFactor = min(0.25,fit/4); maxScaleFactor = max(5,fit*2)
         scaleFactor = fit
     }
+    private(set) var appearanceBuildCount = 0
+    private(set) var placementUpdateCount = 0
+    var onInteraction: ((Bool) -> Void)?
     var onResize: ((PDFPage, CGPoint) -> Void)?
     var onChoose: ((PDFPage, CGPoint) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
+        onInteraction?(true)
         choose(event)
     }
 
     override func mouseDragged(with event: NSEvent) {
         choose(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        choose(event)
+        onInteraction?(false)
     }
 
     private func choose(_ event: NSEvent) {
@@ -251,8 +277,18 @@ final class PlacementPDFView: PDFView {
     @discardableResult func updateAppearance(_ value: RenderedPAdESAppearance?) -> String? {
         guard renderedIdentity != value?.approvalIdentity else { return appearanceIssue }
         appearanceIssue = nil
-        if let old=previewAnnotation { old.page?.removeAnnotation(old); previewAnnotation=nil }
         renderedIdentity = value?.approvalIdentity
+        if let value, value.configuration.visible,
+           let page=document?.page(at:value.configuration.pageIndex),
+           let old=previewAnnotation as? AppearancePDFAnnotation, old.artworkID == value.artworkID {
+            let previous = convert(old.bounds,from:old.page ?? page)
+            if old.page !== page { old.page?.removeAnnotation(old); page.addAnnotation(old) }
+            old.bounds = value.configuration.rectangle
+            placementUpdateCount += 1
+            setNeedsDisplay(previous.union(convert(old.bounds,from:page)).insetBy(dx:-2,dy:-2))
+            return nil
+        }
+        if let old=previewAnnotation { old.page?.removeAnnotation(old); previewAnnotation=nil }
         guard let value, value.configuration.visible else { return nil }
         guard let page=document?.page(at:value.configuration.pageIndex) else {
             appearanceIssue = "Pagina dell’anteprima non disponibile."; return appearanceIssue
@@ -261,6 +297,7 @@ final class PlacementPDFView: PDFView {
             appearanceIssue = "Annotazione grafica non costruita. Modifica l’aspetto o riseleziona il documento."
             return appearanceIssue
         }
+        appearanceBuildCount += 1
         page.addAnnotation(annotation); previewAnnotation=annotation
         return nil
     }
