@@ -217,3 +217,37 @@ packaging **10/10**, ASAN e TSAN mirati **54/54** ciascuno, native ASAN **63/63*
 Questi ultimi sanitizer includono anche le fixture rafforzate di geometria e
 OID sconosciuti; zero skip/errori finali. Evidenze `04c-build9-*`. Nessun
 cambiamento alle primitive di firma o agli invarianti delle milestone precedenti.
+
+## Consegna finale — build 9
+
+Commit codice **`9c7477b`** (C iniziale `89dfb14`, B `9f7684b`); tutti locali.
+Bundle **0.4.0/build 9**, arm64, minimo dichiarato e di tutti i Mach-O **13.0**:
+
+- Release: `.build/04bc-bundles/build9-release/Signum.app`
+- Debug: `.build/04bc-bundles/build9-debug/Signum.app`
+
+Entrambi costruiti dal commit `9c7477bcbb160d04835aafd98df439550a469c50`, manifest
+`sourceTrackedDirty=false`; firma ad hoc `codesign --verify --deep --strict`,
+hash del codice annidato, helper/dipendenze e prove dopo rilocazione passati.
+63 casi PAdES per configurazione anche nello staging e nel bundle rilocato;
+nessuna apertura automatica della GUI o prova hardware.
+
+SHA-256 eseguibile principale Release:
+`bb696dbeb7ff28bdd8808bd9a6fea2d934133ac2798f40107290edc3d95b9e61`.
+Dettagli in `.build/reliability/evidence/04c-build9-bundles.json`; manifest e
+notices inclusi nei bundle. Non Developer ID/notarizzazione/distribuzione.
+
+Con helper PAdES e worker batch della candidata Release: **39/39** integrazioni
+passate, zero skip/fallimenti (`04c-build9-packaged-integration.log`). CLI del
+bundle provata su **16/16** esempi sintetici: firme corrette/alterate, PDF con
+sola grafica, CMS annidato, estensione fuorviante, detached, missingcert, XML e
+algoritmo sconosciuto (`04c-build9-cli-demo.log`). Demo in `.build/04bc-demo`,
+istruzioni `LEGGIMI.txt`, nessuna chiave privata nella cartella demo.
+
+**B e C implementate nel perimetro documentato**, senza nuova regressione rilevata
+nei test software. Restano i limiti e collaudi manuali sopra, non dichiarati
+superati. Build 6, checkpoint B/build 7 e checkpoint C/build 8 preservati.
+Main resta `be84a1e44f3b0bbe41bee9a2f46dbed36342ab70`; tracciati puliti dopo il
+commit documentale, review preesistente non tracciata e hash invariati.
+Nessun push/merge/tag/release, modifica PR #3, GitHub Actions, PIN/hardware reale,
+installazione globale, integrazione esterna o accesso a HalleyMac.

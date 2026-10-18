@@ -388,3 +388,12 @@ CAdES/PAdES 15/15; candidata incrementata a build 9, preservando build 8.
 Dopo la correzione OID: Swift 317/317, PKCS#11 40/40, PAdES Debug/Release
 63/63, packaging 10/10, ASAN/TSAN mirati 54/54 ciascuno e native ASAN 63/63;
 Build Debug/Release riuscite. Zero skip/fallimenti finali (`04c-build9-*`).
+
+**Candidata finale 0.4.0/build 9**, codice **`9c7477b`**:
+`.build/04bc-bundles/build9-release/Signum.app` (Debug `build9-debug`).
+Entrambi i bundle firmati ad hoc, manifest clean, hash/dipendenze/helper,
+minimo Mach-O 13.0 e rilocazione verificati. **39/39** integrazioni con helper
+impacchettati e **16/16** esempi CLI passati. Demo `.build/04bc-demo` pronta.
+B/C completate nel perimetro supportato; profili PDF ulteriori, trust e runtime
+13/14 restano nei limiti/collaudi documentati. Working tree tracciato pulito;
+review non tracciata preservata, nessuna operazione remota o hardware reale.
