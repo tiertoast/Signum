@@ -112,3 +112,53 @@ preferenza persistita/annullamento, sette cambi di contesto, rimozione con callb
 tardiva deterministica, cambio nel modal e collisioni pre/post clic. Restano attivi
 i test interazione/PIN e due test di gerarchia/rendering nativi. Non equivalgono
 ancora a un collaudo manuale completo del nuovo bundle.
+
+## M4 — Ampliamento controllato a 100 MiB
+
+Soluzione intermedia, senza riscrivere CMS/PDF o lo snapshot: **100 MiB per
+documento** sia CAdES sia PAdES; **128 MiB totali** per sessione, massimo 32 elementi.
+Output/verifica CMS e output PAdES limitati a **132 MiB**. Valori Swift centralizzati
+in SigningResourceLimits; limiti corrispondenti nell'helper C++ aggiornati. Solo
+guard dimensionali, nessun algoritmo o formato crittografico cambiato. 200 MiB
+e 100 MiB+1 non sono supportati e ricevono errore dimensionale prima di allocare.
+
+Architettura: clone privato su disco e Data immutabile in memoria per snapshot;
+sessione trattiene al massimo 128 MiB di contenuti approvati. Durante acquisizione
+può esistere temporaneamente un altro documento fino a 100 MiB prima del controllo
+del budget batch; nessun job privato parte per il documento respinto. CMS e parser
+creano copie ulteriori: il budget sessione **non è un limite RSS di processo**.
+Riservata capacità della Data dopo lo stat limitato, evitando riallocazioni di
+crescita nelle letture snapshot e CAdES esterno.
+
+IPC invariato: request supervisor 128 KiB, attributi da firmare <=4096 byte,
+certificato <=65536 byte, risposta <=2 MiB; documenti mai serializzati nel JSON.
+PAdES riceve percorso snapshot/hash e legge il file privato; riserva firma
+dimensionata dal certificato come prima. Timeout acquisizione 30s cooperativo;
+worker/helper firma 120s e verifica OpenSSL 30s invariati. Lunghezze validate prima
+di conversione/allocazione, sottrazioni limitate nelle letture; DER fino a 132 MiB
+resta entro il limite delle lunghezze già supportate. Limiti del grafo risorse PDF
+e verifica restano attivi, ora con il tetto output dichiarato.
+
+**M4: 37/37** Swift mirati, PKCS#11 **40/40**, PAdES Debug/Release **63/63**
+ciascuno, build Debug/Release passate. Sei nuovi test generano/eliminano fixture
+temporanee: 1, 16, 16+1 byte, 50 e 100 MiB nei due formati; esclusione 100+1 e
+200 MiB; CAdES da 100 MiB tramite worker sintetico con verifica CMS/payload;
+PAdES da 100 MiB con helper/CoW/hash/receipt verificata; batch 50+50 accettato e
+terzo 50 respinto dal budget sessione; timeout/annullamento durante lettura grande;
+output CAdES parziale con ENOSPC, cleanup e nessun file finale. Collisioni, errori
+prima/dopo firma e altri failure path restano coperti dalle suite Foundation.
+Questi test non dimostrano compatibilità di ogni PDF complesso sotto 100 MiB.
+
+**Misure reali** sul Mac di sviluppo, macOS 27.2 arm64, 24 GiB RAM:
+- primo run grandi prima di reserveCapacity: picco processo XCTest circa 2,08 GB;
+- run M4 finale, 37 casi inclusi i grandi: CAdES ~895 MB, massimo suite ~911 MB
+  RSS (getrusage RUSAGE_SELF, include runner/allocator; non un tetto garantito GUI);
+- helper PAdES Release da 100 MiB isolato sotto `/usr/bin/time -l`: RSS massimo
+  **673.021.952 byte**, footprint **663.602.232 byte**, exit 0, pubblicazione
+  verificata 104.861.277 byte. Input e output grandi eliminati dopo la misura.
+
+Log `04a31-m4-final.log` e `04a31-native-memory.log`. Il consumo del processo GUI
+e quello dell'helper possono sommarsi: non sono intercambiabili. Nessuna prova
+su Mac con poca RAM, nessuna promessa di 200 MiB. Per arrivarci in sicurezza serve
+ridurre le copie CMS/parser e rendere lo snapshot prevalentemente su disco o
+streaming, con ulteriori test; refactoring rinviato al checkpoint successivo.

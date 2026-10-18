@@ -5,7 +5,7 @@ import Darwin
 
 public enum SigningFormat: String, Sendable {
     case cades, pades
-    public var maximumDocumentBytes: Int { self == .cades ? CAdES.maximumDocumentBytes : 64 * 1024 * 1024 }
+    public var maximumDocumentBytes: Int { SigningResourceLimits.maximumDocumentBytes }
 }
 
 /// A private CoW acquisition, immutable approved bytes and a retained descriptor.
@@ -227,6 +227,7 @@ public final class DocumentSnapshot: @unchecked Sendable {
         guard info.st_size <= maximum else { throw DocumentAcquisitionFailure(.tooLarge, "capture input exceeds \(maximum) bytes") }
         guard info.st_size > 0, lseek(fd, 0, SEEK_SET) == 0 else { throw DocumentAcquisitionFailure.system("seek capture input") }
         var result = Data(), chunk = [UInt8](repeating: 0, count: 65536)
+        result.reserveCapacity(Int(info.st_size)) // Validated bound; avoid growth copies for large files.
         while true {
             try check()
             let count = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress!, $0.count) }

@@ -22,7 +22,7 @@ public struct CAdESVerificationResult {
 /// -noverify deliberately disables X.509 chain/trust validation.
 /// NOT an eIDAS qualification, revocation, timestamp, or ETSI conformance check.
 public enum CAdESVerifier {
-    public static let maximumInputBytes = 64 * 1024 * 1024
+    public static let maximumInputBytes = SigningResourceLimits.maximumOutputBytes
     public static let maximumNestingDepth = 5
 
     public static func verify(file: URL, isCancelled: () -> Bool = { false }) throws -> CAdESVerificationResult {
@@ -56,10 +56,11 @@ public enum CAdESVerifier {
         var before = stat()
         guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG,
               before.st_size > 0, before.st_size <= maximumInputBytes else {
-            throw inputError("Serve un file regolare tra 1 byte e 64 MiB.")
+            throw inputError("Serve un file regolare tra 1 byte e \(maximumInputBytes / 1024 / 1024) MiB.")
         }
         try io.opened(fd)
         var data = Data(), chunk = [UInt8](repeating: 0, count: 65536)
+        data.reserveCapacity(Int(before.st_size))
         while true {
             // At the boundary, read at most one extra byte to distinguish EOF
             // from growth. That byte is never appended to the bounded result.
@@ -69,7 +70,7 @@ public enum CAdESVerifier {
             if count < 0 && errno == EINTR { continue }
             guard count >= 0, count <= requested else { throw inputError("Lettura del file non riuscita.") }
             if count == 0 { break }
-            guard count <= remaining else { throw inputError("Il file supera il limite di 64 MiB durante la lettura.") }
+            guard count <= remaining else { throw inputError("Il file supera il limite di \(maximumInputBytes / 1024 / 1024) MiB durante la lettura.") }
             data.append(contentsOf: chunk.prefix(count))
         }
         var after = stat(), entry = stat(), currentParent = stat()

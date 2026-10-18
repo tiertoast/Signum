@@ -42,7 +42,7 @@ public struct BatchApproval: Sendable {
 /// coordinator never stores a PIN or retries a completed/failed request.
 @MainActor public final class BatchSigningCoordinator: ObservableObject {
     public static let maximumDocuments = 32
-    public static let maximumTotalBytes = 128 * 1024 * 1024
+    public static let maximumTotalBytes = SigningResourceLimits.maximumSessionBytes
     @Published public private(set) var documents: [BatchDocument] = []
     @Published public private(set) var selectionIssues: [String] = []
     @Published public private(set) var selectionTechnicalDetails: [String] = []

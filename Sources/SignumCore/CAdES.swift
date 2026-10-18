@@ -5,7 +5,7 @@ import CryptoKit
 /// Only RSA PKCS#1 v1.5 with SHA-256 and one signer's leaf certificate.
 /// Independently validate any generated .p7m with a separate implementation.
 public enum CAdES {
-    public static let maximumDocumentBytes = 16 * 1024 * 1024
+    public static let maximumDocumentBytes = SigningResourceLimits.maximumDocumentBytes
 
     public struct Prepared {
         public let attributesToSign: Data
@@ -16,7 +16,7 @@ public enum CAdES {
 
         public init(document: Data, certificateDER: Data) throws {
             guard !document.isEmpty && document.count <= CAdES.maximumDocumentBytes else {
-                throw SignumError.module("CAdES proof of concept accepts documents of 1–16 MiB")
+                throw SignumError.module("Serve un documento non vuoto, fino a \(maximumDocumentBytes / 1024 / 1024) MiB.")
             }
             let identity = try DER.certificateIdentity(certificateDER)
             self.document = document

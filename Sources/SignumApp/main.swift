@@ -287,7 +287,7 @@ private enum SignumFormat: String, Hashable {
                         ForEach(Array(batch.selectionIssues.enumerated()), id: \.offset) { _, message in Text(message).font(.caption) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("Massimo 32 documenti e 128 MiB per sessione.").font(.caption2).foregroundStyle(.secondary)
+                Text("Massimo 100 MiB per documento · 32 documenti e 128 MiB per sessione.").font(.caption2).foregroundStyle(.secondary)
                 if !batch.selectionTechnicalDetails.isEmpty {
                     DisclosureGroup("Dettagli tecnici acquisizione") {
                         Text(batch.selectionTechnicalDetails.joined(separator: "\n")).font(.caption2).textSelection(.enabled)
