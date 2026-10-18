@@ -19,3 +19,9 @@ I numeri del checkpoint (317 Swift ecc.) sono storici e non costituiscono valida
 Conservata la semantica A: il selettore agisce soltanto sui nuovi documenti. Nota esplicita, formato effettivo del documento corrente nella colonna sinistra, formato per riga e nel consenso opzionale. Il riepilogo GUI ora trasferisce l’appearance al `SigningJob` immutabile: certificato, artwork e geometria congelati insieme a snapshot/formato/provider/destinazione. Il helper rifiuta un’appearance differente da quella del job. Le API legacy senza appearance rimangono disponibili ai test/percorsi esistenti, la GUI passa sempre l’appearance pronta per ogni PAdES.
 
 Verifiche locali: M1 2/2; dopo M2 `SigningFormatStabilizationTests|SigningReviewTests` 11/11, zero skip/fallimenti. Inclusi batch misto, destinazioni, formato congelato, certificato sostituito, contesto appearance incongruente e invalidazione durante preflight/modale. Non si dichiara risolto un difetto crittografico di conversione non riprodotto; è corretta l’ambiguità di presentazione e rafforzato il piano.
+
+## M3 — Documento corrente e callback
+
+Selezione del workspace distinta dal formato per nuove acquisizioni. Un contesto con generazione identifica ogni montaggio, anche dopo il ritorno allo stesso documento: callback di precedenti pannelli non possono aggiornare placement/readiness. Il pannello segue lo snapshot selezionato; CAdES mostra Documenti ed esiti, PAdES mantiene la preview anche se cambia il default. Nome/formato corrente sono visibili. Le appearance già completate per altri documenti del batch restano conservate, senza alterare i job congelati.
+
+Verifiche: `SigningWorkspaceSelectionTests|SigningWorkspaceTests` 5/5, zero skip/fallimenti. Inclusi selezione ripetuta/mista, callback tardiva dopo riselezione, reset e hosting nativo del PDFKit sullo snapshot. Il ciclo di vita interno delle task grafiche viene ulteriormente consolidato in M4–M6.

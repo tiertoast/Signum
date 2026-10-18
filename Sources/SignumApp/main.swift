@@ -62,8 +62,8 @@ private enum SignumFormat: String, Hashable {
     @State private var operation: SignumOperation = .sign
     @State private var format: SignumFormat = .cades
     @State private var pdfPlacement: PAdESPlacement?
-    @State private var documentSnapshot: DocumentSnapshot?
-    @State private var showingPDFPreview = false
+    @StateObject private var workspace: SigningWorkspaceSelection
+    private var documentSnapshot: DocumentSnapshot? { workspace.snapshot }
     @State private var previewSnapshotID: UUID?
     @State private var selectionRequestID = UUID()
     @State private var inputFile: URL?
@@ -90,8 +90,7 @@ private enum SignumFormat: String, Hashable {
         _additionalConfirmation = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.additionalConfirmation, store: defaults)
         _showExcludedCertificates = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.showExcluded, store: defaults)
         _saveAlongsideOriginal = AppStorage(wrappedValue: true, SigningExperiencePreferences.Keys.alongsideOriginal, store: defaults)
-        _documentSnapshot = State(initialValue: selectedSnapshot)
-        _showingPDFPreview = State(initialValue: selectedSnapshot?.format == .pades)
+        _workspace = StateObject(wrappedValue: SigningWorkspaceSelection(snapshot: selectedSnapshot))
         _inputFile = State(initialValue: selectedSnapshot?.originalURL)
         _status = State(initialValue: initialDevices.providers.isEmpty ? "Ricerca dei dispositivi di firma…" : initialDevices.message)
     }
@@ -117,7 +116,7 @@ private enum SignumFormat: String, Hashable {
                      der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity })
     }
     private var canApproveBatch: Bool {
-        !interfaceLocked && !batch.isFrozen && !showingPDFPreview && review.matches(reviewContext, batch: batch)
+        !interfaceLocked && !batch.isFrozen && !workspace.showingPDFPreview && review.matches(reviewContext, batch: batch)
     }
     private var canAuthorizeNext: Bool {
         !interfaceLocked && interaction.canSubmitPIN(provider.pin, batch: batch)
@@ -234,7 +233,7 @@ private enum SignumFormat: String, Hashable {
             batch.cancelAll()
             selectionRequestID = UUID()
             devices.beginDiscovery(); provider.beginDiscovery()
-            documentSnapshot = nil
+            workspace.select(nil)
         }
     }
 
@@ -266,11 +265,13 @@ private enum SignumFormat: String, Hashable {
     @ViewBuilder private var sessionWorkspace: some View {
         if documentSnapshot?.format == .pades {
             VStack(spacing: 0) {
-                Picker("Visualizzazione", selection: $showingPDFPreview) {
+                Text("PAdES · " + (documentSnapshot?.originalURL.lastPathComponent ?? ""))
+                    .font(.callout.bold()).lineLimit(1).padding(.top, 8)
+                Picker("Visualizzazione", selection: $workspace.showingPDFPreview) {
                     Text("Documenti ed esiti").tag(false)
                     Text("Anteprima PDF").tag(true)
                 }.pickerStyle(.segmented).labelsHidden().padding(12)
-                if showingPDFPreview {
+                if workspace.showingPDFPreview {
                     ScrollView { pdfWorkspace.frame(minHeight: 560) }
                 } else { documentSession }
             }
@@ -572,11 +573,12 @@ private enum SignumFormat: String, Hashable {
 
     @ViewBuilder
     private var pdfWorkspace: some View {
+        let generation = workspace.generation
         if let snapshot = documentSnapshot, snapshot.format == .pades {
             PAdESPlacementPane(
                 snapshot: snapshot,
                 previewReady: { id, ready in
-                    guard documentSnapshot?.identity.id == id else { return }
+                    guard workspace.accepts(id, generation: generation) else { return }
                     if ready { previewSnapshotID = id; readyPreviews.insert(id) }
                     if !ready {
                         readyPreviews.remove(id); provider.pin = ""
@@ -585,11 +587,11 @@ private enum SignumFormat: String, Hashable {
                 },
                 holder: selectedHolder, certificateDER: devices.selectedRoute?.der,
                 placement: Binding(get: { pdfPlacement }, set: { value in
-                    guard !interfaceLocked, !batch.isFrozen, documentSnapshot?.identity.id == snapshot.identity.id else { return }
+                    guard !interfaceLocked, !batch.isFrozen, workspace.accepts(snapshot.identity.id, generation: generation) else { return }
                     pdfPlacement = value; placements[snapshot.identity.id] = value
                 })
             )
-            .id(snapshot.identity.id)
+            .id(generation)
             .disabled(interfaceLocked || batch.isFrozen)
             .allowsHitTesting(!busy)
             .padding(14)
@@ -710,8 +712,7 @@ private enum SignumFormat: String, Hashable {
 
     private func showDocument(_ id: UUID?) {
         if let old = documentSnapshot, batch.documents.contains(where: { $0.id == old.identity.id }) { placements[old.identity.id] = pdfPlacement }
-        documentSnapshot = batch.documents.first(where: { $0.id == id })?.snapshot
-        showingPDFPreview = documentSnapshot?.format == .pades
+        workspace.select(batch.documents.first(where: { $0.id == id })?.snapshot)
         inputFile = documentSnapshot?.originalURL
         pdfPlacement = id.flatMap { placements[$0] }
         previewSnapshotID = nil
@@ -759,7 +760,7 @@ private enum SignumFormat: String, Hashable {
             } catch { provider.pin = ""; status = error.localizedDescription; return }
         }
         let session = authenticationSession
-        showingPDFPreview = false
+        workspace.showingPDFPreview = false
         interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
             try route.requireCurrentModule()
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
