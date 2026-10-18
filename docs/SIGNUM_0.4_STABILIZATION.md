@@ -67,3 +67,63 @@ Incrementata soltanto la nuova candidata a **0.4.0/build 10**, minimo 13.0. Bund
 ### Controllo finale del workspace
 
 Individuato e riprodotto durante la revisione M7: dopo il ritorno all’elenco, selezionare il nome dello stesso PAdES non riapriva la preview perché la selezione era trattata come no-op. Test iniziale 1 fallimento atteso su 2; corretto il modello per riaprire la preview con una nuova generazione, senza toccare il job. Dopo: selezione+hosting workspace 5/5. I primi bundle `build10-{debug,release}` da `b760a54` sono intermedi e preservati; usare soltanto i successivi `final-{debug,release}` registrati nella consegna finale.
+
+## Consegna finale
+
+Dopo l’ultima correzione UI, ripetute la suite Swift completa **333/333** e le mirate **ASAN 34/34**, **TSAN 34/34**, tutte senza skip/fallimenti o diagnostiche dei sanitizer. Anche **native ASAN 63/63**. La ricetta dei bundle ricompila Swift Debug/Release e PAdES, poi verifica 63 casi nativi per configurazione, helper impacchettato e copia rilocata. Packaging unit 10/10. Le integrazioni aggiuntive sui bundle sono riportate nella tabella di seguito.
+
+Candidati definitivi, **0.4.0/build 10**, firma soltanto ad hoc:
+
+- Release: `.build/04stabilization-bundles/final-release/Signum.app`
+- Debug: `.build/04stabilization-bundles/final-debug/Signum.app`
+
+Sorgente dei bundle **`6e3c4ce`**, albero tracciato pulito durante la compilazione. Verificati Info.plist, minimi Mach-O e dipendenze per macOS 13.0, helper/librerie incorporate, hash del manifest, codesign deep/strict e rilocazione. Le directory `build10-*` precedenti restano preservate ma non sono la consegna definitiva. Evidenze e hash esatti in `.build/04stabilization-evidence/bundles.json`; log delle suite nella stessa cartella, con comandi di riproduzione sotto.
+
+### Verifica degli helper incorporati
+
+Dopo il packaging: **40/40** integrazioni con helper/worker del bundle Debug e **40/40** con quelli Release, zero skip/fallimenti. Inclusi batch CAdES (anche autenticazione opt-in sintetica), appearance PAdES, stato del helper, verifica unificata e i nuovi PDF vettoriali realmente firmati con AP congelata. La ricetta ha inoltre eseguito la suite nativa sul helper incorporato e sulla copia rilocata per entrambe le configurazioni.
+
+### Esito dei quattro problemi
+
+| Problema | Esito software | Limite del collaudo |
+|---|---|---|
+| P0 formato | Default nuovi documenti esplicito, formato effettivo per documento e job immutabile con appearance vincolata | Non riprodotta una conversione autonoma del motore; corretta l’ambiguità UI osservabile |
+| P1 timbro su tavola | Fit errato riprodotto/corretto, errori espliciti, pixel e AP firmata verificati su fixture grandi | PDF specifico dell’utente non disponibile: conferma sul suo documento ancora richiesta |
+| P2 vista persistente | Vista guidata dal documento corrente e generation; callback tardive escluse; stesso PAdES riapribile | Da confermare nell’uso interattivo dell’utente |
+| P3 drag | Nessuna rigenerazione, decodifica o hash del PDF per sola posizione; annotazione riusata, preflight dopo rilascio | Misurata latenza evento→modello, non frame presentati o energia |
+
+### File principali
+
+`main.swift`, `SigningWorkspaceSelection.swift`, `SigningReview.swift`, `PAdESPlacementPane.swift`, nuovo `PAdESRenderCoordinator.swift`, `SignumPAdESHelper.swift`, `BatchConsentView.swift`; nel Core `SigningJob.swift`, `BatchSigningCoordinator.swift` (solo preflight), `PAdESAppearance.swift`; metadati build e sei file di regressione nuovi. Nessuna modifica a primitive RSA/CMS, gestione credenziali/Secure Batch PIN, lifecycle PKCS#11, worker di firma o pubblicazione transazionale.
+
+### Compatibilità, limiti e collaudi manuali
+
+Target macOS 13 e soli framework già disponibili; compilazione/audit non equivalgono a esecuzione su macOS 13/14. Runtime di test macOS 27.2 arm64. Nessuna distribuzione, notarizzazione, qualificazione eIDAS o trust engine introdotti. Il caricamento iniziale PDFKit e la scelta/validazione iniziale di un’immagine mantengono lavoro sincrono; il movimento non lo ripete. Un’operazione ImageIO/CoreGraphics già dentro una chiamata sincrona non è interrompibile a metà. Un timbro fisicamente piccolo su tavola enorme può richiedere zoom per leggere il testo: la pagina non è rasterizzata e le dimensioni del timbro non sono aumentate arbitrariamente. RSS riportata è cumulativa del processo di test, non consumo isolato o prova di assenza di leak.
+
+Da eseguire manualmente: cambio default con documenti già acquisiti e batch misto; selezione ripetuta di righe CAdES/PAdES e riapertura preview; clic/drag/Option+drag, zoom/scroll e cambio pagina sulla tavola tecnica specifica, controllando messaggio vicino alla preview; chiusura e cambio sezione durante render; runtime macOS 13/14. **Nessun test hardware eseguito né autorizzazione richiesta in questa consegna**: eventuali firme con DigitalDNA/CNS e PIN personale sono un collaudo successivo esplicito dell’utente. Non è stata avviata l’app con discovery automatica.
+
+### Commit locali
+
+- `3552a5c` M1 baseline e semantica formati.
+- `984db0a` M2 formato visibile e artwork nel job approvato.
+- `53132ca` M3 selezione/generazione workspace.
+- `eeba2ff` M4 fit e stato annotazione.
+- `6271c0f` M5 riuso artwork/hash/annotazione.
+- `21bbb2b` M6 rendering/preflight limitati.
+- `b760a54` M7 end-to-end e metadati build 10.
+- `6e3c4ce` regressione riapertura dello stesso PAdES, sorgente finale dei bundle.
+- Il successivo commit documentale registra la consegna verificata.
+
+Main `be84a1e` e branch origine `13d817b` invariati. Build 9 e file preesistenti verificati con SHA-256 coincidenti con la baseline. Nessuna modifica alla PR #3, nessun push/merge/tag/release/GitHub Actions o accesso a HalleyMac/altri repository. Review e diagnosi preesistenti restano non tracciate e intatte.
+
+### Riproduzione locale
+
+```sh
+SIGNUM_TEST_PADES_HELPER="$PWD/.build/04stabilization-native-debug/signum-pades-local" swift test --scratch-path .build/reliability
+SIGNUM_PROVIDER_TEST_BUILD="$PWD/.build/04stabilization-pkcs11" scripts/test-pkcs11-local.sh
+.build/native-tools/cmake/data/bin/ctest --test-dir .build/04stabilization-native-debug --output-on-failure
+.build/native-tools/cmake/data/bin/ctest --test-dir .build/04stabilization-native-release --output-on-failure
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
+```
+
+Per ripetere il confronto indipendente fornire anche `SIGNUM_TEST_POPPLER` col percorso locale di pdftoppm; nei run di consegna era impostato. Per i sanitizer usare `--sanitize address` / `--sanitize thread`, scratch separati e filtro dei componenti nel log. Per nuovi bundle usare la ricetta `scripts/build-beta-app.py`, prefisso privato `.build/pr2-native-macos13/prefix` e **un output nuovo**: la ricetta rifiuta la sovrascrittura.

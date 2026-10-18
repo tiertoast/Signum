@@ -397,3 +397,12 @@ impacchettati e **16/16** esempi CLI passati. Demo `.build/04bc-demo` pronta.
 B/C completate nel perimetro supportato; profili PDF ulteriori, trust e runtime
 13/14 restano nei limiti/collaudi documentati. Working tree tracciato pulito;
 review non tracciata preservata, nessuna operazione remota o hardware reale.
+
+
+## 18 ottobre 2026 — Stabilizzazione build 10
+
+Branch `codex/signum-0.4-stabilization` dal checkpoint `13d817b`. Default formato distinto dai documenti acquisiti, artwork nel job immutabile; workspace guidato dalla selezione con callback revocabili. Riprodotto/corretto fit A0 dopo layout PDFKit, errori presso la preview. Movimento senza rigenerazione/decode/hash del PDF: stessa annotazione, 30/120 aggiornamenti a invio 60 Hz, mediana evento→modello ~2,2–2,9 ms; nessuna promessa di fps. Un render attivo/una pending, preflight al rilascio e controlli Foundation mantenuti.
+
+Swift finale **333/333**, PKCS#11 **40/40**, PAdES Debug/Release **63/63**, packaging **10/10**, ASAN/TSAN Swift mirati **34/34** ciascuno, native ASAN **63/63**. AP realmente firmate su grandi vettoriali/rotazioni/crop/UserUnit verificate crittograficamente e con Poppler. Zero skip/fallimenti finali. Candidati ad hoc **0.4.0/build 10** da `6e3c4ce`, macOS minimo dichiarato/Mach-O 13.0: `.build/04stabilization-bundles/final-release/Signum.app` e `final-debug` separata; i primi `build10-*` sono intermedi. Bundle/helper/rilocazione verificati.
+
+[Cause, test, misure, commit e limiti](SIGNUM_0.4_STABILIZATION.md). PDF specifico dell’utente non accessibile: il suo collaudo resta da ripetere. Nessun hardware/PIN reale; GUI manuale e runtime 13/14 da verificare. Build precedenti, main, branch di origine, PR #3 e file non tracciati preservati. Nessun push/merge/tag/release, GitHub Actions o accesso ad altri repository.
