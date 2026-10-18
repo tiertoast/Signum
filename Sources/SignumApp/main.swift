@@ -35,6 +35,8 @@ private enum SignumFormat: String, Hashable {
 
 @MainActor struct SignumWindow: View {
     @StateObject private var batch = BatchSigningCoordinator()
+    @StateObject private var interaction = SigningInteraction()
+    @FocusState private var pinFocused: Bool
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) private var showExcludedCertificates = false
     @AppStorage(SigningExperiencePreferences.Keys.alongsideOriginal) private var saveAlongsideOriginal = true
     @State private var customDirectory = SigningExperiencePreferences().customDirectory
@@ -63,7 +65,7 @@ private enum SignumFormat: String, Hashable {
     @State private var status = "Ricerca dei dispositivi di firma…"
     @State private var busy = false
 
-    private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning }
+    private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning || interaction.isRequestingApproval || interaction.isSubmittingPIN }
     private var destinationPolicy: BatchOutputDestination? {
         SigningDestinationSelection(alongsideOriginal: saveAlongsideOriginal, customDirectory: customDirectory).policy
     }
@@ -77,8 +79,11 @@ private enum SignumFormat: String, Hashable {
         }
     }
     private var canAuthorizeNext: Bool {
-        batch.isApproved && !interfaceLocked && !batch.needsOutcomeReview &&
-            batch.nextDocument != nil && !provider.pin.isEmpty
+        !interfaceLocked && interaction.canSubmitPIN(provider.pin, batch: batch)
+    }
+
+    private var presentation: SigningPresentation {
+        .init(batch: batch, interaction: interaction, destinationReady: destinationPolicy != nil, canApprove: canApproveBatch)
     }
 
     private var selectedHolder: String {
@@ -387,17 +392,21 @@ private enum SignumFormat: String, Hashable {
         GroupBox("Firma") {
             VStack(alignment: .leading, spacing: 10) {
                 if !batch.isApproved {
-                    Button("Conferma firma…") { prepareBatch() }.disabled(!canApproveBatch)
+                    Button(presentation.signButtonTitle) { prepareBatch() }.disabled(!canApproveBatch)
                     Text("Il riepilogo include tutti i documenti. Per ogni PDF apri prima l'anteprima dall'elenco.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("\(batch.finishedCount) di \(batch.documents.count) conclusi")
-                    if let next = batch.nextDocument {
-                        Text("Prossimo: \(next.snapshot.originalURL.lastPathComponent)").font(.caption)
-                        SecureField("PIN per questo documento", text: $provider.pin)
-                            .textFieldStyle(.roundedBorder).privacySensitive().disabled(interfaceLocked || batch.needsOutcomeReview)
-                        Button("Autorizza questa firma") { authorizeNextDocument() }.disabled(!canAuthorizeNext)
+                    if let prompt = presentation.pinPrompt, let next = batch.nextDocument {
+                        Text(prompt).font(.headline)
+                        Text(next.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
+                        SecureField("PIN del dispositivo", text: $provider.pin)
+                            .textFieldStyle(.roundedBorder).privacySensitive().focused($pinFocused)
+                            .onSubmit { authorizeNextDocument() }.onAppear { pinFocused = true }
+                            .disabled(interfaceLocked)
+                        Button("Firma") { authorizeNextDocument() }.disabled(!canAuthorizeNext)
                     }
+                    if presentation.stage == .completed { Text(presentation.resultSummary).font(.caption) }
                     if batch.needsOutcomeReview {
                         Text("Esito incerto: controlla dispositivo ed eventuale output prima di continuare. La firma non verrà ripetuta.").font(.caption)
                         Button("Ho verificato l'esito: consenti il prossimo documento") { batch.acknowledgeUncertainOutcome(); provider.pin = "" }
@@ -598,42 +607,45 @@ private enum SignumFormat: String, Hashable {
         Task { @MainActor in
             defer { busy = false }
             do {
-                try await Task.detached(priority: .userInitiated) { try selectedRoute.requireCurrentModule() }.value
-                guard devices.requestID == selectionGeneration, devices.selectedRouteID == selectedRoute.id else { throw SupervisedProcess.Failure.cancelled }
-                let approval = try await batch.prepareApproval(provider: selectedProvider, slot: slot, certificate: certificate, der: der, destination: destination)
-                let alert = NSAlert()
-                alert.messageText = "Conferma firma"
-                alert.informativeText = "Firmatario: \(holder)\n\(approval.jobs.count) documenti. L'autenticazione del dispositivo seguirà questa conferma."
-                let content = NSHostingView(rootView: BatchConsentView(approval: approval))
-                content.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
-                alert.accessoryView = content
-                alert.addButton(withTitle: "Conferma documenti"); alert.addButton(withTitle: "Annulla")
-                if alert.runModal() == .alertFirstButtonReturn {
-                    try batch.confirm(approval)
+                let approved = try await interaction.prepareAndConfirm(batch: batch, prepare: {
+                    try await Task.detached(priority: .userInitiated) { try selectedRoute.requireCurrentModule() }.value
+                    guard devices.requestID == selectionGeneration, devices.selectedRouteID == selectedRoute.id else { throw SupervisedProcess.Failure.cancelled }
+                    return try await batch.prepareApproval(provider: selectedProvider, slot: slot, certificate: certificate, der: der, destination: destination)
+                }, present: { approval in
+                    let alert = NSAlert()
+                    alert.messageText = "Conferma firma"
+                    alert.informativeText = "Firmatario: \(holder)\nCertificato: \(selectedRoute.title) · \(selectedRoute.identity?.issuer ?? "Emittente non disponibile")\n\(approval.jobs.count) documenti. Seguirà il PIN per ogni firma."
+                    let content = NSHostingView(rootView: BatchConsentView(approval: approval))
+                    content.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
+                    alert.accessoryView = content
+                    alert.addButton(withTitle: "Conferma e prosegui"); alert.addButton(withTitle: "Annulla")
+                    return alert.runModal() == .alertFirstButtonReturn
+                })
+                if approved != nil {
                     approvedFields = fields; approvedHolder = holder; approvedRoute = selectedRoute
-                    status = "Lista confermata. Autorizza il primo documento."
-                } else { batch.declineApproval(); status = "Conferma annullata. Nessuna firma avviata." }
+                    status = "Documenti confermati. Inserisci il PIN per la firma corrente."
+                } else { status = "Conferma annullata. Nessuna firma avviata." }
             } catch { status = error.localizedDescription }
         }
     }
 
     private func authorizeNextDocument() {
         guard canAuthorizeNext else { return }
-        let secret = provider.pin; provider.pin = ""
         let fields = approvedFields, holder = approvedHolder
         guard let route = approvedRoute else { return }
-        Task { @MainActor in
-            do {
-                try await batch.authorizeNext(pin: secret) { job, pin, operation in
-                    try route.requireCurrentModule()
-                    if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
-                    else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
-                        field: fields[job.snapshotIdentity.id], operation: operation) }
-                }
-                lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
-                status = batch.nextDocument == nil ? "Sessione conclusa. Consulta il resoconto." : "Esito registrato. Il prossimo documento attende una nuova autorizzazione."
-            } catch { status = error.localizedDescription }
-        }
+        interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
+            try route.requireCurrentModule()
+            if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
+            else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
+                field: fields[job.snapshotIdentity.id], operation: operation) }
+        }, completion: { result in
+            lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
+            switch result {
+            case .success:
+                status = batch.nextDocument == nil ? "Sessione conclusa. Consulta gli esiti." : "Inserisci il PIN per la firma successiva."
+            case .failure(let error): status = error.localizedDescription
+            }
+        })
     }
 
 }

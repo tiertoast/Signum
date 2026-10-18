@@ -73,3 +73,30 @@ accanto agli originali senza modificarli. Primo run: sette assert confrontavano
 alias `/var` e `/private/var` invece della directory fisica; fixture normalizzata
 con realpath e confronto coerente, poi suite ripetuta positiva. Nessuna deroga ai
 controlli di percorso per far passare il test.
+
+## M4 — Una conferma, autenticazione corrente
+
+Pulsante «Firma documento» / «Firma N documenti», una sola conferma con firmatario,
+certificato, lista/formati/destinazioni effettive. NSOpenPanel è esclusivamente
+nell'azione Sfoglia precedente. SHA-256, percorsi, dimensioni, job/snapshot/provider/
+slot e certificato nel dettaglio tecnico. Nessun popup documentale dopo il consenso.
+Il pulsante/Invio nel campo PIN invia l'autenticazione, non richiede un altro consenso.
+
+`SigningInteraction` separa consenso e invio da job e stato provider: niente PIN
+memorizzato nel modello, campo svuotato sincronicamente prima della Task privata,
+una sola richiesta in volo. Prompt «Firma i di N — Inserisci PIN» e focus quando
+la firma successiva è pronta. Il documento corrente è vincolato anche nel guard
+atomico Core: se viene annullato prima dell'avvio, il PIN non passa al successivo.
+Nessun worker persistente, retry o riuso PIN fra documenti; ALWAYS_AUTHENTICATE,
+worker/helper, timeout e gestione incerta restano invariati. Il riconoscimento di
+un esito incerto rimane una misura Foundation, non un nuovo consenso ai documenti.
+
+`SigningPresentation` distingue vuoto/destinazione incompleta/selezione incompleta,
+pronto/preparazione/conferma/PIN/in corso/incerto/concluso. Non presenta fallimenti
+o annullamenti come firme riuscite. Nuova sessione libera snapshot e piani.
+
+**Test M4 + batch: 19/19**, sei nuovi casi: unica presentazione e tre CAdES reali
+software, tre campi PIN consumati senza ulteriori conferme, seconda richiesta
+concorrente rifiutata, consenso annullato, errore prima della conferma, annullamento
+prima della Task senza retarget PIN, blocco dopo incertezza e stati/reset.
+Nessun PIN personale e nessuna autenticazione hardware.

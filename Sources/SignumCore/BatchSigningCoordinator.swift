@@ -33,7 +33,7 @@ public struct BatchApproval: Sendable {
     public let id: UUID
     public let jobs: [SigningJob]
     public var technicalDetails: String {
-        jobs.map { "\($0.snapshot.originalURL.lastPathComponent)\n\($0.approvalDescription)\nJob: \($0.id)\nCertificato SHA-256: \($0.certificateSHA256)" }.joined(separator: "\n\n")
+        jobs.map { "\($0.snapshot.originalURL.lastPathComponent)\n\($0.approvalDescription)\nJob: \($0.id)\nSnapshot: \($0.snapshotIdentity.id)\nProvider: \($0.providerPath)\nSlot: \($0.slot) · ID certificato: \($0.certificate.id)\nCertificato SHA-256: \($0.certificateSHA256)" }.joined(separator: "\n\n")
     }
 }
 
@@ -157,8 +157,9 @@ public struct BatchApproval: Sendable {
     public func cancelAll() { cancelPending(); activeOperation?.requestCancellation() }
     public func acknowledgeUncertainOutcome() { if !isRunning { needsOutcomeReview = false } }
 
-    public func authorizeNext(pin: String, execute: @escaping @Sendable (SigningJob, String, SigningOperation) throws -> Void) async throws {
+    public func authorizeNext(pin: String, expectedDocumentID: UUID? = nil, execute: @escaping @Sendable (SigningJob, String, SigningOperation) throws -> Void) async throws {
         guard isApproved, !isRunning, !needsOutcomeReview, let approval, let next = nextDocument,
+              expectedDocumentID == nil || expectedDocumentID == next.id,
               let job = approval.jobs.first(where: { $0.snapshotIdentity.id == next.id }),
               !pin.isEmpty, pin.utf8.count <= 64, !pin.utf8.contains(0) else {
             throw Self.failure("Autorizza esplicitamente il prossimo documento con il PIN del dispositivo.")
