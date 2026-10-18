@@ -100,7 +100,7 @@ slot conservato se il sistema non termina il figlio. Regresso anche il teardown
 su thread diverso, senza attese vendor/MainActor. Nessuna modifica al supervisore
 one-shot oltre alla condivisione del contatore dei processi.
 
-M4: **37/37** test mirati, zero skip/fallimenti nel run finale; primo run
+M4: **36/36** test mirati, zero skip/fallimenti nel run finale; primo run
 intermedio aveva due skip per helper non esplicito e tre assert legacy dovuti
 alla guard di authorizeNext durante l'estrazione dell'esecutore interno. Ripetuto
 con helper esplicito e semantica pubblica preservata. Test integrati: tre CAdES
@@ -108,3 +108,23 @@ verificati/un PIN; true/tre USER e CONTEXT; annullamento in coda/in Sign; collis
 secondo output; snapshot corrotto; crash/timeout/errore secondo Sign; perdita
 sessione e device removed; seriale/modulo cambiati prima del login; lease fra due
 batch distinti; nessun PIN nei comandi successivi, nessun retry dopo errore.
+
+## M5 — Impostazioni e flusso GUI
+
+Preferenza persistente «Autenticazione nella firma multipla»: Automatica, quando
+supportata / Richiedi PIN per ogni firma. Default automatico **condizionale**;
+valori sconosciuti degradano alla seconda modalità. Nessun dato sensibile nelle
+preferenze. Modalità scelta fissata al clic di approvazione, non riletta durante
+il batch. Prima del PIN la GUI spiega che il supporto sarà verificato e può
+richiedere altre autenticazioni; PAdES/misti/seriale indisponibile usano one-shot.
+
+Dopo il primo job riutilizzabile, continuazione senza segreto e senza ulteriori
+popup; PIN nascosto mentre il batch prosegue. In caso true/unknown, prima sessione
+già chiusa e nuovo PIN esplicito per i documenti restanti. Non tentata nuovamente
+la modalità persistente nello stesso batch dopo un rifiuto. Nuova sessione,
+cancellazione e scomparsa della finestra revocano la capability; attese e chiusura
+restano off-main. Nessuna attribuzione di capability al nome del dispositivo.
+
+Test M5: preferenza isolata/persistenza/valore invalido e assenza credenziali,
+policy CAdES/PAdES/misti/identità sconosciuta, regressioni auth/UI/PIN. Il caso
+seriale/modulo cambiato, aggiunto dopo il run M4, è verificato qui prima del login.

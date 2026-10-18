@@ -37,6 +37,11 @@ private enum SignumFormat: String, Hashable {
     @StateObject private var batch: BatchSigningCoordinator
     @StateObject private var interaction = SigningInteraction()
     @StateObject private var review = SigningReview()
+    @AppStorage(SigningExperiencePreferences.Keys.batchAuthentication) private var authenticationModeRaw = BatchAuthenticationMode.automatic.rawValue
+    @State private var approvedAuthenticationMode: BatchAuthenticationMode = .perSignature
+    @State private var authenticationSession: BatchCAdESSession?
+    @State private var authenticationAttempted = false
+    @State private var authenticationStatus = ""
     @AppStorage(SigningExperiencePreferences.Keys.additionalConfirmation) private var additionalConfirmation = false
     @FocusState private var pinFocused: Bool
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) private var showExcludedCertificates = false
@@ -82,6 +87,7 @@ private enum SignumFormat: String, Hashable {
         _devices = State(initialValue: initialDevices); _provider = State(initialValue: initialProvider)
         _manualPaths = State(initialValue: MiddlewarePreferences(defaults: defaults).paths)
         _customDirectory = State(initialValue: SigningExperiencePreferences(defaults: defaults).customDirectory)
+        _authenticationModeRaw = AppStorage(wrappedValue: BatchAuthenticationMode.automatic.rawValue, SigningExperiencePreferences.Keys.batchAuthentication, store: defaults)
         _additionalConfirmation = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.additionalConfirmation, store: defaults)
         _showExcludedCertificates = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.showExcluded, store: defaults)
         _saveAlongsideOriginal = AppStorage(wrappedValue: true, SigningExperiencePreferences.Keys.alongsideOriginal, store: defaults)
@@ -91,7 +97,12 @@ private enum SignumFormat: String, Hashable {
         _status = State(initialValue: initialDevices.providers.isEmpty ? "Ricerca dei dispositivi di firma…" : initialDevices.message)
     }
 
-    private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning || interaction.isRequestingApproval || interaction.isSubmittingPIN }
+    private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning || batch.isContinuingAuthenticated || (authenticationSession?.canContinue ?? false) || interaction.isRequestingApproval || interaction.isSubmittingPIN }
+    private var authenticationMode: BatchAuthenticationMode { BatchAuthenticationMode(rawValue: authenticationModeRaw) ?? .perSignature }
+    private var authenticationExplanation: String {
+        BatchAuthenticationPolicy.explanation(formats: batch.documents.map { $0.snapshot.format },
+            serial: devices.selectedRoute?.token.serial ?? "", mode: batch.isApproved ? approvedAuthenticationMode : authenticationMode)
+    }
     private var destinationPolicy: BatchOutputDestination? {
         SigningDestinationSelection(alongsideOriginal: saveAlongsideOriginal, customDirectory: customDirectory).policy
     }
@@ -179,6 +190,10 @@ private enum SignumFormat: String, Hashable {
                             CAdESVerificationPane()
                         } else {
                             Button("Configura dispositivo…") { showDeviceConfiguration = true }
+                            Picker("Autenticazione nella firma multipla", selection: $authenticationModeRaw) {
+                                ForEach(BatchAuthenticationMode.allCases, id: \.rawValue) { mode in Text(mode.title).tag(mode.rawValue) }
+                            }
+                            Text("La modalità automatica verifica il supporto al primo PIN, solo per batch CAdES. Nessun PIN viene salvato.").font(.caption).foregroundStyle(.secondary)
                             Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
                             Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.").font(.caption).foregroundStyle(.secondary)
                             SignumGraphicSettingsPane()
@@ -215,6 +230,7 @@ private enum SignumFormat: String, Hashable {
         .onChange(of: format) { _ in provider.pin = "" }
         .onChange(of: saveAlongsideOriginal) { _ in if !batch.isFrozen { provider.pin = "" } }
         .onDisappear {
+            authenticationSession?.requestStop()
             work?.requestCancellation()
             batch.cancelAll()
             selectionRequestID = UUID()
@@ -340,6 +356,8 @@ private enum SignumFormat: String, Hashable {
 
     private func resetSession() {
         guard !interfaceLocked else { return }
+        authenticationSession?.requestStop(); authenticationSession = nil
+        authenticationAttempted = false; authenticationStatus = ""
         batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]; approvedRoute = nil
         showDocument(nil); provider.pin = ""; lastSignedFile = nil
         status = "Nuova sessione. Scegli i documenti da firmare."
@@ -471,13 +489,18 @@ private enum SignumFormat: String, Hashable {
         GroupBox("Firma") {
             VStack(alignment: .leading, spacing: 10) {
                 if !batch.isApproved {
+                    Text(authenticationExplanation).font(.caption).foregroundStyle(.secondary)
                     Button(presentation.signButtonTitle) { prepareBatch() }.disabled(!canApproveBatch)
                     if review.isPreparing { ProgressView("Preparazione del riepilogo…").controlSize(.small) }
                     if !review.issue.isEmpty { Text(review.issue).font(.caption) }
                     Text("Il clic approva i documenti e le destinazioni mostrati. Per ogni PDF apri prima l'anteprima, poi torna a Documenti ed esiti.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    if let prompt = presentation.pinPrompt, let next = batch.nextDocument {
+                    if !authenticationStatus.isEmpty { Text(authenticationStatus).font(.caption) }
+                    if !batch.authenticationNotice.isEmpty { Text(batch.authenticationNotice).font(.caption) }
+                    if batch.isContinuingAuthenticated || (authenticationSession?.canContinue ?? false) {
+                        ProgressView("Firma dei documenti approvati…").controlSize(.small)
+                    } else if let prompt = presentation.pinPrompt, let next = batch.nextDocument {
                         Text(prompt).font(.headline)
                         Text(next.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
                         SecureField("PIN del dispositivo", text: $provider.pin)
@@ -496,7 +519,7 @@ private enum SignumFormat: String, Hashable {
                         .disabled(batch.nextDocument == nil)
                     if batch.isRunning {
                         ProgressView().controlSize(.small)
-                        Button("Interrompi firma corrente") { batch.activeOperation?.requestCancellation() }
+                        Button("Interrompi firma corrente") { batch.activeOperation?.requestCancellation(); authenticationSession?.requestStop() }
                     }
                 }
                 if batch.isPreparing { ProgressView("Preparazione documenti…").controlSize(.small) }
@@ -510,7 +533,7 @@ private enum SignumFormat: String, Hashable {
                     ProgressView(workPhase.message).controlSize(.small)
                     Button("Annulla lettura") { work.requestCancellation() }
                 }
-                Text("Il clic su Firma fissa i documenti da firmare. Il PIN autorizza una firma alla volta e non viene conservato per il documento successivo. Nessun tentativo automatico aggiuntivo.")
+                Text("Il clic su Firma approva questi documenti. Il PIN non viene conservato fra documenti; il riuso della sessione dipende dalla policy della chiave. Nessun tentativo automatico aggiuntivo.")
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
@@ -680,7 +703,7 @@ private enum SignumFormat: String, Hashable {
         guard canApproveBatch, let plan = review.approval, let context = reviewContext,
               let route = devices.selectedRoute else { return }
         provider.pin = ""
-        let holder = selectedHolder
+        let holder = selectedHolder, requestedAuthenticationMode = authenticationMode
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
         let fields = placements.mapValues { value in SignumPAdESHelper.Field(pageIndex: value.pageIndex,
             x: Double(value.rectangle.minX), y: Double(value.rectangle.minY), width: Double(value.rectangle.width), height: Double(value.rectangle.height)) }
@@ -689,7 +712,7 @@ private enum SignumFormat: String, Hashable {
                 additionalConfirmation: additionalConfirmation, isCurrent: { reviewContext == context }, present: { approval in
                     let alert = NSAlert()
                     alert.messageText = "Conferma firma"
-                    alert.informativeText = "Firmatario: \(holder)\nCertificato: \(route.title) · \(route.identity?.issuer ?? "Emittente non disponibile")\n\(approval.jobs.count) documenti. Seguirà il PIN per ogni firma."
+                    alert.informativeText = "Firmatario: \(holder)\nCertificato: \(route.title) · \(route.identity?.issuer ?? "Emittente non disponibile")\n\(approval.jobs.count) documenti. \(authenticationExplanation)"
                     let content = NSHostingView(rootView: BatchConsentView(approval: approval))
                     content.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
                     alert.accessoryView = content
@@ -698,27 +721,56 @@ private enum SignumFormat: String, Hashable {
                 })
             if approved {
                 approvedFields = fields; approvedHolder = holder; approvedRoute = route
+                approvedAuthenticationMode = requestedAuthenticationMode
+                authenticationAttempted = false
+                authenticationStatus = BatchAuthenticationPolicy.explanation(formats: plan.jobs.map(\.format), serial: route.token.serial, mode: requestedAuthenticationMode)
                 status = "Documenti approvati. Inserisci il PIN per la firma corrente."
             } else { status = "Conferma annullata. Nessuna firma avviata." }
         } catch { status = error.localizedDescription }
     }
 
     private func authorizeNextDocument() {
-        guard canAuthorizeNext else { return }
+        guard canAuthorizeNext, let route = approvedRoute else { return }
         let fields = approvedFields, holder = approvedHolder
-        guard let route = approvedRoute else { return }
+        if !authenticationAttempted, let plan = batch.approval,
+           BatchAuthenticationPolicy.canAttempt(jobs: plan.jobs, serial: route.token.serial, mode: approvedAuthenticationMode) {
+            authenticationAttempted = true
+            do {
+                authenticationSession = try BatchCAdESSession(approval: plan, serial: route.token.serial,
+                    moduleIdentity: route.moduleIdentity, automaticModule: route.origin == .known,
+                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)))
+            } catch { provider.pin = ""; status = error.localizedDescription; return }
+        }
+        let session = authenticationSession
         showingPDFPreview = false
         interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
             try route.requireCurrentModule()
-            if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
+            if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
+            else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
             else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
                 field: fields[job.snapshotIdentity.id], operation: operation) }
         }, completion: { result in
             lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
-            switch result {
-            case .success:
-                status = batch.nextDocument == nil ? "Sessione conclusa. Consulta gli esiti." : "Inserisci il PIN per la firma successiva."
-            case .failure(let error): status = error.localizedDescription
+            if let session {
+                if session.canContinue {
+                    authenticationStatus = "Sessione autenticata per questo batch. Nessun PIN riutilizzato."
+                    Task { @MainActor in
+                        await batch.continueAuthenticatedBatch(using: session)
+                        lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
+                        authenticationSession = nil
+                        authenticationStatus = batch.authenticationNotice.isEmpty ? "Sessione autenticata conclusa." : batch.authenticationNotice
+                        status = presentation.resultSummary
+                    }
+                } else {
+                    session.requestStop(); authenticationSession = nil
+                    authenticationStatus = "Sessione non riutilizzabile: PIN esplicito per le firme restanti."
+                    status = presentation.resultSummary
+                }
+            } else {
+                switch result {
+                case .success: status = batch.nextDocument == nil ? "Sessione conclusa. Consulta gli esiti." : "Consulta l'esito e inserisci il PIN per la firma successiva."
+                case .failure(let error): status = error.localizedDescription
+                }
             }
         })
     }

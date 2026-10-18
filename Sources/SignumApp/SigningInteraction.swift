@@ -86,7 +86,7 @@ import SignumCore
     let canApprove: Bool
     var stage: Stage {
         if batch.needsOutcomeReview { return .uncertain }
-        if batch.isRunning || interaction.isSubmittingPIN { return .signing }
+        if batch.isRunning || batch.isContinuingAuthenticated || interaction.isSubmittingPIN { return .signing }
         if interaction.isShowingConfirmation { return .confirming }
         if batch.isPreparing || interaction.isRequestingApproval { return .preparing }
         if batch.isApproved { return batch.nextDocument == nil ? .completed : .awaitingPIN }
