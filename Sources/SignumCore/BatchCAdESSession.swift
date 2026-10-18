@@ -116,6 +116,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
             if submitted && !receivedSignature {
                 throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Non ripetere automaticamente questo job.")
             }
+            if operation.isCancellationRequested { throw SupervisedProcess.Failure.cancelled }
             throw error
         }
     }

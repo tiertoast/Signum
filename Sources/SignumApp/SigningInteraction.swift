@@ -51,7 +51,7 @@ import SignumCore
     }
 
     func canSubmitPIN(_ pin: String, batch: BatchSigningCoordinator) -> Bool {
-        !isRequestingApproval && !isSubmittingPIN && batch.isApproved && !batch.isRunning &&
+        !isRequestingApproval && !isSubmittingPIN && batch.isApproved && !batch.isRunning && !batch.isContinuingAuthenticated &&
             !batch.needsOutcomeReview && batch.nextDocument != nil &&
             !pin.isEmpty && pin.utf8.count <= 64 && !pin.utf8.contains(0)
     }
