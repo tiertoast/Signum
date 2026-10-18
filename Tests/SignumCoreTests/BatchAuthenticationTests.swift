@@ -3,7 +3,7 @@ import XCTest
 @testable import SignumCore
 
 final class BatchAuthenticationTests: XCTestCase {
-    var worker: URL { Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker") }
+    var worker: URL { ProcessInfo.processInfo.environment["SIGNUM_TEST_BATCH_WORKER"].map { URL(fileURLWithPath: $0) } ?? Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker") }
     func count(_ mock: MockModule, _ op: Int) -> Int {
         ((try? String(contentsOf: mock.folder.appendingPathComponent("operations"))) ?? "").split(separator: "\n").filter { $0 == String(op) }.count
     }
