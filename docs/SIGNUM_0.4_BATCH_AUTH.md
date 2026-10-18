@@ -163,3 +163,154 @@ non dichiarata completa accettazione visiva/interattiva.
 
 Ultimo controllo layout dopo le sole etichette singolare/formato nuovi documenti:
 **5/5** (riepilogo e viste native). Nessun popup o interazione hardware nei test.
+
+## M7 — Validazione e consegna
+
+Codice finale **`7596f50`**, 18 ottobre 2026, host macOS 27.2 arm64 / Swift 6.4.
+L'ultimo hardening impedisce di inviare un PIN durante la continuazione già
+autenticata e conserva l'annullamento prima delle operazioni private. Aggiunto
+un override **solo nei test** per verificare esattamente il worker impacchettato;
+nessun flag di test introdotto nel prodotto.
+
+| Verifica realmente eseguita | Esito finale |
+| --- | --- |
+| Suite Swift completa | **265/265**, zero fallimenti o skip (baseline 240) |
+| Suite nativa PKCS#11 | **40/40** casi sintetici |
+| PAdES Debug e Release | **63/63** per configurazione; ripetuti su helper nel bundle e copia rilocata |
+| Test packaging Python | **10/10** |
+| Address Sanitizer, suite mirata | **64/64**, nessun errore segnalato; leak detection disabilitata |
+| Thread Sanitizer, stessa selezione | **64/64**, nessuna race segnalata |
+| Auth/integrazione con worker esatto del bundle Release | **20/20** |
+| Build Swift Debug e Release | Passate |
+| Creazione/verifica bundle Debug e Release | Passata, firma ad hoc stretta, hash componenti e rilocazione |
+| Audit dei due bundle | 0.4.0/build 5, source `7596f50` pulito alla build, cinque Mach-O con minimo 13.0, dipendenze portabili |
+| CLI impacchettata → worker → discovery provider sintetico | Passata su entrambi i bundle |
+
+ASAN/TSAN comprendono i nuovi componenti auth, coordinatore, workspace, lifecycle,
+worker e coordinamento processi; **non** sono una seconda esecuzione dell'intera
+suite. Verificati anche i simboli di strumentazione dello shim C nei due scratch.
+Il provider simulato compilato separatamente e i middleware reali non sono
+strumentati. Nessun test hardware, PIN personale, documento reale o upload.
+Le verifiche PAdES complete Swift usano l'helper build 4 esplicitato; il nuovo
+helper è verificato dalle suite native nei due nuovi bundle e nelle copie rilocate.
+
+Evidenze locali in `.build/reliability/evidence/`: `04a4-final-swift.log`,
+`04a4-final-pkcs.log`, `04a4-final-asan.log`, `04a4-final-tsan.log`,
+`04a4-final-packaging-tests.log`, `04a4-final-build-{debug,release}.log`,
+`04a4-package-{debug,release}.log`, `04a4-bundled-auth.log`,
+`04a4-bundle-audit.log`. I fallimenti intermedi e le correzioni sono descritti
+nelle rispettive milestone; gli esiti sopra appartengono ai runner finali.
+
+### Candidata e stato Git
+
+**0.4.0/build 5**, arm64, firma locale ad hoc, nessuna notarizzazione/distribuzione:
+
+- Release: `.build/04a4-bundles/final-release/Signum.app`.
+- Debug: `.build/04a4-bundles/final-debug/Signum.app`.
+
+Percorsi relativi a `/Users/andreaoregioni/Developer/Signum-Reliability`.
+Build 4 in `.build/04a31-bundles/delivery-{debug,release}/Signum.app`, Alpha e
+candidati precedenti preservati. Il commit documentale finale è successivo al
+codice `7596f50` registrato nel manifesto del bundle; non è una build differente.
+
+Commit locali sul branch `codex/signum-0.4-batch-auth`:
+
+| Milestone | Commit |
+| --- | --- |
+| M1 baseline | `c780af7` |
+| M2 analisi | `7cc6154` |
+| M3 prototipo worker | `61564f1` |
+| M4 integrazione CAdES | `a3f7a98` |
+| M5 impostazioni | `0fc91a5` |
+| M6 workspace e regressioni | `379b790` |
+| M7 hardening preflight/continuazione | `4faaf4e` |
+| M7 regressioni worker impacchettato | `7596f50` |
+| M7 rapporto e progresso | commit che contiene questa consegna |
+
+Main invariato `be84a1e44f3b0bbe41bee9a2f46dbed36342ab70`; branch build 4 invariato
+`51e9d22a9d26e50fcc7665247e9495a5e6402da8`. File di review non tracciato
+preservato con l'impronta indicata in M1. Nessun push/merge/tag/release, CI remoto,
+installazione globale o accesso a HalleyMac. Il solo residuo Git intenzionale è
+quella review non tracciata.
+
+### Limiti e interventi rinviati
+
+- Ottimizzazione dimostrata **con provider sintetico CAdES**, non ancora su
+  DigitalDNA, CNS, Bit4id o OpenSC reali. Il risultato InfoCamere riferito
+  dall'utente resta il riferimento funzionale, non prova del meccanismo interno.
+- True, attributo illeggibile, inizializzazione non posseduta o identità
+  insufficiente impediscono il riuso. Un errore dopo l'invio di una richiesta
+  privata senza firma verificabile è conservativamente incerto, anche quando
+  il provider potrebbe aver fallito prima di Sign: nessun retry/fallback del job.
+- PAdES e misti rimangono interamente one-shot. Una futura condivisione richiede
+  un protocollo interno diverso: handle process-local e lease attuale non possono
+  essere condivisi mantenendo semplicemente aperto questo worker. Non iniziata.
+- Lease e limiti coordinano processi Signum cooperanti, non altre applicazioni.
+  Nessun utilizzo di login altrui; nessuna deduzione dal nome del certificato.
+- Canale: scambio massimo 120s, idle worker 60s, vita batch 600s; finish 5s e
+  osservazione uscita 3s, poi terminazione supervisionata. Se il kernel non
+  termina un figlio, lo slot resta occupato fino all'uscita e la chiusura non
+  confermata richiede controllo. Nessun Finalize concorrente a una chiamata appesa.
+- Nessun PIN conservato nel coordinatore, preferenze, manifesto persistente,
+  richieste successive, argv/env o log. Le copie transitorie Swift/String e la
+  memoria del middleware non consentono una garanzia forense di azzeramento.
+- Limiti Foundation invariati: 100 MiB/documento, 128 MiB/sessione, output 132 MiB.
+  Nei frame del worker viaggiano attributi CMS, non documenti.
+- Minimo macOS 13 verificato in metadata/Mach-O/packaging; runtime macOS 13/14,
+  Mac pulito e accettazione completa interattiva della nuova GUI non eseguiti.
+  Rendering nativi e PDFKit verificati nei limiti descritti in M6.
+
+### Riproduzione software locale
+
+```sh
+cd /Users/andreaoregioni/Developer/Signum-Reliability
+SIGNUM_TEST_PADES_HELPER="$PWD/.build/04a31-bundles/delivery-release/Signum.app/Contents/Helpers/signum-pades-local" swift test --scratch-path .build/reliability
+SIGNUM_TEST_BATCH_WORKER="$PWD/.build/04a4-bundles/final-release/Signum.app/Contents/Helpers/SignumPKCS11Worker" swift test --scratch-path .build/reliability --filter 'BatchAuthenticationTests|BatchAuthIntegrationTests'
+scripts/test-pkcs11-local.sh
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
+swift build --scratch-path .build/reliability -c debug
+swift build --scratch-path .build/reliability -c release
+```
+
+Per ripetere PAdES e packaging insieme utilizzare `scripts/build-beta-app.py`
+con `--configuration debug` e `release`, prefisso privato
+`--native-prefix .build/pr2-native-macos13/prefix` e `--output` **nuovo** per ogni
+bundle. Il packager configura/compila/verifica la suite nativa e il bundle
+rilocato. Non sovrascrivere i candidati consegnati. I run sanitizer usano
+`swift test --sanitize=address` e `--sanitize=thread` in scratch separati;
+selezione: `BatchAuthenticationTests|BatchAuthIntegrationTests|BatchAuthenticationPreferenceTests|BatchWorkspaceSummaryTests|BatchSigningTests|SigningInteractionTests|SigningWorkspaceTests|PKCS11LifecycleIntegrationTests|PKCS11WorkerTests|ProcessCoordinationTests`.
+Per ASAN impostare `ASAN_OPTIONS=detect_leaks=0`; esplicitare anche l'helper
+PAdES come sopra per non saltare le integrazioni.
+
+### Collaudo manuale preparato, non eseguito
+
+Demo fresca `.build/04a4-demo`: tre `.txt` e PDF sintetici, certificato valido
+sette giorni e modulo software `.build/04a4-demo/synthetic-provider.dylib`.
+Solo discovery CLI eseguita; nessuna apertura della GUI o firma hardware.
+Istruzioni della fixture in `.build/04a4-demo/DEMO.txt`. Rigenerare dopo la
+scadenza con `scripts/prepare-batch-demo.py --output` in directory nuova.
+
+1. Per una prova **solo software**, scollegare i token reali, aprire esattamente
+   `final-release/Signum.app`, scegliere il modulo sintetico e il suo certificato.
+   Non utilizzare PIN personali: il mock accetta una stringa fittizia non vuota.
+2. Modalità Automatica: aggiungere tre `.txt`, controllare destinazioni pronte,
+   approvare una volta e inserire una sola stringa fittizia. Attendere tre output
+   verificati e il riepilogo; provare dettagli, Apri cartella e Nuova sessione.
+3. Modalità PIN per ogni firma: nuova sessione e destinazioni libere, verificare
+   tre richieste. PDF PAdES e batch misti devono conservare richieste individuali.
+   Errori/risultati incerti devono restare distinguibili; nessun retry automatico.
+4. **Solo dopo autorizzazione hardware esplicita**, ripetere con DigitalDNA e poi
+   CNS, documenti sintetici e cartella nuova. Discovery automatica, certificato
+   idoneo, tre CAdES in Automatica: annotare numero effettivo di richieste e
+   messaggio di policy, senza registrare PIN. Un attributo true/unknown può
+   legittimamente richiedere altri PIN; non dedurne la causa dal produttore.
+5. In sessioni separate confrontare PIN per firma, tre PAdES e un batch misto;
+   controllare output con il verificatore abituale. Su errore/incertezza fermarsi,
+   conservare solo dettagli non sensibili e non ripetere il job automaticamente.
+6. Con ulteriori batch sintetici verificare annullamento, finestra chiusa e nuova
+   sessione: nessuna prosecuzione dei job revocati e nuova autenticazione per
+   il nuovo batch. Il collaudo precedente di sette documenti non valida questi
+   cambiamenti né sostituisce questo controllo.
+
+M1–M7 concluse per il perimetro software concordato. Nessuna nuova fase avviata;
+collaudo reale e accettazione interattiva restano separati dalla consegna.

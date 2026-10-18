@@ -265,3 +265,35 @@ commit, limiti, memoria, comandi ed esatta procedura nel
 Nessuna regressione software rilevata; GUI interattiva, casi reali Download,
 hardware e runtime macOS 13/14 restano da collaudare. Main invariato; nessun
 push/merge/tag/release, GitHub Actions o accesso a HalleyMac.
+
+## 18 ottobre 2026 — 0.4-A.4 Batch Authentication & Signing Workspace
+
+Branch `codex/signum-0.4-batch-auth` da HEAD build 4 `51e9d22` (codice `daca4cf`).
+Baseline ripetuta positiva; collaudo DigitalDNA/DS3 di sette CAdES e comportamento
+InfoCamere DigitalDNA/CNS sono evidenze riferite dall'utente, non nuove prove
+hardware. **M1–M7 completate nel perimetro software.**
+
+Worker isolato dedicato al batch CAdES approvato, lease esclusivo e sequenza
+immutabile. Un solo PIN nei test quando ALWAYS_AUTHENTICATE è leggibile false,
+USER fresco resta valido e Initialize è posseduta; true/unknown conservano il
+percorso sicuro per documento. Nessun PIN nei comandi successivi o nel coordinatore,
+nessun retry, login altrui rifiutata. Verifica RSA/CMS e commit atomico precedono
+ogni richiesta successiva. Errori, cancellazione e chiusura revocano la sessione;
+esiti incerti visibili. PAdES e batch misti restano one-shot, esplicitamente.
+
+Preferenza Automatica, quando supportata / PIN per firma. Workspace compatto con
+dettagli espandibili, destinazione prima del consenso, progressi/esiti, Apri
+cartella/Nuova sessione; PIN accessibile e anteprima PDFKit sullo snapshot.
+
+Codice **`7596f50`**: Swift **265/265**, PKCS#11 **40/40**, PAdES Debug/Release
+**63/63** per configurazione anche nei bundle/rilocati, packaging **10/10**,
+ASAN/TSAN mirati **64/64** ciascuno, auth con worker impacchettato **20/20**.
+Zero skip/fallimenti nei runner finali. Build e bundle Debug/Release passati;
+firma ad hoc, hash, dipendenze e cinque Mach-O minimo 13.0 verificati.
+
+Candidata **0.4.0/build 5**: `.build/04a4-bundles/final-release/Signum.app`
+(Debug separata), demo sintetica `.build/04a4-demo`. Alpha e candidati precedenti
+preservati. [Rapporto, commit, limiti e procedura manuale](SIGNUM_0.4_BATCH_AUTH.md).
+Nuova autenticazione reale DigitalDNA/CNS, runtime macOS 13/14 e accettazione GUI
+completa non eseguiti. Nessun hardware/PIN reale, push/merge/tag/release, CI remoto,
+installazione globale o accesso a HalleyMac; main e branch build 4 invariati.
