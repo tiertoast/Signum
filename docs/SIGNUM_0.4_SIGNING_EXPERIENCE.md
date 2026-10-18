@@ -52,7 +52,8 @@ Se manca la cartella comune, il pulsante non è abilitabile. Cartelle mancanti,
 non scrivibili o negate da ACL sono rifiutate prima dell'approvazione/PIN.
 
 Percorsi canonici e identità device/inode del parent approvati e ricontrollati
-prima dell'autenticazione; no fd/staging/output creati dal piano. Prenotazioni
+prima dell'autenticazione; descriptor directory temporanei in sola lettura,
+nessuno staging/output creato dal piano. Prenotazioni
 per directory fisica e nome, incluso collisioni fra cartelle alias; lstat considera
 anche symlink pendenti. CAdES `Relazione.pdf.p7m`, poi `Relazione (2).pdf.p7m`;
 PAdES conserva la convenzione esistente `Relazione-firmato.pdf`. Un solo assert
@@ -100,3 +101,33 @@ software, tre campi PIN consumati senza ulteriori conferme, seconda richiesta
 concorrente rifiutata, consenso annullato, errore prima della conferma, annullamento
 prima della Task senza retarget PIN, blocco dopo incertezza e stati/reset.
 Nessun PIN personale e nessuna autenticazione hardware.
+
+## M5 — Workspace funzionale
+
+Lista documenti, avanzamento ed esiti nella colonna destra CAdES, senza la seconda
+lista nella colonna sinistra. Selezionando un PDF: «Documenti ed esiti» / «Anteprima
+PDF», con PDFKit sullo stesso snapshot e pannello scorribile quando lo spazio è
+ridotto. Il primo tentativo di split verticale comprimendo coda e PDF è stato
+scartato dopo l'ispezione del rendering: i controlli del preview erano tagliati.
+La visualizzazione alternativa preserva lo spazio necessario al pannello esistente.
+All'invio del PIN si torna agli esiti, senza alterare i job o i campi già approvati.
+
+Selezioni e preferenze scorrono nella parte superiore sinistra; firma/PIN e stato
+restano in un'area separata, fuori da NSScrollView. Non viene richiesto un nuovo
+consenso per leggere anteprime o risultati. Candidato locale 0.4.0/build 3, macOS
+13 invariato; nessuna modifica alle funzioni grafiche di firma o alle primitive.
+
+**Test M5 + interazione: 8/8**, inclusi due test nativi NSHostingView/NSWindow:
+PIN unico e vuoto, nel viewport e senza antenati NSScrollView con 32 documenti,
+anche a 650 punti di altezza; PDFView reale con documento dello snapshot (una
+pagina, nessuna riapertura dell'originale). Discovery disabilitata solo tramite
+iniezione interna al test, con provider/certificati/preferenze sintetici: nessun
+flag di prodotto o caricamento automatico di moduli utente. I PNG di queste viste
+sono stati ispezionati localmente (`.build/04a3-ui`); i primi PNG trasparenti non
+consentivano una valutazione completa, poi corretti fondo/finestra e ripetuta la
+verifica. Le etichette versione dei rendering appartengono all'host XCTest, non
+al candidato .app; i metadati di quest'ultimo saranno verificati nel packaging.
+
+Limite: rendering e gerarchia nativa non provano tutta l'interazione operatore,
+Focus/Invio su un token reale o l'intero disegno GPU del contenuto PDFKit. Rimane
+necessario il collaudo manuale del bundle. Non è stata avviata discovery hardware.

@@ -34,29 +34,30 @@ private enum SignumFormat: String, Hashable {
 }
 
 @MainActor struct SignumWindow: View {
-    @StateObject private var batch = BatchSigningCoordinator()
+    @StateObject private var batch: BatchSigningCoordinator
     @StateObject private var interaction = SigningInteraction()
     @FocusState private var pinFocused: Bool
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) private var showExcludedCertificates = false
     @AppStorage(SigningExperiencePreferences.Keys.alongsideOriginal) private var saveAlongsideOriginal = true
-    @State private var customDirectory = SigningExperiencePreferences().customDirectory
+    @State private var customDirectory: URL?
     @State private var placements: [UUID: PAdESPlacement] = [:]
     @State private var readyPreviews = Set<UUID>()
     @State private var approvedFields: [UUID: SignumPAdESHelper.Field] = [:]
     @State private var approvedHolder = ""
     @State private var approvedRoute: DeviceCertificateRoute?
-    @State private var provider = ProviderSelection()
-    @State private var devices = DeviceSelection()
+    @State private var provider: ProviderSelection
+    @State private var devices: DeviceSelection
     @State private var discoveryStarted = false
     @State private var showDeviceConfiguration = false
     @State private var manualPath = ""
-    @State private var manualPaths = MiddlewarePreferences().paths
+    @State private var manualPaths: [String]
     @State private var work: SigningOperation?
     @State private var workPhase: SigningOperationPhase = .idle
     @State private var operation: SignumOperation = .sign
     @State private var format: SignumFormat = .cades
     @State private var pdfPlacement: PAdESPlacement?
     @State private var documentSnapshot: DocumentSnapshot?
+    @State private var showingPDFPreview = false
     @State private var previewSnapshotID: UUID?
     @State private var selectionRequestID = UUID()
     @State private var inputFile: URL?
@@ -64,6 +65,28 @@ private enum SignumFormat: String, Hashable {
     @State private var dropTargeted = false
     @State private var status = "Ricerca dei dispositivi di firma…"
     @State private var busy = false
+
+    private let automaticallyDiscover: Bool
+    private let preferences: SigningExperiencePreferences
+
+    // Internal dependency injection for native layout tests; no production flag,
+    // environment override or automatic loading of user-owned test modules.
+    init(batch: BatchSigningCoordinator? = nil, initialDevices: DeviceSelection = .init(),
+         initialProvider: ProviderSelection = .init(), selectedSnapshot: DocumentSnapshot? = nil,
+         automaticallyDiscover: Bool = true, defaults: UserDefaults = .standard) {
+        self.automaticallyDiscover = automaticallyDiscover
+        preferences = SigningExperiencePreferences(defaults: defaults)
+        _batch = StateObject(wrappedValue: batch ?? BatchSigningCoordinator())
+        _devices = State(initialValue: initialDevices); _provider = State(initialValue: initialProvider)
+        _manualPaths = State(initialValue: MiddlewarePreferences(defaults: defaults).paths)
+        _customDirectory = State(initialValue: SigningExperiencePreferences(defaults: defaults).customDirectory)
+        _showExcludedCertificates = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.showExcluded, store: defaults)
+        _saveAlongsideOriginal = AppStorage(wrappedValue: true, SigningExperiencePreferences.Keys.alongsideOriginal, store: defaults)
+        _documentSnapshot = State(initialValue: selectedSnapshot)
+        _showingPDFPreview = State(initialValue: selectedSnapshot?.format == .pades)
+        _inputFile = State(initialValue: selectedSnapshot?.originalURL)
+        _status = State(initialValue: initialDevices.providers.isEmpty ? "Ricerca dei dispositivi di firma…" : initialDevices.message)
+    }
 
     private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning || interaction.isRequestingApproval || interaction.isSubmittingPIN }
     private var destinationPolicy: BatchOutputDestination? {
@@ -124,22 +147,21 @@ private enum SignumFormat: String, Hashable {
 
             if operation == .sign {
                 HSplitView {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            tokenControls
-                            certificateControls
-                            formatPicker
-                            destinationControls
-                            documentPicker
-                            signingControls
-                            statusFooter
-                        }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
-                    .frame(minWidth: 350, idealWidth: 420, maxWidth: 550)
+                    VStack(spacing: 0) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 14) {
+                                tokenControls
+                                certificateControls
+                                formatPicker
+                                destinationControls
+                            }.padding(16).frame(maxWidth: .infinity, alignment: .topLeading)
+                        }.frame(minHeight: 100)
+                        Divider()
+                        signingControls.padding(.horizontal, 16).padding(.vertical, 10)
+                        statusFooter.padding(.horizontal, 16).padding(.bottom, 12)
+                    }.frame(minWidth: 350, idealWidth: 420, maxWidth: 500)
 
-                    pdfWorkspace
+                    sessionWorkspace
                         .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
@@ -158,7 +180,7 @@ private enum SignumFormat: String, Hashable {
             }
         }
         .onAppear {
-            guard !discoveryStarted else { return }
+            guard automaticallyDiscover, !discoveryStarted else { return }
             discoveryStarted = true
             discover()
         }
@@ -202,68 +224,98 @@ private enum SignumFormat: String, Hashable {
         }
     }
 
-    private var documentPicker: some View {
-        GroupBox("Documenti da firmare") {
+    @ViewBuilder private var sessionWorkspace: some View {
+        if documentSnapshot?.format == .pades {
+            VStack(spacing: 0) {
+                Picker("Visualizzazione", selection: $showingPDFPreview) {
+                    Text("Documenti ed esiti").tag(false)
+                    Text("Anteprima PDF").tag(true)
+                }.pickerStyle(.segmented).labelsHidden().padding(12)
+                if showingPDFPreview {
+                    ScrollView { pdfWorkspace.frame(minHeight: 560) }
+                } else { documentSession }
+            }
+        } else { documentSession }
+    }
+
+    private var documentSession: some View {
+        GroupBox("Documenti della sessione") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("\(batch.documents.count) documenti · nuovi file in \(format.rawValue.uppercased())")
-                        .font(.callout)
+                    Text("\(batch.documents.count) documenti · nuovi file in \(format.rawValue.uppercased())").font(.callout)
                     Spacer()
                     Button("Aggiungi…") { chooseFile() }.disabled(interfaceLocked || batch.isFrozen)
+                    if !batch.documents.isEmpty {
+                        Button("Nuova sessione") { resetSession() }.disabled(interfaceLocked)
+                    }
                 }
-                Text("Trascina qui uno o più documenti. Ogni documento richiede una propria autorizzazione.")
+                Text("Trascina qui i documenti. Le copie firmate usano i byte selezionati, anche se l'originale cambia.")
                     .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 34)
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3)))
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3)))
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted, perform: receiveDrop)
-                ForEach(batch.documents) { entry in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack {
-                            Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
-                                .lineLimit(2).disabled(batch.isRunning)
-                            Spacer()
-                            if !batch.isFrozen {
-                                Button("Rimuovi") {
-                                    let selected = documentSnapshot?.identity.id == entry.id
-                                    batch.remove(entry.id); placements[entry.id] = nil; readyPreviews.remove(entry.id)
-                                    if selected { showDocument(batch.documents.first?.id) }
-                                }.disabled(interfaceLocked)
-                            } else if batch.isApproved && !entry.state.isTerminal {
-                                Button("Annulla") { batch.cancelDocument(entry.id); provider.pin = "" }
-                                    .disabled(batch.isRunning && batch.nextDocument?.id == entry.id)
-                            }
-                        }
-                        Text("\(entry.snapshot.format.rawValue.uppercased()) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.snapshot.identity.byteCount), countStyle: .file)) · \(entry.state.message)")
-                            .font(.caption)
-                        Text("Origine: " + BatchDisplay.sourceLabel(entry.snapshot.originalURL, among: batch.documents.map { $0.snapshot.originalURL }))
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Text(entry.destination.map(BatchDisplay.destinationLabel) ?? "Destinazione: cartella da scegliere alla conferma")
-                            .font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
-                        if !entry.result.isEmpty { Text(entry.result).font(.caption) }
-                    }.padding(.vertical, 4)
-                }
-                if let snapshot = documentSnapshot {
-                    DisclosureGroup("Dettagli tecnici del documento selezionato") {
-                        Text("Origine: \(snapshot.originalURL.path)\nDestinazione: \(batch.documents.first(where: { $0.id == snapshot.identity.id })?.destination?.path ?? "Da scegliere")\n\(snapshot.identity.byteCount) byte · SHA-256 \(snapshot.identity.sha256)")
-                            .font(.caption2).textSelection(.enabled)
-                    }
-                }
-                ForEach(Array(batch.selectionIssues.enumerated()), id: \.offset) { _, message in
-                    Text(message).font(.caption).foregroundStyle(.secondary)
-                }
-                Text("Le modifiche successive agli originali non sono incluse. Massimo 32 documenti e 128 MiB per sessione.")
-                    .font(.caption).foregroundStyle(.secondary)
                 if !batch.documents.isEmpty {
-                    Button("Nuova sessione") {
-                        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]; approvedRoute = nil
-                        showDocument(nil); provider.pin = ""; lastSignedFile = nil
-                    }.disabled(interfaceLocked)
-                    DisclosureGroup("Resoconto sessione") {
-                        Text(batch.sessionReport).font(.caption).textSelection(.enabled)
+                    ProgressView(value: Double(batch.finishedCount), total: Double(max(1, batch.documents.count)))
+                    Text("\(batch.finishedCount) di \(batch.documents.count) conclusi · \(presentation.resultSummary)").font(.caption)
+                }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        if batch.documents.isEmpty { Text("Aggiungi uno o più documenti per preparare la firma.").foregroundStyle(.secondary).padding() }
+                        ForEach(batch.documents) { entry in documentRow(entry) }
+                        ForEach(Array(batch.selectionIssues.enumerated()), id: \.offset) { _, message in Text(message).font(.caption) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Text("Massimo 32 documenti e 128 MiB per sessione.").font(.caption2).foregroundStyle(.secondary)
+                if !batch.documents.isEmpty {
+                    DisclosureGroup("Resoconto e dettagli tecnici") {
+                        ScrollView { Text(batch.sessionReport).font(.caption2).textSelection(.enabled) }.frame(maxHeight: 100)
                     }
                 }
-            }.padding(5)
-        }
+            }.padding(7)
+        }.padding(12)
+    }
+
+    private func documentRow(_ entry: BatchDocument) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
+                    .font(.headline).lineLimit(2).disabled(batch.isRunning || interaction.isSubmittingPIN)
+                Text(entry.snapshot.format.rawValue.uppercased()).font(.caption)
+                Spacer()
+                Text(entry.state.message).font(.caption)
+                if !batch.isFrozen {
+                    Button("Rimuovi") {
+                        let selected = documentSnapshot?.identity.id == entry.id
+                        batch.remove(entry.id); placements[entry.id] = nil; readyPreviews.remove(entry.id)
+                        if selected { showDocument(batch.documents.first?.id) }
+                    }.disabled(interfaceLocked)
+                } else if batch.isApproved && !entry.state.isTerminal {
+                    Button("Annulla") { batch.cancelDocument(entry.id); provider.pin = "" }
+                        .disabled((batch.isRunning || interaction.isSubmittingPIN) && batch.nextDocument?.id == entry.id)
+                }
+            }
+            Text("Origine: " + BatchDisplay.sourceLabel(entry.snapshot.originalURL, among: batch.documents.map { $0.snapshot.originalURL }))
+                .font(.caption).foregroundStyle(.secondary)
+            let proposed = entry.destination ?? destinationPolicy?.proposedURL(for: entry.snapshot)
+            if let proposed {
+                Text((entry.destination == nil ? "Destinazione prevista: " : "Destinazione: ") +
+                     BatchDisplay.destinationLabel(proposed, among: batch.documents.compactMap { $0.destination ?? destinationPolicy?.proposedURL(for: $0.snapshot) }))
+                    .font(.caption).textSelection(.enabled)
+            } else { Text("Destinazione da scegliere").font(.caption) }
+            if !entry.result.isEmpty { Text(entry.result).font(.caption) }
+            DisclosureGroup("Dettagli tecnici del documento") {
+                Text("Origine: \(entry.snapshot.originalURL.path)\nDestinazione: \(proposed?.path ?? "Da scegliere")\n\(entry.snapshot.identity.byteCount) byte · SHA-256 \(entry.snapshot.identity.sha256)\nSnapshot: \(entry.id)")
+                    .font(.caption2).textSelection(.enabled)
+            }
+            Divider()
+        }.padding(.vertical, 4)
+    }
+
+    private func resetSession() {
+        guard !interfaceLocked else { return }
+        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]; approvedRoute = nil
+        showDocument(nil); provider.pin = ""; lastSignedFile = nil
+        status = "Nuova sessione. Scegli i documenti da firmare."
     }
 
     private var destinationControls: some View {
@@ -299,7 +351,7 @@ private enum SignumFormat: String, Hashable {
         picker.allowsMultipleSelection = false; picker.canCreateDirectories = false
         picker.directoryURL = customDirectory
         if picker.runModal() == .OK, let directory = picker.url {
-            customDirectory = directory; SigningExperiencePreferences().customDirectory = directory
+            customDirectory = directory; preferences.customDirectory = directory
             provider.pin = ""
         }
     }
@@ -333,7 +385,7 @@ private enum SignumFormat: String, Hashable {
                     if let route = group.routes.first(where: { $0.id == devices.selectedRouteID }) ?? group.routes.first {
                         Button {
                             if devices.selectedRoute?.certificateFingerprint != group.id {
-                                let preferred = MiddlewarePreferences().preferredPath
+                                let preferred = MiddlewarePreferences(defaults: preferences.defaults).preferredPath
                                 selectRoute(group.routes.first(where: { $0.providerPath == preferred })?.id ?? route.id)
                             }
                         } label: {
@@ -396,7 +448,6 @@ private enum SignumFormat: String, Hashable {
                     Text("Il riepilogo include tutti i documenti. Per ogni PDF apri prima l'anteprima dall'elenco.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("\(batch.finishedCount) di \(batch.documents.count) conclusi")
                     if let prompt = presentation.pinPrompt, let next = batch.nextDocument {
                         Text(prompt).font(.headline)
                         Text(next.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
@@ -406,7 +457,7 @@ private enum SignumFormat: String, Hashable {
                             .disabled(interfaceLocked)
                         Button("Firma") { authorizeNextDocument() }.disabled(!canAuthorizeNext)
                     }
-                    if presentation.stage == .completed { Text(presentation.resultSummary).font(.caption) }
+                    if presentation.stage == .completed { Text("Sessione conclusa. Consulta gli esiti a destra.").font(.caption) }
                     if batch.needsOutcomeReview {
                         Text("Esito incerto: controlla dispositivo ed eventuale output prima di continuare. La firma non verrà ripetuta.").font(.caption)
                         Button("Ho verificato l'esito: consenti il prossimo documento") { batch.acknowledgeUncertainOutcome(); provider.pin = "" }
@@ -504,7 +555,7 @@ private enum SignumFormat: String, Hashable {
         let paths = manual.map { [$0.trimmingCharacters(in: .whitespacesAndNewlines)] } ?? []
         if let path = paths.first {
             guard MiddlewarePreferences.valid(path) else { status = "Scegli un percorso assoluto valido."; return }
-            MiddlewarePreferences().remember(path); manualPaths = MiddlewarePreferences().paths
+            MiddlewarePreferences(defaults: preferences.defaults).remember(path); manualPaths = MiddlewarePreferences(defaults: preferences.defaults).paths
         }
         provider.beginDiscovery()
         let request = devices.beginDiscovery(), operation = beginWork()
@@ -531,7 +582,7 @@ private enum SignumFormat: String, Hashable {
         provider.beginDiscovery() // Clears certificate caches and PIN atomically.
         guard devices.select(routeID: id), let route = devices.selectedRoute else { return }
         provider.select(route: route)
-        MiddlewarePreferences().prefer(route.providerPath)
+        MiddlewarePreferences(defaults: preferences.defaults).prefer(route.providerPath)
         status = "Certificato selezionato: \(route.title). \(route.assessment.status.description)."
     }
 
@@ -545,7 +596,7 @@ private enum SignumFormat: String, Hashable {
 
     private func removeManualModule(_ path: String) {
         guard !interfaceLocked, !batch.isFrozen else { return }
-        MiddlewarePreferences().remove(path); manualPaths = MiddlewarePreferences().paths
+        MiddlewarePreferences(defaults: preferences.defaults).remove(path); manualPaths = MiddlewarePreferences(defaults: preferences.defaults).paths
         if manualPath == path { manualPath = "" }
         devices.beginDiscovery(); provider.beginDiscovery()
         status = "Configurazione manuale rimossa. Cerca nuovamente per scegliere un certificato."
@@ -589,6 +640,7 @@ private enum SignumFormat: String, Hashable {
     private func showDocument(_ id: UUID?) {
         if let old = documentSnapshot, batch.documents.contains(where: { $0.id == old.identity.id }) { placements[old.identity.id] = pdfPlacement }
         documentSnapshot = batch.documents.first(where: { $0.id == id })?.snapshot
+        showingPDFPreview = documentSnapshot?.format == .pades
         inputFile = documentSnapshot?.originalURL
         pdfPlacement = id.flatMap { placements[$0] }
         previewSnapshotID = nil
@@ -633,6 +685,7 @@ private enum SignumFormat: String, Hashable {
         guard canAuthorizeNext else { return }
         let fields = approvedFields, holder = approvedHolder
         guard let route = approvedRoute else { return }
+        showingPDFPreview = false
         interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
             try route.requireCurrentModule()
             if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
