@@ -103,8 +103,7 @@ import SignumCore
         return "Firma \(index + 1) di \(batch.documents.count) — Inserisci PIN"
     }
     var resultSummary: String {
-        let count: (BatchDocumentState) -> Int = { state in batch.documents.filter { $0.state == state }.count }
-        return "\(count(.completed)) firmati · \(count(.failed)) non riusciti · \(count(.cancelled)) annullati · \(count(.uncertain)) incerti"
+        BatchWorkspaceSummary.summary(batch.documents.map(\.state))
     }
 }
 #endif

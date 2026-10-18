@@ -128,3 +128,38 @@ restano off-main. Nessuna attribuzione di capability al nome del dispositivo.
 Test M5: preferenza isolata/persistenza/valore invalido e assenza credenziali,
 policy CAdES/PAdES/misti/identità sconosciuta, regressioni auth/UI/PIN. Il caso
 seriale/modulo cambiato, aggiunto dopo il run M4, è verificato qui prima del login.
+
+M5: **27/27** test mirati, più **1/1** specifico per identità modulo/seriale.
+Quest'ultimo era inizialmente annidato per errore in un altro metodo e quindi
+non scoperto da XCTest: corretto lo scope, eseguito esplicitamente e contato
+soltanto dopo l'esecuzione. Il run finale completo lo include.
+
+## M6 — Workspace compatto
+
+Intestazione unica Documenti, conteggio, barra e riepilogo degli esiti. Riga
+principale: indicatore semantico, nome troncabile/tooltip, formato e stato breve.
+Prima del consenso restano visibili le destinazioni effettive già pianificate;
+poi i percorsi vengono mostrati solo espandendo. Dettagli per documento: origine,
+destinazione, dimensione/hash, verifica, certificato/fingerprint, provider/slot,
+ID job/snapshot ed errore integrale. Azioni Rimuovi/Annulla nei dettagli; Apri
+cartella e Nuova sessione nell'intestazione. Nessun Finder avviato dai test.
+
+Riepilogo separa successi, fallimenti, annullamenti e risultati da verificare.
+PDFKit e approvazione degli snapshot restano invariati. Campo PIN fuori dallo
+scroll laterale, nascosto durante continuazione automatica. Nessun redesign,
+animazione o Liquid Glass. Candidato portato a **0.4.0/build 5**, target 13 invariato.
+
+**31/31** test mirati finali auth/workspace/PIN, inclusi teardown bloccato visibile
+e Initialize non posseduta (nessun Finalize/riuso). Aggiornato un solo assert sul
+test interazione per il nuovo testo richiesto «3 documenti firmati correttamente»;
+prima esecuzione lo segnalava come differenza, invarianti PIN/firme mantenuti.
+Modello riepilogo coperto da due nuovi test; terzo test nativo aggiunto per errore
+visibile, nessun PIN e nessun output. Rendering propri NSHostingView/NSWindow
+ispezionati: lista 32 documenti/PIN raggiungibile a 650 punti, errore distinguibile
+e pannello PDFKit conservato. PNG `.build/04a4-ui`. Versione dei PNG è quella
+dell'host XCTest (16.0/build 25229), non del bundle. Rendering GPU del contenuto
+PDF non interamente acquisito: verificati documento/pageCount e binding snapshot,
+non dichiarata completa accettazione visiva/interattiva.
+
+Ultimo controllo layout dopo le sole etichette singolare/formato nuovi documenti:
+**5/5** (riepilogo e viste native). Nessun popup o interazione hardware nei test.

@@ -240,7 +240,7 @@ private enum SignumFormat: String, Hashable {
     }
 
     private var formatPicker: some View {
-        GroupBox("Tipologia di firma") {
+        GroupBox("Formato per nuovi documenti") {
             Picker("Formato", selection: $format) {
                 Text("CAdES — documento .p7m").tag(SignumFormat.cades)
                 Text("PAdES — PDF firmato").tag(SignumFormat.pades)
@@ -269,11 +269,14 @@ private enum SignumFormat: String, Hashable {
     }
 
     private var documentSession: some View {
-        GroupBox("Documenti della sessione") {
+        GroupBox("Documenti") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("\(batch.documents.count) documenti · nuovi file in \(format.rawValue.uppercased())").font(.callout)
+                    Text(batch.documents.count == 1 ? "1 documento" : "\(batch.documents.count) documenti").font(.callout)
                     Spacer()
+                    if batch.documents.contains(where: { $0.state == .completed }) {
+                        Button("Apri cartella") { NSWorkspace.shared.activateFileViewerSelecting(batch.documents.filter { $0.state == .completed }.compactMap(\.destination)) }
+                    }
                     Button("Aggiungi…") { chooseFile() }.disabled(interfaceLocked || batch.isFrozen)
                     if !batch.documents.isEmpty {
                         Button("Nuova sessione") { resetSession() }.disabled(interfaceLocked)
@@ -284,7 +287,7 @@ private enum SignumFormat: String, Hashable {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3)))
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted, perform: receiveDrop)
-                if let route = devices.selectedRoute {
+                if !batch.isApproved, let route = devices.selectedRoute {
                     Text("Firmatario: \(selectedHolder) · Certificato: \(route.title)").font(.caption).textSelection(.enabled)
                 }
                 if let plan = review.approval, review.matches(reviewContext, batch: batch), !batch.isApproved {
@@ -294,7 +297,8 @@ private enum SignumFormat: String, Hashable {
                 }
                 if !batch.documents.isEmpty {
                     ProgressView(value: Double(batch.finishedCount), total: Double(max(1, batch.documents.count)))
-                    Text("\(batch.finishedCount) di \(batch.documents.count) conclusi · \(presentation.resultSummary)").font(.caption)
+                    if batch.isApproved { Text((batch.needsOutcomeReview ? "Verifica richiesta · " : "") + presentation.resultSummary).font(.caption) }
+                    if batch.isRunning, let current = batch.nextDocument { Text("In corso: " + current.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(1).help(current.snapshot.originalURL.lastPathComponent) }
                 }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -303,55 +307,64 @@ private enum SignumFormat: String, Hashable {
                         ForEach(Array(batch.selectionIssues.enumerated()), id: \.offset) { _, message in Text(message).font(.caption) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("Massimo 100 MiB per documento · 32 documenti e 128 MiB per sessione.").font(.caption2).foregroundStyle(.secondary)
+                if !batch.isApproved { Text("Massimo 100 MiB per documento · 32 documenti e 128 MiB per sessione.").font(.caption2).foregroundStyle(.secondary) }
                 if !batch.selectionTechnicalDetails.isEmpty {
                     DisclosureGroup("Dettagli tecnici acquisizione") {
                         Text(batch.selectionTechnicalDetails.joined(separator: "\n")).font(.caption2).textSelection(.enabled)
                     }
                 }
-                if !batch.documents.isEmpty {
-                    DisclosureGroup("Resoconto e dettagli tecnici") {
-                        ScrollView { Text(batch.sessionReport).font(.caption2).textSelection(.enabled) }.frame(maxHeight: 100)
-                    }
-                }
+
             }.padding(7)
         }.padding(12)
     }
 
     private func documentRow(_ entry: BatchDocument) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
-                    .font(.headline).lineLimit(2).disabled(batch.isRunning || interaction.isSubmittingPIN)
-                Text(entry.snapshot.format.rawValue.uppercased()).font(.caption)
-                Spacer()
-                Text(entry.state.message).font(.caption)
-                if !batch.isFrozen {
-                    Button("Rimuovi") {
-                        let selected = documentSnapshot?.identity.id == entry.id
-                        batch.remove(entry.id); placements[entry.id] = nil; readyPreviews.remove(entry.id)
-                        if selected { showDocument(batch.documents.first?.id) }
-                    }.disabled(interfaceLocked)
-                } else if batch.isApproved && !entry.state.isTerminal {
-                    Button("Annulla") { batch.cancelDocument(entry.id); provider.pin = "" }
-                        .disabled((batch.isRunning || interaction.isSubmittingPIN) && batch.nextDocument?.id == entry.id)
-                }
+        let job = (batch.approval ?? review.approval)?.jobs.first { $0.snapshotIdentity.id == entry.id }
+        let destination = entry.destination ?? (review.matches(reviewContext, batch: batch) ? job?.destination : nil)
+        let rowStatus = !batch.isApproved && destination != nil && entry.state == .pending ? "Pronto" : BatchWorkspaceSummary.status(entry.state)
+        return VStack(alignment: .leading, spacing: 3) {
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(entry.snapshot.originalURL.lastPathComponent).font(.callout)
+                    Text("Origine: \(entry.snapshot.originalURL.path)\nDestinazione: \(destination?.path ?? "Da preparare")\n\(entry.snapshot.identity.byteCount) byte · SHA-256 \(entry.snapshot.identity.sha256)")
+                    Text("Certificato: " + (batch.isApproved ? approvedHolder : selectedHolder))
+                    if let job { Text("Certificato SHA-256: \(job.certificateSHA256)\nProvider: \(job.providerPath) · slot \(job.slot)\nJob: \(job.id) · snapshot: \(entry.id)") }
+                    Text(entry.state == .completed ? "Verifica crittografica completata prima della pubblicazione." : "Esito: " + entry.state.message)
+                    if !entry.result.isEmpty { Text(entry.result) }
+                    HStack {
+                        if !batch.isFrozen {
+                            Button("Rimuovi") {
+                                let selected = documentSnapshot?.identity.id == entry.id
+                                batch.remove(entry.id); placements[entry.id] = nil; readyPreviews.remove(entry.id)
+                                if selected { showDocument(batch.documents.first?.id) }
+                            }.disabled(interfaceLocked)
+                        } else if batch.isApproved && !entry.state.isTerminal {
+                            Button("Annulla documento") { batch.cancelDocument(entry.id); provider.pin = "" }
+                                .disabled((batch.isRunning || interaction.isSubmittingPIN) && batch.nextDocument?.id == entry.id)
+                        }
+                    }
+                }.font(.caption2).textSelection(.enabled).padding(.vertical, 5)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: BatchWorkspaceSummary.symbol(entry.state))
+                        .foregroundStyle(entry.state == .completed ? Color.green : (entry.state == .failed || entry.state == .uncertain ? Color.orange : Color.secondary))
+                        .accessibilityLabel(rowStatus)
+                    Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
+                        .buttonStyle(.plain).lineLimit(1).truncationMode(.middle)
+                        .help(entry.snapshot.originalURL.lastPathComponent).disabled(batch.isRunning || interaction.isSubmittingPIN)
+                    Text(entry.snapshot.format.rawValue.uppercased()).font(.caption2).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text(rowStatus).font(.caption).lineLimit(1)
+                }.padding(.vertical, 3)
             }
-            Text("Origine: " + BatchDisplay.sourceLabel(entry.snapshot.originalURL, among: batch.documents.map { $0.snapshot.originalURL }))
-                .font(.caption).foregroundStyle(.secondary)
-            let proposed = entry.destination ?? (review.matches(reviewContext, batch: batch) ? review.approval?.jobs.first(where: { $0.snapshotIdentity.id == entry.id })?.destination : nil)
-            if let proposed {
-                Text("Destinazione: " +
-                     BatchDisplay.destinationLabel(proposed, among: batch.documents.compactMap { item in item.destination ?? review.approval?.jobs.first(where: { $0.snapshotIdentity.id == item.id })?.destination }))
-                    .font(.caption).textSelection(.enabled)
-            } else { Text("Destinazione da preparare prima della firma").font(.caption) }
-            if !entry.result.isEmpty { Text(entry.result).font(.caption) }
-            DisclosureGroup("Dettagli tecnici del documento") {
-                Text("Origine: \(entry.snapshot.originalURL.path)\nDestinazione: \(proposed?.path ?? "Da scegliere")\n\(entry.snapshot.identity.byteCount) byte · SHA-256 \(entry.snapshot.identity.sha256)\nSnapshot: \(entry.id)")
-                    .font(.caption2).textSelection(.enabled)
+            if !batch.isApproved {
+                if let destination {
+                    Text("Destinazione: " + BatchDisplay.destinationLabel(destination, among: review.approval?.jobs.map(\.destination) ?? []))
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(destination.path)
+                } else { Text("Destinazione in preparazione").font(.caption2).foregroundStyle(.secondary) }
             }
             Divider()
-        }.padding(.vertical, 4)
+        }.padding(.vertical, 2)
     }
 
     private func resetSession() {
@@ -544,11 +557,7 @@ private enum SignumFormat: String, Hashable {
             Image(systemName: "info.circle").foregroundStyle(.secondary)
             Text(status).font(.caption).textSelection(.enabled)
             Spacer(minLength: 0)
-            if let file = lastSignedFile {
-                Button("Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([file])
-                }
-            }
+
         }
     }
 

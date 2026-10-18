@@ -44,7 +44,7 @@ import CoreGraphics
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let bytes = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let folder = root.appendingPathComponent(".build/04a31-ui")
+        let folder = root.appendingPathComponent(".build/04a4-ui")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try bytes.write(to: folder.appendingPathComponent(name + ".png"))
     }
@@ -100,6 +100,26 @@ import CoreGraphics
                 XCTAssertTrue(host.bounds.intersects(preview.convert(preview.bounds, to: host)))
                 XCTAssertEqual(try snapshot.verifiedBytes(), bytes as Data)
             }
+        }
+    }
+    func testCompactFailureWorkspaceHasNoPINAndKeepsErrorDetails() async throws {
+        try await fixture { root, defaults, batch, devices, provider, der in
+            let source = root.appendingPathComponent("synthetic-long-document-name-for-workspace-layout.txt")
+            try Data("Synthetic failure workspace".utf8).write(to: source)
+            await batch.addDocuments([source], format: .cades)
+            let plan = try await batch.prepareApproval(provider: "/synthetic/bit4id.dylib", slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
+            try batch.confirm(plan)
+            try await batch.authorizeNext(pin: "synthetic-ui") { _, _, _ in throw SignumError.module("Synthetic error details") }
+            try render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                automaticallyDiscover: false, defaults: defaults), name: "compact-error") { host in
+                XCTAssertTrue(descendants(host).contains { $0 is NSScrollView })
+                XCTAssertFalse(descendants(host).contains { $0 is NSSecureTextField })
+            }
+            XCTAssertEqual(batch.documents[0].state, .failed)
+            XCTAssertTrue(batch.documents[0].result.contains("Synthetic error details"))
+            XCTAssertEqual(BatchWorkspaceSummary.summary(batch.documents.map(\.state)), "0 firmati · 1 non riuscito")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.jobs[0].destination.path))
         }
     }
 }

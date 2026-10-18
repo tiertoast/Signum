@@ -7,7 +7,7 @@ final class BatchAuthenticationTests: XCTestCase {
     func count(_ mock: MockModule, _ op: Int) -> Int {
         ((try? String(contentsOf: mock.folder.appendingPathComponent("operations"))) ?? "").split(separator: "\n").filter { $0 == String(op) }.count
     }
-    func fixture(always: Bool = false, unknown: Bool = false, preauthenticated: Bool = false,
+    func fixture(always: Bool = false, unknown: Bool = false, preauthenticated: Bool = false, preinitialized: Bool = false,
                  phase: Int? = nil, effect: Int = 0, after: Int = 0,
                  _ body: (MockModule, BatchSignatureConnection) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -15,7 +15,7 @@ final class BatchAuthenticationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let signer = try SoftwareSigner(folder: root)
         let mock = try MockModule(certificate: signer.der, privateKey: signer.rsaPrivateDER(), workerPhase: phase,
-            workerEffect: effect, audit: true, alwaysAuth: always, unknownAuth: unknown, preauthenticated: preauthenticated, faultAfter: after)
+            workerEffect: effect, audit: true, alwaysAuth: always, unknownAuth: unknown, preauthenticated: preauthenticated, preinitialized: preinitialized, faultAfter: after)
         let jobs = try (1...3).map { index in BatchWorkerJob(id: UUID(), snapshotID: UUID(), sha256: String(repeating: "a", count: 64),
             attributes: try CAdES.Prepared(document: Data("Synthetic batch \(index)".utf8), certificateDER: signer.der).attributesToSign) }
         let inspected = try MiddlewareFileSecurity.inspect(mock.path.path, automatic: false)
@@ -112,6 +112,7 @@ final class BatchAuthenticationTests: XCTestCase {
             try fresh.finish()
             XCTAssertEqual(count(mock, 8), 2); XCTAssertEqual(count(mock, 16), 2)
         }
+    }
     func testChangedSerialOrModuleCannotReceivePINOrSign() throws {
         for changeModule in [false, true] {
             try fixture { mock, original in
@@ -130,6 +131,15 @@ final class BatchAuthenticationTests: XCTestCase {
             }
         }
     }
+
+    func testProviderInitializedByAnotherOwnerIsNotFinalizedOrReused() throws {
+        try fixture(preinitialized: true) { mock, session in
+            let job = session.manifest.jobs[0]
+            _ = try session.sign(jobID: job.id, attributes: job.attributes, pin: "synthetic-fixture")
+            XCTAssertFalse(session.reusable)
+            XCTAssertEqual(count(mock, 0), 1); XCTAssertEqual(count(mock, 1), 0)
+            XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 16), 1)
+        }
     }
 
 }

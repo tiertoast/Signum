@@ -127,6 +127,9 @@ static CK_RV initialize(void *args) {
     }
 #endif
     stats.initialize_flags = args ? ((CK_C_INITIALIZE_ARGS_PTR)args)->flags : 0;
+#if SIGNUM_MOCK_PREINITIALIZED
+    stats.initialized = 1;
+#endif
     if (stats.initialized) return end(CKR_CRYPTOKI_ALREADY_INITIALIZED);
     stats.initialized = 1; return end(CKR_OK);
 }

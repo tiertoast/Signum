@@ -136,5 +136,16 @@ import XCTest
             XCTAssertFalse(plan.jobs.contains { FileManager.default.fileExists(atPath: $0.destination.path) })
         }
     }
+    func testUnconfirmedTeardownRemainsVisibleAndBlocksFurtherAuthentication() async throws {
+        try await fixture(phase: 1, effect: 2) { _, mock, batch, _, session in
+            try await first(batch, session)
+            batch.cancelPending()
+            await batch.continueAuthenticatedBatch(using: session)
+            XCTAssertTrue(session.cleanupUncertain); XCTAssertTrue(batch.needsOutcomeReview)
+            XCTAssertFalse(batch.authenticationNotice.isEmpty); XCTAssertFalse(batch.isContinuingAuthenticated)
+            XCTAssertEqual(count(mock, 16), 1)
+        }
+    }
+
 }
 #endif

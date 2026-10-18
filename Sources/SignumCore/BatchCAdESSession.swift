@@ -21,7 +21,11 @@ public final class BatchCAdESSession: @unchecked Sendable {
                   $0.certificate.identifier == first.certificate.identifier && $0.certificateDER == first.certificateDER }) else {
             throw SignumError.module("La modalità automatica richiede un batch CAdES e un'identità dispositivo disponibile.")
         }
-        let start = snapshotID.flatMap { id in approval.jobs.firstIndex { $0.snapshotIdentity.id == id } } ?? 0
+        let start: Int
+        if let snapshotID {
+            guard let index = approval.jobs.firstIndex(where: { $0.snapshotIdentity.id == snapshotID }) else { throw SignumError.module("Documento iniziale non approvato.") }
+            start = index
+        } else { start = 0 }
         jobs = approval.jobs.dropFirst(start).filter { remainingSnapshotIDs?.contains($0.snapshotIdentity.id) ?? true }; approvalID = approval.id
         guard !jobs.isEmpty else { throw SignumError.module("Nessun documento in attesa.") }
         self.serial = serial; identity = moduleIdentity; automatic = automaticModule; self.executable = executable

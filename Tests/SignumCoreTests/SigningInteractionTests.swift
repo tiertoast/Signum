@@ -61,7 +61,7 @@ import XCTest
             }
             let final = SigningPresentation(batch: batch, interaction: interaction, destinationReady: true, canApprove: false)
             XCTAssertEqual(final.stage, .completed); XCTAssertNil(final.pinPrompt)
-            XCTAssertTrue(final.resultSummary.contains("3 firmati")); XCTAssertEqual(audit(mock, "10"), 0)
+            XCTAssertEqual(final.resultSummary, "3 documenti firmati correttamente"); XCTAssertEqual(audit(mock, "10"), 0)
         }
     }
     func testCancelledConsentLeavesSelectionEditableWithoutAuthentication() async throws {

@@ -17,7 +17,7 @@ final class MockModule: @unchecked Sendable {
     let waitBlocked: @convention(c) () -> Int32
     let release: @convention(c) () -> Void
 
-    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false, reportVersion: Bool = false, alwaysAuth: Bool = false, unknownAuth: Bool = false, preauthenticated: Bool = false, faultAfter: Int = 0) throws {
+    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false, reportVersion: Bool = false, alwaysAuth: Bool = false, unknownAuth: Bool = false, preauthenticated: Bool = false, preinitialized: Bool = false, faultAfter: Int = 0) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         folder = root.appendingPathComponent(".build/swift-provider-tests/" + UUID().uuidString)
@@ -35,6 +35,7 @@ final class MockModule: @unchecked Sendable {
         compiler.arguments! += [
                                  "-DSIGNUM_MOCK_UNKNOWN_AUTH=\(unknownAuth ? 1 : 0)",
                                  "-DSIGNUM_MOCK_PREAUTHENTICATED=\(preauthenticated ? 1 : 0)",
+                                 "-DSIGNUM_MOCK_PREINITIALIZED=\(preinitialized ? 1 : 0)",
                                  "-DSIGNUM_MOCK_FAULT_AFTER=\(faultAfter)"]
         if reportVersion { compiler.arguments! += ["-DSIGNUM_MOCK_REPORT_VERSION=1"] }
         if let workerPhase {
