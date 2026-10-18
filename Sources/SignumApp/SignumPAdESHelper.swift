@@ -27,6 +27,7 @@ enum SignumPAdESHelper {
                      executable: URL? = nil, timeout: TimeInterval = 120) throws {
         defer { job.snapshot.close() }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
+        try job.requireAvailableDestination()
         _ = try job.verifiedBytes()
         let input = job.snapshot.fileURL, output = job.destination
         let modulePath = job.providerPath, slot = job.slot, certificateID = job.certificate.id

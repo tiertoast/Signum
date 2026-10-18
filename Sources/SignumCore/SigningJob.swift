@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import Darwin
 
 /// Internal application operation, not an inter-application protocol. No PIN or
 /// mutable UI state is retained. Approval must refer to this exact value.
@@ -15,9 +16,11 @@ public struct SigningJob: Sendable {
     public let certificateDER: Data
     public let certificateSHA256: String
     public let destination: URL
+    public let destinationDirectoryIdentity: OutputDirectoryIdentity?
 
     public init(snapshot: DocumentSnapshot, providerPath: String, slot: UInt,
-                certificate: SignumCertificate, certificateDER: Data, destination: URL) throws {
+                certificate: SignumCertificate, certificateDER: Data, destination: URL,
+                destinationDirectoryIdentity: OutputDirectoryIdentity? = nil) throws {
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
               destination.standardizedFileURL != snapshot.fileURL,
               destination.pathExtension.lowercased() == (snapshot.format == .cades ? "p7m" : "pdf"),
@@ -29,6 +32,15 @@ public struct SigningJob: Sendable {
         self.providerPath = providerPath; self.slot = slot; self.certificate = certificate
         self.certificateDER = certificateDER; self.certificateSHA256 = DocumentSnapshot.digest(certificateDER)
         self.destination = destination.standardizedFileURL
+        self.destinationDirectoryIdentity = destinationDirectoryIdentity
+    }
+
+    public func requireAvailableDestination() throws {
+        if let destinationDirectoryIdentity { try destinationDirectoryIdentity.requireCurrent(at: destination.deletingLastPathComponent()) }
+        var info = stat()
+        guard lstat(destination.path, &info) != 0, errno == ENOENT else {
+            throw SignumError.module("La destinazione approvata è occupata o non ispezionabile. Nessuna autenticazione inviata. Per un nome diverso prepara e conferma una nuova sessione.")
+        }
     }
 
     public var approvalDescription: String {
@@ -55,6 +67,7 @@ public struct SigningJob: Sendable {
     func executeCAdES(io: SignumFileOutput.OutputIO = .init(), isCancelled: () -> Bool = { false }, sign: (Data) throws -> Data) throws {
         defer { snapshot.close() }
         guard format == .cades else { throw SignumError.module("Formato del job non compatibile.") }
+        try requireAvailableDestination()
         let approved = try verifiedBytes()
         try CertificateEligibility.requireEligible(certificateDER: certificateDER)
         let cms = try sign(approved)

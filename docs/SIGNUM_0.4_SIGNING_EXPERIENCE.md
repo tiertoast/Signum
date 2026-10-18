@@ -38,3 +38,38 @@ Test mirati filtro/preferenza/selezione/provider: **17/17**. Cinque nuovi casi:
 OFF/ON, stati e motivi, persistenza isolata senza credenziali, blocco SG-04 anche
 quando il certificato è visibile, refresh senza preselezione. GUI compilata;
 nessun collaudo interattivo o hardware implicato da questi test.
+
+## M3 — Destinazioni prima del consenso
+
+`BatchOutputDestination` pianifica in Core, off-main e senza creare output/probe:
+- default `.originalFolders`: ogni copia accanto al proprio originale;
+- `.commonDirectory`: cartella scelta in anticipo con Sfoglia, mai durante il consenso.
+
+La preferenza originale è ON inizialmente; la cartella comune ricordata è un
+percorso, non un'autorizzazione permanente. L'app attuale non ha App Sandbox:
+nessun nuovo entitlement/bookmark, permessi OS ricontrollati a ogni pianificazione.
+Se manca la cartella comune, il pulsante non è abilitabile. Cartelle mancanti,
+non scrivibili o negate da ACL sono rifiutate prima dell'approvazione/PIN.
+
+Percorsi canonici e identità device/inode del parent approvati e ricontrollati
+prima dell'autenticazione; no fd/staging/output creati dal piano. Prenotazioni
+per directory fisica e nome, incluso collisioni fra cartelle alias; lstat considera
+anche symlink pendenti. CAdES `Relazione.pdf.p7m`, poi `Relazione (2).pdf.p7m`;
+PAdES conserva la convenzione esistente `Relazione-firmato.pdf`. Un solo assert
+legacy sui suffissi CAdES aggiornato alla nuova convenzione richiesta, mantenendo
+il test e i suoi invarianti. Destinazioni e job immutabili dopo il consenso.
+
+Collisione tardiva o parent sostituito: nessuna autenticazione, nessun rename
+silenzioso; nuova sessione/approvazione prima di un nome diverso. Verifica e
+pubblicazione atomica/no-overwrite Foundation restano obbligatorie e immutate.
+Core CAdES e wrapper PAdES riusano il controllo di disponibilità del job prima
+operazioni private; nessuna modifica a RSA/CMS/PDF o ai protocolli hardware.
+
+**Test mirati M3 + batch/job: 36/36**, inclusi 11 nuovi casi: originale singolo,
+cartelle diverse/nomi uguali, cartella comune con file e symlink già esistenti,
+PAdES, directory assente/file/read-only/ACL, collisione dopo consenso, sostituzione
+parent, preferenze incomplete/persistite, output congelati e tre CAdES verificati
+accanto agli originali senza modificarli. Primo run: sette assert confrontavano
+alias `/var` e `/private/var` invece della directory fisica; fixture normalizzata
+con realpath e confronto coerente, poi suite ripetuta positiva. Nessuna deroga ai
+controlli di percorso per far passare il test.

@@ -18,7 +18,10 @@ enum BatchDisplay {
         return source.deletingLastPathComponent().path
     }
     static func destinationLabel(_ destination: URL) -> String {
-        "\(destination.deletingLastPathComponent().lastPathComponent) / \(destination.lastPathComponent)"
+        destinationLabel(destination, among: [])
+    }
+    static func destinationLabel(_ destination: URL, among destinations: [URL]) -> String {
+        "\(sourceLabel(destination, among: destinations)) / \(destination.lastPathComponent)"
     }
 }
 #endif

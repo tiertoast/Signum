@@ -263,7 +263,7 @@ import CoreGraphics
             }
             await batch.addDocuments(files, format: .cades)
             let plan = try await approve(batch, root: root, signer: signer, mock: mock)
-            XCTAssertEqual(plan.jobs.map { $0.destination.lastPathComponent }, ["same.txt.p7m", "same.txt (2).p7m"])
+            XCTAssertEqual(plan.jobs.map { $0.destination.lastPathComponent }, ["same.txt.p7m", "same (2).txt.p7m"])
             XCTAssertEqual(plan.jobs.map(\.snapshotIdentity.id), batch.documents.map(\.id))
         }
     }

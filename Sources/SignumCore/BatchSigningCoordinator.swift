@@ -103,6 +103,11 @@ public struct BatchApproval: Sendable {
 
     public func prepareApproval(provider: String, slot: UInt, certificate: SignumCertificate,
                                 der: Data, directory: URL) async throws -> BatchApproval {
+        try await prepareApproval(provider: provider, slot: slot, certificate: certificate, der: der, destination: .commonDirectory(directory))
+    }
+
+    public func prepareApproval(provider: String, slot: UInt, certificate: SignumCertificate,
+                                der: Data, destination: BatchOutputDestination = .originalFolders) async throws -> BatchApproval {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
         isFrozen = true; isPreparing = true
         let request = UUID(); acquisitionID = request
@@ -110,31 +115,12 @@ public struct BatchApproval: Sendable {
         do {
             let prepared = try await Task.detached(priority: .userInitiated) {
                 try CertificateEligibility.requireEligible(certificateDER: der)
-                var directoryInfo = stat()
-                guard directory.isFileURL, lstat(directory.path, &directoryInfo) == 0, directoryInfo.st_mode & S_IFMT == S_IFDIR else {
-                    throw Self.failure("Scegli una cartella di destinazione locale valida.")
-                }
-                var reserved = Set<String>(), jobs: [SigningJob] = []
-                for snapshot in selected {
-                    _ = try snapshot.verifiedBytes()
-                    let original = snapshot.originalURL
-                    let base = snapshot.format == .cades ? original.lastPathComponent : original.deletingPathExtension().lastPathComponent + "-firmato"
-                    let ext = snapshot.format == .cades ? "p7m" : "pdf"
-                    var number = 1
-                    var destination: URL
-                    while true {
-                        let name = base + (number == 1 ? "" : " (\(number))") + "." + ext
-                        destination = directory.appendingPathComponent(name)
-                        let key = destination.path.precomposedStringWithCanonicalMapping.lowercased()
-                        var info = stat()
-                        let exists = lstat(destination.path, &info) == 0
-                        if !exists && errno != ENOENT { throw Self.failure("Destinazione non ispezionabile.") }
-                        if !exists && !reserved.contains(key) { reserved.insert(key); break }
-                        number += 1
-                        guard number <= 10000 else { throw Self.failure("Troppe collisioni nella destinazione.") }
-                    }
-                    jobs.append(try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot,
-                        certificate: certificate, certificateDER: der, destination: destination))
+                for snapshot in selected { _ = try snapshot.verifiedBytes() }
+                let outputs = try destination.plan(selected)
+                let jobs = try zip(selected, outputs).map { snapshot, output in
+                    try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot,
+                        certificate: certificate, certificateDER: der, destination: output.url,
+                        destinationDirectoryIdentity: output.directoryIdentity)
                 }
                 return BatchApproval(id: UUID(), jobs: jobs)
             }.value
@@ -195,9 +181,7 @@ public struct BatchApproval: Sendable {
             defer { job.snapshot.close() }
             return Result {
                 var info = stat()
-                guard lstat(job.destination.path, &info) != 0, errno == ENOENT else {
-                    throw Self.failure("La destinazione è comparsa dopo la conferma. Nessuna autenticazione inviata.")
-                }
+                try job.requireAvailableDestination()
                 _ = try job.verifiedBytes()
                 operation.transition(to: .preparing)
                 try execute(job, pin, operation)

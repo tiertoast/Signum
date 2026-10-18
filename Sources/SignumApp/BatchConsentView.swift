@@ -13,7 +13,7 @@ struct BatchConsentView: View {
                             Text(job.snapshot.originalURL.lastPathComponent).font(.headline)
                             Text(job.format.rawValue.uppercased()).font(.caption)
                             Text("Origine: " + BatchDisplay.sourceLabel(job.snapshot.originalURL, among: approval.jobs.map { $0.snapshot.originalURL })).font(.caption)
-                            Text("Destinazione: " + BatchDisplay.destinationLabel(job.destination)).font(.caption).textSelection(.enabled)
+                            Text("Destinazione: " + BatchDisplay.destinationLabel(job.destination, among: approval.jobs.map(\.destination))).font(.caption).textSelection(.enabled)
                         }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)

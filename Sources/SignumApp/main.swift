@@ -36,6 +36,8 @@ private enum SignumFormat: String, Hashable {
 @MainActor struct SignumWindow: View {
     @StateObject private var batch = BatchSigningCoordinator()
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) private var showExcludedCertificates = false
+    @AppStorage(SigningExperiencePreferences.Keys.alongsideOriginal) private var saveAlongsideOriginal = true
+    @State private var customDirectory = SigningExperiencePreferences().customDirectory
     @State private var placements: [UUID: PAdESPlacement] = [:]
     @State private var readyPreviews = Set<UUID>()
     @State private var approvedFields: [UUID: SignumPAdESHelper.Field] = [:]
@@ -62,8 +64,11 @@ private enum SignumFormat: String, Hashable {
     @State private var busy = false
 
     private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning }
+    private var destinationPolicy: BatchOutputDestination? {
+        SigningDestinationSelection(alongsideOriginal: saveAlongsideOriginal, customDirectory: customDirectory).policy
+    }
     private var canApproveBatch: Bool {
-        guard !interfaceLocked, !batch.isFrozen, !batch.documents.isEmpty,
+        guard !interfaceLocked, !batch.isFrozen, !batch.documents.isEmpty, destinationPolicy != nil,
               provider.signingProvider != nil, provider.selectedSlot != nil,
               let id = provider.selectedCertificateID, provider.certificateAssessments[id]?.permitsSigning == true else { return false }
         return batch.documents.allSatisfy { entry in
@@ -119,6 +124,7 @@ private enum SignumFormat: String, Hashable {
                             tokenControls
                             certificateControls
                             formatPicker
+                            destinationControls
                             documentPicker
                             signingControls
                             statusFooter
@@ -166,6 +172,7 @@ private enum SignumFormat: String, Hashable {
             status = "Il certificato escluso è stato nascosto. Scegli un certificato localmente idoneo."
         }
         .onChange(of: format) { _ in provider.pin = "" }
+        .onChange(of: saveAlongsideOriginal) { _ in if !batch.isFrozen { provider.pin = "" } }
         .onDisappear {
             work?.requestCancellation()
             batch.cancelAll()
@@ -251,6 +258,44 @@ private enum SignumFormat: String, Hashable {
                     }
                 }
             }.padding(5)
+        }
+    }
+
+    private var destinationControls: some View {
+        GroupBox("Destinazione") {
+            VStack(alignment: .leading, spacing: 8) {
+                if batch.isFrozen {
+                    Text("Destinazioni fissate nel riepilogo. Per cambiarle prepara e conferma una nuova sessione.").font(.caption)
+                } else {
+                    Toggle("Salva nella cartella dell'originale", isOn: $saveAlongsideOriginal)
+                    if saveAlongsideOriginal {
+                        Text("Ogni copia firmata va accanto al proprio originale, anche per documenti in cartelle diverse.").font(.caption)
+                    } else {
+                        HStack {
+                            Text(customDirectory?.lastPathComponent ?? "Scegli una cartella comune").font(.caption)
+                            Spacer()
+                            Button("Sfoglia…") { chooseDestination() }
+                        }
+                        if let customDirectory {
+                            DisclosureGroup("Dettagli della cartella") { Text(customDirectory.path).font(.caption2).textSelection(.enabled) }
+                        }
+                    }
+                    Text("I nomi liberi saranno fissati nel riepilogo. Nessun file esistente verrà sovrascritto.").font(.caption2).foregroundStyle(.secondary)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(5).disabled(interfaceLocked)
+        }
+    }
+
+    private func chooseDestination() {
+        guard !interfaceLocked, !batch.isFrozen else { return }
+        let picker = NSOpenPanel()
+        picker.title = "Cartella comune delle copie firmate"
+        picker.canChooseFiles = false; picker.canChooseDirectories = true
+        picker.allowsMultipleSelection = false; picker.canCreateDirectories = false
+        picker.directoryURL = customDirectory
+        if picker.runModal() == .OK, let directory = picker.url {
+            customDirectory = directory; SigningExperiencePreferences().customDirectory = directory
+            provider.pin = ""
         }
     }
 
@@ -543,11 +588,8 @@ private enum SignumFormat: String, Hashable {
     private func prepareBatch() {
         guard canApproveBatch, let selectedProvider = provider.signingProvider, let slot = provider.selectedSlot,
               let certificate = provider.certificates.first(where: { $0.id == provider.selectedCertificateID }),
-              let der = provider.certificateDERs[certificate.id], let selectedRoute = devices.selectedRoute else { return }
-        let picker = NSOpenPanel()
-        picker.title = "Cartella delle copie firmate"
-        picker.canChooseFiles = false; picker.canChooseDirectories = true; picker.allowsMultipleSelection = false
-        guard picker.runModal() == .OK, let directory = picker.url else { return }
+              let der = provider.certificateDERs[certificate.id], let selectedRoute = devices.selectedRoute,
+              let destination = destinationPolicy else { return }
         provider.pin = ""; busy = true
         let holder = selectedHolder, selectionGeneration = devices.requestID
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
@@ -558,7 +600,7 @@ private enum SignumFormat: String, Hashable {
             do {
                 try await Task.detached(priority: .userInitiated) { try selectedRoute.requireCurrentModule() }.value
                 guard devices.requestID == selectionGeneration, devices.selectedRouteID == selectedRoute.id else { throw SupervisedProcess.Failure.cancelled }
-                let approval = try await batch.prepareApproval(provider: selectedProvider, slot: slot, certificate: certificate, der: der, directory: directory)
+                let approval = try await batch.prepareApproval(provider: selectedProvider, slot: slot, certificate: certificate, der: der, destination: destination)
                 let alert = NSAlert()
                 alert.messageText = "Conferma firma"
                 alert.informativeText = "Firmatario: \(holder)\n\(approval.jobs.count) documenti. L'autenticazione del dispositivo seguirà questa conferma."
