@@ -31,6 +31,10 @@ final class BatchAuthenticationTests: XCTestCase {
             for (index, job) in session.manifest.jobs.enumerated() {
                 _ = try session.sign(jobID: job.id, attributes: job.attributes, pin: index == 0 ? "synthetic-fixture" : nil)
                 XCTAssertTrue(session.reusable)
+                XCTAssertNil(session.manifest.pin)
+                let command = BatchWorkerCommand(version: 2, batchID: session.manifest.batchID, jobID: job.id, index: index, finish: false)
+                let wire = String(decoding: try JSONEncoder().encode(command), as: UTF8.self)
+                XCTAssertFalse(wire.contains("synthetic-fixture")); XCTAssertFalse(wire.contains("\"pin\""))
             }
             try session.finish()
             XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 9), 0)
@@ -79,5 +83,54 @@ final class BatchAuthenticationTests: XCTestCase {
             XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 16), 0)
         }
     }
+    func testSessionLossAndDeviceRemovalEndReuseWithoutRetry() throws {
+        for (phase, effect, after) in [(7, 6, 2), (16, 8, 1)] {
+            try fixture(phase: phase, effect: effect, after: after) { mock, session in
+                let first = session.manifest.jobs[0], second = session.manifest.jobs[1], third = session.manifest.jobs[2]
+                _ = try session.sign(jobID: first.id, attributes: first.attributes, pin: "synthetic-fixture")
+                XCTAssertThrowsError(try session.sign(jobID: second.id, attributes: second.attributes, pin: nil))
+                XCTAssertFalse(session.reusable)
+                let calls = count(mock, 16)
+                XCTAssertThrowsError(try session.sign(jobID: third.id, attributes: third.attributes, pin: nil))
+                XCTAssertEqual(count(mock, 16), calls); XCTAssertEqual(count(mock, 8), 1)
+            }
+        }
+    }
+    func testAnotherBatchCannotBorrowTheAuthenticatedWorkerOrLease() throws {
+        try fixture { mock, first in
+            let job = first.manifest.jobs[0]
+            _ = try first.sign(jobID: job.id, attributes: job.attributes, pin: "synthetic-fixture")
+            let m = first.manifest
+            let other = BatchWorkerStart(version: 2, batchID: UUID(), provider: m.provider, slot: m.slot,
+                serial: m.serial, certificate: m.certificate, automatic: m.automatic, moduleIdentity: m.moduleIdentity, jobs: m.jobs, pin: nil)
+            let second = BatchSignatureConnection(manifest: other, executable: worker)
+            XCTAssertThrowsError(try second.sign(jobID: job.id, attributes: job.attributes, pin: "synthetic-fixture", timeout: 0.15))
+            XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 16), 1)
+            try first.finish()
+            let fresh = BatchSignatureConnection(manifest: other, executable: worker)
+            _ = try fresh.sign(jobID: job.id, attributes: job.attributes, pin: "synthetic-fixture")
+            try fresh.finish()
+            XCTAssertEqual(count(mock, 8), 2); XCTAssertEqual(count(mock, 16), 2)
+        }
+    func testChangedSerialOrModuleCannotReceivePINOrSign() throws {
+        for changeModule in [false, true] {
+            try fixture { mock, original in
+                let m = original.manifest
+                let changed = BatchWorkerStart(version: 2, batchID: UUID(), provider: m.provider, slot: m.slot,
+                    serial: changeModule ? m.serial : "OTHER-TOKEN", certificate: m.certificate, automatic: false,
+                    moduleIdentity: m.moduleIdentity, jobs: m.jobs, pin: nil)
+                if changeModule {
+                    let file = try FileHandle(forWritingTo: mock.path)
+                    try file.seekToEnd(); try file.write(contentsOf: Data([0])); try file.close()
+                }
+                let session = BatchSignatureConnection(manifest: changed, executable: worker)
+                let job = changed.jobs[0]
+                XCTAssertThrowsError(try session.sign(jobID: job.id, attributes: job.attributes, pin: "synthetic-fixture"))
+                XCTAssertEqual(count(mock, 8), 0); XCTAssertEqual(count(mock, 16), 0)
+            }
+        }
+    }
+    }
+
 }
 #endif

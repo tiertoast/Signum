@@ -69,7 +69,8 @@ final class SupervisedWorkerChannel {
         let deadline = ProcessInfo.processInfo.systemUptime + 3
         while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.005) }
         guard !process.isRunning else { abort(); throw SupervisedProcess.Failure.terminationPending }
-        process.waitUntilExit()
+        // Foundation Process.waitUntilExit can block when launch and teardown
+        // run on different pool threads. isRunning=false already means reaped.
         let success = process.terminationReason == .exit && process.terminationStatus == 0
         retire()
         guard success else { throw SupervisedProcess.Failure.abnormalExit }
@@ -92,8 +93,11 @@ final class SupervisedWorkerChannel {
         if process.isRunning {
             retired = true
             let child = process
-            DispatchQueue.global(qos: .utility).async { child.waitUntilExit(); SupervisedProcess.release() }
-        } else { process.waitUntilExit(); retire() }
+            DispatchQueue.global(qos: .utility).async {
+                while child.isRunning { Thread.sleep(forTimeInterval: 0.1) }
+                SupervisedProcess.release()
+            }
+        } else { retire() }
     }
 }
 #endif

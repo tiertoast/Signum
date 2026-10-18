@@ -50,6 +50,8 @@ public struct BatchApproval: Sendable {
     @Published public private(set) var isFrozen = false
     @Published public private(set) var isApproved = false
     @Published public private(set) var isRunning = false
+    @Published public private(set) var isContinuingAuthenticated = false
+    @Published public private(set) var authenticationNotice = ""
     @Published public private(set) var needsOutcomeReview = false
     @Published public private(set) var activeOperation: SigningOperation?
     public private(set) var approval: BatchApproval?
@@ -162,7 +164,8 @@ public struct BatchApproval: Sendable {
         documents.remove(at: index).snapshot.close()
     }
     public func reset() {
-        guard !isRunning, !isPreparing else { return }
+        guard !isRunning, !isPreparing, !isContinuingAuthenticated else { return }
+        authenticationNotice = ""
         isFrozen = false; invalidateReview(); revision = UUID()
         documents.forEach { $0.snapshot.close() }
         documents = []; approval = nil; selectionIssues = []; selectionTechnicalDetails = []
@@ -229,12 +232,30 @@ public struct BatchApproval: Sendable {
     public func acknowledgeUncertainOutcome() { if !isRunning { needsOutcomeReview = false } }
 
     public func authorizeNext(pin: String, expectedDocumentID: UUID? = nil, execute: @escaping @Sendable (SigningJob, String, SigningOperation) throws -> Void) async throws {
+        guard isApproved, !isRunning, !needsOutcomeReview, let next = nextDocument,
+              expectedDocumentID == nil || next.id == expectedDocumentID,
+              !isContinuingAuthenticated, !pin.isEmpty, pin.utf8.count <= 64, !pin.utf8.contains(0) else { throw Self.failure("Autorizza il documento corrente con il PIN.") }
+        await executeNext(expectedDocumentID: expectedDocumentID) { job, operation in try execute(job, pin, operation) }
+    }
+
+    /// No PIN argument or stored secret. Only a capability bound to this exact
+    /// approved batch can continue; each job is verified/committed before next.
+    public func continueAuthenticatedBatch(using session: BatchCAdESSession) async {
+        guard isApproved, !isRunning, !isContinuingAuthenticated, approval?.id == session.approvalID else { session.requestStop(); return }
+        isContinuingAuthenticated = true
+        while session.canContinue, !needsOutcomeReview, let next = nextDocument {
+            await executeNext(expectedDocumentID: next.id) { job, operation in try session.signCAdES(job: job, pin: nil, operation: operation) }
+            guard documents.first(where: { $0.id == next.id })?.state == .completed else { break }
+        }
+        await session.stopAndWait()
+        if session.cleanupUncertain { needsOutcomeReview = true; authenticationNotice = "Chiusura della sessione non confermata. Verifica il dispositivo prima di continuare." }
+        isContinuingAuthenticated = false
+    }
+
+    private func executeNext(expectedDocumentID: UUID?, execute: @escaping @Sendable (SigningJob, SigningOperation) throws -> Void) async {
         guard isApproved, !isRunning, !needsOutcomeReview, let approval, let next = nextDocument,
               expectedDocumentID == nil || expectedDocumentID == next.id,
-              let job = approval.jobs.first(where: { $0.snapshotIdentity.id == next.id }),
-              !pin.isEmpty, pin.utf8.count <= 64, !pin.utf8.contains(0) else {
-            throw Self.failure("Autorizza esplicitamente il prossimo documento con il PIN del dispositivo.")
-        }
+              let job = approval.jobs.first(where: { $0.snapshotIdentity.id == next.id }) else { return }
         isRunning = true; activeID = next.id
         let operation = SigningOperation(id: job.id) { [weak self] phase in
             Task { @MainActor in
@@ -256,7 +277,7 @@ public struct BatchApproval: Sendable {
                 try job.requireAvailableDestination()
                 _ = try job.verifiedBytes()
                 operation.transition(to: .preparing)
-                try execute(job, pin, operation)
+                try execute(job, operation)
                 guard operation.state == .completed, lstat(job.destination.path, &info) == 0,
                       info.st_mode & S_IFMT == S_IFREG, info.st_size > 0 else {
                     throw SignumError.outputUncertain("Il motore non ha confermato una pubblicazione verificata. Controllare l'esito senza ripetere questa firma.")

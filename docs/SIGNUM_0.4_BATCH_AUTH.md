@@ -76,3 +76,35 @@ true/CONTEXT, attributo sconosciuto, login preesistente rifiutato, duplicati/ord
 login fallita senza retry. Prima esecuzione: tre assert usavano il numero errato
 per Finalize nel solo audit sintetico (2 anziché 1); corretti rispetto all'enum
 mock, ripetuti positivi. Nessuna riduzione delle verifiche del prodotto.
+
+## M4 — Integrazione CAdES
+
+BatchCAdESSession contiene solo piano e canale, mai PIN. Il primo invio del campo
+autentica il primo job; la continuazione Core non ha parametro PIN e usa solo
+questa capability legata all'approval ID. Firma RSA verificata nel padre, poi
+motore CMS, verifica staging e pubblicazione Foundation esistenti. Solo dopo il
+commit viene chiesta la firma successiva. Skip espliciti per job approvati ma
+annullati non effettuano Sign. Nessun inserimento di nuovi job nel manifesto.
+
+Fine normale: sessione e provider chiusi con conferma prima di pubblicare l'ultimo
+output. Per errori/cancellazione, revoca immediata e teardown off-main; nessuna
+prosecuzione automatica dopo fallimento. Crash/timeout senza firma verificabile
+diventano esito incerto, non un tentativo da ripetere. Chiusura non confermata
+resta visibile e richiede controllo dell'utente. PAdES e misti invariati one-shot.
+
+Le prove integrate hanno individuato un blocco di Foundation waitUntilExit quando
+launch e chiusura avvengono su thread pool differenti. Stack campionato, runner
+sintetico bloccato interrotto; eliminata l'attesa bloccante dal nuovo canale.
+Ora osservazione bounded dello stato terminato e reaping automatico Foundation;
+slot conservato se il sistema non termina il figlio. Regresso anche il teardown
+su thread diverso, senza attese vendor/MainActor. Nessuna modifica al supervisore
+one-shot oltre alla condivisione del contatore dei processi.
+
+M4: **37/37** test mirati, zero skip/fallimenti nel run finale; primo run
+intermedio aveva due skip per helper non esplicito e tre assert legacy dovuti
+alla guard di authorizeNext durante l'estrazione dell'esecutore interno. Ripetuto
+con helper esplicito e semantica pubblica preservata. Test integrati: tre CAdES
+verificati/un PIN; true/tre USER e CONTEXT; annullamento in coda/in Sign; collisione
+secondo output; snapshot corrotto; crash/timeout/errore secondo Sign; perdita
+sessione e device removed; seriale/modulo cambiati prima del login; lease fra due
+batch distinti; nessun PIN nei comandi successivi, nessun retry dopo errore.

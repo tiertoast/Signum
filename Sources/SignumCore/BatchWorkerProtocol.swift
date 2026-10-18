@@ -33,6 +33,7 @@ struct BatchWorkerCommand: Codable {
     let jobID: UUID?
     let index: Int
     let finish: Bool
+    var skip: Bool = false
 }
 struct BatchWorkerReply: Codable {
     let version: Int

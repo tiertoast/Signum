@@ -84,13 +84,18 @@ enum BatchWorkerServer {
                       let command = try? JSONDecoder().decode(BatchWorkerCommand.self, from: data),
                       command.version == 2, command.batchID == start.batchID, command.index == next else { return 2 }
                 if command.finish {
-                    guard command.jobID == nil else { return 2 }
+                    guard command.jobID == nil, !command.skip else { return 2 }
                     module = nil; try loaded.closeInWorker()
                     try write(.init(version: 2, batchID: start.batchID, jobID: nil, index: next,
                         signature: nil, reusable: false, closed: true, succeeded: true), to: reply)
                     return 0
                 }
                 guard next < start.jobs.count, command.jobID == start.jobs[next].id else { return 2 }
+                if command.skip {
+                    try write(.init(version: 2, batchID: start.batchID, jobID: command.jobID, index: next,
+                        signature: nil, reusable: true, closed: false, succeeded: true), to: reply)
+                    next += 1; continue
+                }
                 try requireModule(start)
                 let signature = try loaded.nextBatchSignature(attributes: start.jobs[next].attributes)
                 try write(.init(version: 2, batchID: start.batchID, jobID: command.jobID, index: next,
