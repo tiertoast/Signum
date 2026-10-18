@@ -15,6 +15,10 @@ public enum PKCS11WorkerEntrypoint {
               fcntl(reply, F_SETNOSIGPIPE, 1) == 0 else { return 2 }
         defer { Darwin.close(reply); Darwin.close(sink) }
         guard dup2(sink, STDOUT_FILENO) >= 0, dup2(sink, STDERR_FILENO) >= 0 else { return 2 }
+        if CommandLine.arguments.count == 2, CommandLine.arguments[1] == "--batch-v1" {
+            return BatchWorkerServer.serve(reply: reply)
+        }
+        guard CommandLine.arguments.count == 1 else { return 2 }
         var input = Data(), chunk = [UInt8](repeating: 0, count: 8192)
         defer { input.resetBytes(in: 0..<input.count) }
         while true {

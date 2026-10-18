@@ -49,3 +49,30 @@ PAdES usa un altro processo/lease e non può condividere un handle PKCS#11.
 Deferita la modifica del protocollo PoDoFo; batch PAdES e misti restano one-shot,
 con spiegazione esplicita. Nessuna promessa di ottimizzazione universale o di
 compatibilità hardware prima del collaudo autorizzato.
+
+## M3 — Prototipo worker persistente
+
+Protocollo interno v2 a frame da 4 byte + JSON (richiesta <=128 KiB, risposta
+<=64 KiB, massimo 32 job e attributi <=4096 byte). Manifesto fissato prima del
+login: batch/job/snapshot/hash, provider/identità file, slot/seriale, DER e attributi.
+Comandi successivi non contengono PIN o nuovi attributi. Sequenza e identificativi
+impediscono richieste duplicate o fuori ordine. Nessun protocollo pubblico.
+
+Worker conserva hardening parent-death/core dump/vendor stdout/stderr del percorso
+one-shot, limite condiviso di otto processi e lease per tutto il batch, compresa
+chiusura verificata. Timeout per scambio, idle worker 60s, durata batch 600s,
+teardown bounded con terminazione/reaping; nessuna chiamata Finalize concorrente
+a un'operazione bloccata. Il padre verifica RSA con la chiave DER approvata.
+
+Shim C: sessione dedicata, USER fresco obbligatorio, controllo token/DER/policy e
+stato USER a ogni firma. Attr false noto e Initialize posseduta abilitano riuso;
+true/unknown chiudono dopo la prima firma. True effettua CONTEXT_SPECIFIC dopo
+SignInit con il PIN del primo job. Nessun Logout; chiusura delle sole sessioni
+possedute, poi Finalize secondo ownership. Seriali sono indizi di continuità,
+non attestazioni crittografiche di identità fisica; DER/firma restano vincolanti.
+
+Test prototipo e regressioni worker/lifecycle **18/18**: tre firme/un USER,
+true/CONTEXT, attributo sconosciuto, login preesistente rifiutato, duplicati/ordine,
+login fallita senza retry. Prima esecuzione: tre assert usavano il numero errato
+per Finalize nel solo audit sintetico (2 anziché 1); corretti rispetto all'enum
+mock, ripetuti positivi. Nessuna riduzione delle verifiche del prodotto.

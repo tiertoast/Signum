@@ -606,3 +606,124 @@ int name(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length
 }
 CHECKED_SIGN(sg_sign_test_checked, sg_sign_test_impl)
 CHECKED_SIGN(sg_sign_encoded_digest_checked, sg_sign_encoded_digest_impl)
+
+/* Dedicated worker owns this context and its lease for the entire batch. */
+struct SGBatchSession {
+    SGContext *ctx;
+    CK_SESSION_HANDLE handle;
+    CK_SLOT_ID slot;
+    CK_TOKEN_INFO token;
+    uint8_t id[64], der[65536];
+    size_t id_length, der_length;
+    int reusable, failed;
+};
+static int batch_token(SGBatchSession *s, int initial, const char *serial, char *error, size_t size) {
+    CK_TOKEN_INFO token;
+    CK_RV rv = s->ctx->api->C_GetTokenInfo(s->slot, &token);
+    if (rv != CKR_OK) return failed(error, size, "C_GetTokenInfo batch", rv);
+    if (initial) {
+        char value[17]; copy_padded(value, sizeof(value), (const unsigned char *)token.serialNumber, sizeof(token.serialNumber));
+        if (!serial || !*serial || strcmp(value, serial)) return invalid(error, size, "Selected token identity changed or unavailable");
+        s->token = token;
+    } else if (memcmp(token.serialNumber, s->token.serialNumber, sizeof(token.serialNumber)) ||
+               memcmp(token.label, s->token.label, sizeof(token.label)) ||
+               memcmp(token.manufacturerID, s->token.manufacturerID, sizeof(token.manufacturerID)) ||
+               memcmp(token.model, s->token.model, sizeof(token.model))) return invalid(error, size, "Batch token replaced");
+    return 0;
+}
+static int batch_certificate(SGBatchSession *s, char *error, size_t size) {
+    CK_OBJECT_HANDLE certificate;
+    int status = find_one(s->ctx, s->handle, CKO_CERTIFICATE, s->id, s->id_length, &certificate, error, size);
+    if (status) return status;
+    uint8_t actual[65536];
+    CK_ATTRIBUTE attr = { CKA_VALUE, actual, sizeof(actual) };
+    CK_RV rv = s->ctx->api->C_GetAttributeValue(s->handle, certificate, &attr, 1);
+    if (rv != CKR_OK) return failed(error, size, "Batch certificate DER", rv);
+    if (attr.ulValueLen != s->der_length || memcmp(actual, s->der, s->der_length)) return invalid(error, size, "Batch certificate replaced");
+    SGCertificateAssessment assessment = sg_certificate_assess(actual, attr.ulValueLen, sg_certificate_now());
+    return assessment.status == SG_CERT_ELIGIBLE ? 0 : invalid(error, size, "Batch certificate no longer locally eligible");
+}
+static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t pin_length,
+    const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    if (!message || !message_length || message_length > 4096 || !signature || capacity < 8192 || !length || s->failed)
+        return invalid(error, size, "Invalid/retired batch signature request");
+    *length = 0;
+    int status = batch_token(s, 0, NULL, error, size);
+    CK_SESSION_INFO info;
+    CK_RV rv;
+    if (!status) {
+        rv = s->ctx->api->C_GetSessionInfo(s->handle, &info);
+        if (rv != CKR_OK) status = failed(error, size, "Batch session info", rv);
+        else if (info.slotID != s->slot || (info.state != CKS_RO_USER_FUNCTIONS && info.state != CKS_RW_USER_FUNCTIONS))
+            status = invalid(error, size, "Batch USER session lost; no automatic reauthentication");
+    }
+    if (!status) status = batch_certificate(s, error, size);
+    CK_OBJECT_HANDLE key;
+    if (!status) status = find_one(s->ctx, s->handle, CKO_PRIVATE_KEY, s->id, s->id_length, &key, error, size);
+    CK_BBOOL auth = CK_FALSE; int known = 0;
+    if (!status) {
+        CK_ATTRIBUTE attribute = { CKA_ALWAYS_AUTHENTICATE, &auth, sizeof(auth) };
+        rv = s->ctx->api->C_GetAttributeValue(s->handle, key, &attribute, 1);
+        known = rv == CKR_OK && attribute.ulValueLen == sizeof(auth) && (auth == CK_FALSE || auth == CK_TRUE);
+        if (rv != CKR_OK && rv != CKR_ATTRIBUTE_TYPE_INVALID && rv != CKR_ATTRIBUTE_SENSITIVE)
+            status = failed(error, size, "Batch authentication attribute", rv);
+        if (!first && (!known || auth != CK_FALSE || !s->reusable)) status = invalid(error, size, "Batch key authentication policy changed");
+    }
+    if (!status) {
+        CK_MECHANISM mechanism = { CKM_SHA256_RSA_PKCS, NULL, 0 };
+        rv = s->ctx->api->C_SignInit(s->handle, &mechanism, key);
+        if (rv != CKR_OK) status = failed(error, size, "Batch C_SignInit", rv);
+        if (!status && known && auth == CK_TRUE) {
+            rv = s->ctx->api->C_Login(s->handle, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
+            if (rv != CKR_OK) status = failed(error, size, "Batch C_Login CONTEXT_SPECIFIC (no retry)", rv);
+        }
+        if (!status) {
+            CK_ULONG count = capacity;
+            rv = s->ctx->api->C_Sign(s->handle, (CK_BYTE_PTR)message, message_length, signature, &count);
+            if (rv != CKR_OK || count > capacity) status = failed(error, size, "Batch C_Sign (no retry)", rv == CKR_OK ? CKR_GENERAL_ERROR : rv);
+            else *length = count;
+        }
+        if (first) s->reusable = known && auth == CK_FALSE && s->ctx->provider->owns_initialization;
+    }
+    if (status) { s->failed = 1; memset(signature, 0, capacity); *length = 0; }
+    return status;
+}
+int sg_batch_first(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
+    const uint8_t *der, size_t der_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length,
+    SGBatchSession **out, int *reusable, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    if (length) *length = 0;
+    if (!out || !reusable || !signature || capacity < 8192 || !length || !message || !message_length || message_length > 4096 || !id || !id_length || id_length > 64 || !der || !der_length || der_length > 65536 || !pin || !pin_length || pin_length > 64)
+        return invalid(error, size, "Invalid first batch request");
+    *out = NULL; *reusable = 0;
+    if (enter(ctx, error, size)) return -1;
+    SGBatchSession *s = calloc(1, sizeof(*s));
+    int status = s ? 0 : invalid(error, size, "Cannot allocate batch session");
+    if (s) {
+        s->ctx = ctx; s->slot = slot; s->id_length = id_length; s->der_length = der_length;
+        memcpy(s->id, id, id_length); memcpy(s->der, der, der_length);
+        status = batch_token(s, 1, serial, error, size);
+        if (!status) status = open_session(ctx, slot, &s->handle, error, size);
+        if (!status) {
+            status = batch_certificate(s, error, size);
+            if (!status) status = login_user(ctx, s->handle, pin, pin_length, error, size);
+            if (!status) status = batch_sign(s, 1, pin, pin_length, message, message_length, signature, capacity, length, error, size);
+            if (!status && s->reusable) { *out = s; *reusable = 1; }
+            else { status = close_session(ctx, s->handle, status, error, size); free(s); }
+        } else free(s);
+    }
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return status;
+}
+int sg_batch_next(SGBatchSession *s, const uint8_t *message, size_t message_length, uint8_t *signature,
+    size_t capacity, size_t *length, char *error, size_t size) {
+    if (!s || enter(s->ctx, error, size)) return -1;
+    int status = batch_sign(s, 0, NULL, 0, message, message_length, signature, capacity, length, error, size);
+    pthread_mutex_unlock(&s->ctx->provider->operations); return status;
+}
+int sg_batch_close(SGBatchSession *s, char *error, size_t size) {
+    if (!s) return 0;
+    SGContext *ctx = s->ctx;
+    if (enter(ctx, error, size)) { free(s); return -1; }
+    int status = close_session(ctx, s->handle, 0, error, size);
+    pthread_mutex_unlock(&ctx->provider->operations); free(s); return status;
+}

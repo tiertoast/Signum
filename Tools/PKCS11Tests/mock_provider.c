@@ -58,6 +58,9 @@ int mock_wait_blocked(void) {
     int result = blocked; pthread_mutex_unlock(&mutex); return result;
 }
 void mock_release(void) { pthread_mutex_lock(&mutex); released = 1; blocked_operation = -1; pthread_cond_broadcast(&condition); pthread_mutex_unlock(&mutex); }
+#ifndef SIGNUM_MOCK_FAULT_AFTER
+#define SIGNUM_MOCK_FAULT_AFTER 0
+#endif
 static CK_RV begin(int op) {
 #ifdef SIGNUM_MOCK_AUDIT_PATH
     /* Test audit contains operation numbers only, never arguments/credentials. */
@@ -69,7 +72,7 @@ static CK_RV begin(int op) {
 #endif
 #ifdef SIGNUM_MOCK_WORKER_PHASE
     /* Compile-time synthetic subprocess fixtures only; never runtime toggles. */
-    if (op == SIGNUM_MOCK_WORKER_PHASE) {
+    if (op == SIGNUM_MOCK_WORKER_PHASE && stats.calls[op] >= SIGNUM_MOCK_FAULT_AFTER) {
 #if SIGNUM_MOCK_WORKER_EFFECT == 1
         usleep(50000);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 2
@@ -109,6 +112,12 @@ static CK_RV end(CK_RV rv) { --stats.active_calls; pthread_mutex_unlock(&mutex);
 #define VALID(h) if ((h) >= 512 || !sessions[h].active) return end(CKR_SESSION_HANDLE_INVALID)
 static CK_RV initialize(void *args) {
     BEGIN(M_INIT);
+#ifdef SIGNUM_MOCK_DEFAULT_ALWAYS_AUTH
+    always_auth = SIGNUM_MOCK_DEFAULT_ALWAYS_AUTH;
+#endif
+#ifdef SIGNUM_MOCK_PREAUTHENTICATED
+    if (SIGNUM_MOCK_PREAUTHENTICATED) { stats.logged_in = 1; external_session = 1; }
+#endif
 #ifdef SIGNUM_MOCK_BOOTSTRAP_CERTIFICATE
     if (!certificate_length) {
         memcpy(certificate_bytes, bootstrap_certificate, sizeof(bootstrap_certificate));
@@ -203,7 +212,11 @@ static CK_RV attribute(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE obj, CK_ATTRIBUTE_P
             n = certificate_length ? certificate_length : sizeof(der);
             if (attrs[i].pValue) ++certificate_reads;
             break;
-        case CKA_ALWAYS_AUTHENTICATE: value = &auth; n = sizeof(auth); break;
+        case CKA_ALWAYS_AUTHENTICATE:
+#if SIGNUM_MOCK_UNKNOWN_AUTH
+            return end(CKR_ATTRIBUTE_TYPE_INVALID);
+#endif
+            value = &auth; n = sizeof(auth); break;
         default: return end(CKR_ATTRIBUTE_TYPE_INVALID);
         }
         if (attrs[i].pValue) {

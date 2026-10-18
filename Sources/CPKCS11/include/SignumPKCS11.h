@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 typedef struct SGContext SGContext;
+typedef struct SGBatchSession SGBatchSession;
 typedef struct { unsigned long slot; char label[33]; char manufacturer[33]; char model[17]; char reader[65]; char serial[17]; } SGToken;
 typedef struct { char label[129]; uint8_t id[64]; size_t id_length; } SGCertificate;
 int sg_open(const char *path, SGContext **out, char *error, size_t error_size);
@@ -53,6 +54,18 @@ int sg_sign_encoded_digest_checked(SGContext *context, unsigned long slot, const
     const uint8_t *expected_der, size_t expected_length, const uint8_t *pin, size_t pin_length,
     const uint8_t *digestinfo, size_t digestinfo_length, uint8_t *signature, size_t capacity,
     size_t *length, char *error, size_t error_size);
+
+/* Worker-only, single batch owner. First PIN is used only for the first job;
+ * later calls accept NO PIN and require a readable false ALWAYS_AUTHENTICATE.
+ * Close the batch session before releasing its SGContext. No implicit retries. */
+int sg_batch_first(SGContext *context, unsigned long slot, const char *serial,
+    const uint8_t *id, size_t id_length, const uint8_t *der, size_t der_length,
+    const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length,
+    SGBatchSession **out, int *reusable, uint8_t *signature, size_t capacity, size_t *length,
+    char *error, size_t error_size);
+int sg_batch_next(SGBatchSession *session, const uint8_t *message, size_t message_length,
+    uint8_t *signature, size_t capacity, size_t *length, char *error, size_t error_size);
+int sg_batch_close(SGBatchSession *session, char *error, size_t error_size);
 
 #ifdef __cplusplus
 }

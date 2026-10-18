@@ -22,11 +22,11 @@ public enum SupervisedProcess {
     }
     private static let lock = NSLock()
     private static var active = 0
-    private static func acquire() -> Bool {
+    static func acquire() -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard active < 8 else { return false }; active += 1; return true
     }
-    private static func release() { lock.lock(); active -= 1; lock.unlock() }
+    static func release() { lock.lock(); active -= 1; lock.unlock() }
 
     public static func run(executable: URL, arguments: [String] = [], input: inout Data,
                            maximumInput: Int = 131072, maximumOutput: Int = 2 * 1024 * 1024,
