@@ -17,16 +17,27 @@ public struct SigningJob: Sendable {
     public let certificateSHA256: String
     public let destination: URL
     public let destinationDirectoryIdentity: OutputDirectoryIdentity?
+    public let padesAppearance: RenderedPAdESAppearance?
 
     public init(snapshot: DocumentSnapshot, providerPath: String, slot: UInt,
                 certificate: SignumCertificate, certificateDER: Data, destination: URL,
-                destinationDirectoryIdentity: OutputDirectoryIdentity? = nil) throws {
+                destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
+                padesAppearance: RenderedPAdESAppearance? = nil) throws {
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
               destination.standardizedFileURL != snapshot.fileURL,
               destination.pathExtension.lowercased() == (snapshot.format == .cades ? "p7m" : "pdf"),
               providerPath.hasPrefix("/"), !certificateDER.isEmpty, certificateDER.count <= 65536 else {
             throw SignumError.module("Richiesta di firma incompleta o destinazione non valida.")
         }
+        if let appearance = padesAppearance {
+            guard snapshot.format == .pades,
+                  appearance.certificateSHA256 == DocumentSnapshot.digest(certificateDER),
+                  appearance.pdf.count <= PAdESAppearanceRenderer.maximumPDFBytes,
+                  !appearance.configuration.visible || !appearance.pdf.isEmpty else {
+                throw SignumError.module("Appearance non vincolata al documento e certificato approvati.")
+            }
+        }
+        self.padesAppearance = padesAppearance
         self.id = UUID(); self.format = snapshot.format; self.snapshot = snapshot
         self.snapshotIdentity = snapshot.identity; self.contentSHA256 = snapshot.identity.sha256
         self.providerPath = providerPath; self.slot = slot; self.certificate = certificate
@@ -41,6 +52,10 @@ public struct SigningJob: Sendable {
         guard lstat(destination.path, &info) != 0, errno == ENOENT else {
             throw SignumError.module("La destinazione approvata è occupata o non ispezionabile. Nessuna autenticazione inviata. Per un nome diverso prepara e conferma una nuova sessione.")
         }
+    }
+
+    public var formatDescription: String {
+        format == .pades ? "PAdES — PDF firmato" : "CAdES — documento .p7m"
     }
 
     public var approvalDescription: String {

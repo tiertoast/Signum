@@ -27,6 +27,7 @@ struct SigningReviewContext: Equatable {
     @Published private(set) var issue = ""
     private var request = UUID()
     func prepare(_ context: SigningReviewContext?, batch: BatchSigningCoordinator,
+                 appearances: [UUID: RenderedPAdESAppearance] = [:],
                  validate: @escaping @Sendable () throws -> Void) async {
         guard !batch.isFrozen else { return }
         let id = UUID(); request = id
@@ -35,10 +36,13 @@ struct SigningReviewContext: Equatable {
         guard let context else { return }
         defer { if request == id { isPreparing = false } }
         do {
+            guard context.appearanceHashes == appearances.mapValues({ $0.approvalIdentity }) else {
+                throw SignumError.module("L’appearance è cambiata. Attendi la nuova anteprima prima di approvare.")
+            }
             try await Task.detached(priority: .userInitiated) { try validate() }.value
             guard request == id, !Task.isCancelled, context.revision == batch.revision else { return }
             let plan = try await batch.prepareReview(provider: context.provider, slot: context.slot,
-                certificate: context.certificate, der: context.der, destination: context.destination)
+                certificate: context.certificate, der: context.der, destination: context.destination, appearances: appearances)
             guard request == id, !Task.isCancelled else { return }
             approval = plan
         } catch { if request == id, !Task.isCancelled { issue = error.localizedDescription } }

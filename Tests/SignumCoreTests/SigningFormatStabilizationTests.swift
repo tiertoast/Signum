@@ -51,5 +51,39 @@ import CoreGraphics
             XCTAssertEqual(plan.jobs.map { $0.destination.pathExtension }, ["p7m", "pdf"])
         }
     }
+    func testReviewFreezesArtworkGeometryAndRejectsChangedCertificate() async throws {
+        try await fixture { _, batch, file in
+            await batch.addDocuments([file], format: .pades)
+            let snapshot = try XCTUnwrap(batch.documents.first?.snapshot)
+            let der = try CertificateEligibilityTests.fixtures.get().der("valid")
+            var c = PAdESAppearanceConfiguration(); c.showSigner = false
+            let appearance = try PAdESAppearanceRenderer.render(c, certificateDER: der, cropBox: CGRect(x: 0, y: 0, width: 595, height: 842))
+            let plan = try await batch.prepareReview(provider: "/synthetic/provider", slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])), der: der,
+                destination: .originalFolders, appearances: [snapshot.identity.id: appearance])
+            try batch.freezeReview(plan); try batch.confirm(plan)
+            c.rectangle.origin.x += 25
+            XCTAssertEqual(plan.jobs[0].padesAppearance?.configuration.rectangle.origin.x, 30)
+            XCTAssertEqual(plan.jobs[0].padesAppearance?.approvalIdentity, appearance.approvalIdentity)
+            XCTAssertEqual(plan.jobs[0].format, .pades)
+            XCTAssertThrowsError(try SigningJob(snapshot: snapshot, providerPath: "/synthetic/provider", slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])),
+                certificateDER: CertificateEligibilityTests.fixtures.get().der("otherSigner"),
+                destination: plan.jobs[0].destination, padesAppearance: appearance))
+        }
+    }
+    func testMismatchedAppearanceContextCannotPrepareConsent() async throws {
+        try await fixture { _, batch, file in
+            await batch.addDocuments([file], format: .pades)
+            var context = SigningReviewContext(revision: batch.revision, provider: "/synthetic/provider", slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])), der: try CertificateEligibilityTests.fixtures.get().der("valid"),
+                destination: .originalFolders, routeID: "synthetic", discoveryID: UUID())
+            context.appearanceHashes = [batch.documents[0].id: "obsolete"]
+            let review = SigningReview()
+            await review.prepare(context, batch: batch, validate: { XCTFail("Reject before provider work") })
+            XCTAssertNil(review.approval); XCTAssertNil(batch.review); XCTAssertFalse(review.issue.isEmpty)
+        }
+    }
+
 }
 #endif

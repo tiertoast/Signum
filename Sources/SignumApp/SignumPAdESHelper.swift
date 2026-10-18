@@ -27,6 +27,10 @@ enum SignumPAdESHelper {
                      executable: URL? = nil, timeout: TimeInterval = 120, appearance: RenderedPAdESAppearance? = nil) throws {
         defer { job.snapshot.close() }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
+        if let frozen = job.padesAppearance, let appearance, frozen.approvalIdentity != appearance.approvalIdentity {
+            throw SignumError.module("Appearance differente da quella approvata nel job.")
+        }
+        let appearance = job.padesAppearance ?? appearance
         try job.requireAvailableDestination()
         _ = try job.verifiedBytes()
         let input = job.snapshot.fileURL, output = job.destination

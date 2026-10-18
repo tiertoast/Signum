@@ -49,8 +49,6 @@ private enum SignumFormat: String, Hashable {
     @State private var customDirectory: URL?
     @State private var placements: [UUID: PAdESPlacement] = [:]
     @State private var readyPreviews = Set<UUID>()
-    @State private var approvedAppearances: [UUID:RenderedPAdESAppearance] = [:]
-    @State private var approvedFields: [UUID: SignumPAdESHelper.Field] = [:]
     @State private var approvedHolder = ""
     @State private var approvedRoute: DeviceCertificateRoute?
     @State private var provider: ProviderSelection
@@ -220,7 +218,7 @@ private enum SignumFormat: String, Hashable {
         }
         .task(id: batch.isFrozen ? nil : reviewContext) {
             let context = reviewContext, route = devices.selectedRoute
-            await review.prepare(context, batch: batch, validate: { try route?.requireCurrentModule() })
+            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validate: { try route?.requireCurrentModule() })
         }
         .onChange(of: showExcludedCertificates) { show in
             guard !batch.isFrozen, let route = devices.selectedRoute,
@@ -242,6 +240,7 @@ private enum SignumFormat: String, Hashable {
 
     private var formatPicker: some View {
         GroupBox("Formato per nuovi documenti") {
+            VStack(alignment: .leading, spacing: 6) {
             Picker("Formato", selection: $format) {
                 Text("CAdES — documento .p7m").tag(SignumFormat.cades)
                 Text("PAdES — PDF firmato").tag(SignumFormat.pades)
@@ -252,6 +251,15 @@ private enum SignumFormat: String, Hashable {
             .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(interfaceLocked || batch.isFrozen)
             .padding(5)
+            Text("Questa scelta vale solo per i documenti aggiunti da ora. I documenti già acquisiti mantengono il formato indicato accanto al nome. Per cambiarlo, rimuovili e aggiungili nuovamente.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let snapshot = documentSnapshot {
+                Text("Documento corrente: \(snapshot.originalURL.lastPathComponent)")
+                    .font(.caption).lineLimit(2)
+                Text(snapshot.format == .pades ? "Formato effettivo: PAdES — PDF firmato" : "Formato effettivo: CAdES — documento .p7m")
+                    .font(.callout.bold())
+            }
+            }.padding(5)
         }
     }
 
@@ -353,7 +361,7 @@ private enum SignumFormat: String, Hashable {
                     Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
                         .buttonStyle(.plain).lineLimit(1).truncationMode(.middle)
                         .help(entry.snapshot.originalURL.lastPathComponent).disabled(batch.isRunning || interaction.isSubmittingPIN)
-                    Text(entry.snapshot.format.rawValue.uppercased()).font(.caption2).foregroundStyle(.secondary)
+                    Text(entry.snapshot.format == .pades ? "PAdES · PDF" : "CAdES · .p7m").font(.caption.bold())
                     Spacer(minLength: 8)
                     Text(rowStatus).font(.caption).lineLimit(1)
                 }.padding(.vertical, 3)
@@ -372,7 +380,7 @@ private enum SignumFormat: String, Hashable {
         guard !interfaceLocked else { return }
         authenticationSession?.requestStop(); authenticationSession = nil
         authenticationAttempted = false; authenticationStatus = ""
-        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]; approvedAppearances = [:]; approvedRoute = nil
+        batch.reset(); placements = [:]; readyPreviews = []; approvedRoute = nil
         showDocument(nil); provider.pin = ""; lastSignedFile = nil
         status = "Nuova sessione. Scegli i documenti da firmare."
     }
@@ -715,9 +723,6 @@ private enum SignumFormat: String, Hashable {
         provider.pin = ""
         let holder = selectedHolder, requestedAuthenticationMode = authenticationMode
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
-        let appearances = placements.compactMapValues { $0.appearance }
-        let fields = placements.mapValues { value in SignumPAdESHelper.Field(pageIndex: value.pageIndex,
-            x: Double(value.rectangle.minX), y: Double(value.rectangle.minY), width: Double(value.rectangle.width), height: Double(value.rectangle.height)) }
         do {
             let approved = try interaction.approveDisplayed(batch: batch, approval: plan,
                 additionalConfirmation: additionalConfirmation, isCurrent: { reviewContext == context }, present: { approval in
@@ -731,7 +736,7 @@ private enum SignumFormat: String, Hashable {
                     return alert.runModal() == .alertFirstButtonReturn
                 })
             if approved {
-                approvedAppearances = appearances; approvedFields = fields; approvedHolder = holder; approvedRoute = route
+                approvedHolder = holder; approvedRoute = route
                 approvedAuthenticationMode = requestedAuthenticationMode
                 authenticationAttempted = false
                 authenticationStatus = BatchAuthenticationPolicy.explanation(formats: plan.jobs.map(\.format), serial: route.token.serial, mode: requestedAuthenticationMode)
@@ -742,7 +747,7 @@ private enum SignumFormat: String, Hashable {
 
     private func authorizeNextDocument() {
         guard canAuthorizeNext, let route = approvedRoute else { return }
-        let appearances = approvedAppearances, fields = approvedFields, holder = approvedHolder
+        let holder = approvedHolder
         if !authenticationAttempted, let plan = batch.approval,
            BatchAuthenticationPolicy.canAttempt(jobs: plan.jobs, serial: route.token.serial, mode: approvedAuthenticationMode) {
             authenticationAttempted = true
@@ -760,7 +765,7 @@ private enum SignumFormat: String, Hashable {
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
             else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
-                field: fields[job.snapshotIdentity.id], operation: operation, appearance: appearances[job.snapshotIdentity.id]) }
+                field: nil, operation: operation, appearance: job.padesAppearance) }
         }, completion: { result in
             lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
             if let session {
