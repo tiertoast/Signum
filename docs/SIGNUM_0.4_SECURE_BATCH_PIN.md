@@ -154,3 +154,14 @@ Run mirato finale di questa revisione **47/47**, zero skip/fallimenti
 (Data passato a funzione C a puntatore) è stato corretto prima di questo run.
 Il successivo controllo completo e sanitizer usa anche le ultime guard di
 scadenza prima di Sign e di ownership del contatore processi.
+
+Primo run completo **293/293**, zero skip/fallimenti. I primi run ASAN/TSAN
+hanno segnalato quattro assert falliti ciascuno nel solo test di rifiuto mlock:
+entrambi i runtime intercettano mlock come no-op. Riprodotto con un probe C senza
+PIN e RLIMIT_MEMLOCK=0: il buffer è rifiutato normalmente ma accettato da entrambi
+i binari strumentati (`04a41-lock-interceptor.log`). Il controllo OS è quindi
+eseguito con un worker **non strumentato esplicito**, anche nei run sanitizer;
+tutti gli altri test worker restano strumentati. Override solo nel test,
+`SIGNUM_TEST_LOCK_REFUSAL_WORKER`; nessuna eccezione o modifica a mlock nel prodotto.
+Non si deduce dai sanitizer che le pagine siano realmente bloccate: questo è
+provato separatamente dal runner normale. Log dei primi fallimenti preservati.

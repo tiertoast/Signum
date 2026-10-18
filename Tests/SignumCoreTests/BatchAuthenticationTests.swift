@@ -226,13 +226,16 @@ final class BatchAuthenticationTests: XCTestCase {
     func testTemporaryMemoryLockRefusalIsExplicitAndOccursBeforeProviderLogin() throws {
         try fixture(always: true, temporary: true) { mock, unused in
             let source = mock.folder.appendingPathComponent("limited-worker.c"), wrapper = mock.folder.appendingPathComponent("limited-worker")
+            // ASAN/TSAN replace mlock with a no-op. This one OS-resource test
+            // must use an explicitly selected noninstrumented worker there.
+            let lockWorker = ProcessInfo.processInfo.environment["SIGNUM_TEST_LOCK_REFUSAL_WORKER"].map { URL(fileURLWithPath: $0) } ?? worker
             try """
             #include <sys/resource.h>
             #include <unistd.h>
             int main(int argc, char **argv) {
                 struct rlimit limit = {0,0};
                 if (setrlimit(RLIMIT_MEMLOCK, &limit)) return 3;
-                execv(\(String(reflecting: worker.path)), argv);
+                execv(\(String(reflecting: lockWorker.path)), argv);
                 return 4;
             }
             """.write(to: source, atomically: false, encoding: .utf8)
