@@ -62,13 +62,19 @@ final class UnifiedVerificationTests: XCTestCase {
     }
     func testDetachedMissingCertificateUnsupportedAlgorithmAndDeclaredTime() throws {
         try folder { root in
-            _ = try SoftwareSigner(folder:root);try Data("Synthetic detached".utf8).write(to:root.appendingPathComponent("input"))
+            let signer = try SoftwareSigner(folder:root);try Data("Synthetic detached".utf8).write(to:root.appendingPathComponent("input"))
             for (name,flags,reason) in [("detached",[],"detached"),("missing",["-nodetach","-nocerts"],"assente"),("sha1",["-nodetach","-md","sha1"],"Algoritmo")] {
                 try openssl(["cms","-sign","-binary"]+flags+["-in","input","-signer","certificate.pem","-inkey","key.pem","-outform","DER","-out",name],root:root)
                 let report = try verify(Data(contentsOf:root.appendingPathComponent(name)))
                 XCTAssertEqual(report.integrity,.notVerifiable); XCTAssertTrue(report.signatures[0].reason.contains(reason)); XCTAssertFalse(report.signatures[0].declaredTime.isEmpty)
                 XCTAssertNil(report.previewPDF); assertUnassessed(report)
             }
+            var unknownOID = try signer.cms(for:Data("Synthetic unsupported signature algorithm".utf8))
+            let identifier = try XCTUnwrap(unknownOID.range(of:DER.rsaEncryptionOID,options:.backwards))
+            unknownOID[identifier.upperBound-1] = 99
+            let unsupported = try verify(unknownOID)
+            XCTAssertEqual(unsupported.integrity,.notVerifiable)
+            XCTAssertTrue(unsupported.signatures[0].reason.contains("Algoritmo"))
         }
     }
     func testMultipleCMSSignersHaveIndependentCertificatesAndCryptographicStates() throws {
@@ -160,6 +166,15 @@ final class UnifiedVerificationTests: XCTestCase {
             }
             var malformed = signed;malformed[r[1]+1] = 70;malformed[r[1]+2] = 70
             XCTAssertNotEqual(try verify(malformed).integrity,.verified)
+            let sourceHex = Array(signed[r[1]+1..<r[2]-1])
+            var cms = Data()
+            for offset in stride(from:0,to:sourceHex.count,by:2) {
+                cms.append(try XCTUnwrap(UInt8(String(decoding:sourceHex[offset..<offset+2],as:UTF8.self),radix:16)))
+            }
+            let identifier = try XCTUnwrap(cms.range(of:DER.rsaEncryptionOID,options:.backwards));cms[identifier.upperBound-1] = 99
+            var unsupportedPDF = signed
+            unsupportedPDF.replaceSubrange(r[1]+1..<r[2]-1,with:Data(cms.map{String(format:"%02X",$0)}.joined().utf8))
+            XCTAssertEqual(try verify(unsupportedPDF).integrity,.notVerifiable)
         }
     }
     func testLargeCAdESVerificationWithinDocumentBudget() throws {

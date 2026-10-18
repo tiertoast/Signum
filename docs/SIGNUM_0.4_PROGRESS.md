@@ -378,3 +378,13 @@ Profilo PDF deliberatamente limitato a quello SG-03; niente validazione legale,
 XAdES operativo o hardware nuovo. Runtime macOS 13/14 e GUI interattiva completa
 ancora da collaudare. Main, Alpha/build 6, review non tracciata e PR #3 preservati;
 nessun push/merge/tag/release, GitHub Actions o altro repository.
+
+Checkpoint C **`89dfb14`**, build 8 Debug/Release impacchettate e verificate,
+39/39 integrazioni con helper del bundle e 15/15 esempi CLI. Controllo finale:
+OID di algoritmo non supportato classificato impropriamente come integrità
+non valida; corretto distinguendo prima OID, tipo chiave e digest. Regressione
+CAdES/PAdES 15/15; candidata incrementata a build 9, preservando build 8.
+
+Dopo la correzione OID: Swift 317/317, PKCS#11 40/40, PAdES Debug/Release
+63/63, packaging 10/10, ASAN/TSAN mirati 54/54 ciascuno e native ASAN 63/63;
+Build Debug/Release riuscite. Zero skip/fallimenti finali (`04c-build9-*`).

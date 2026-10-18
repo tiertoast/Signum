@@ -189,3 +189,31 @@ Evidenze finali `04c-delivery-*`, `04c-final-geometry-tests.log`,
 `04c-independent-cms.log`, `04c-rlimit-probe.log`. La fonte avanza a
 **0.4.0/build 8**. Il commit di implementazione che aggiunge questo rapporto è
 il checkpoint C; i manifest dei successivi bundle registrano il suo hash.
+
+## Correzione diagnostica prima della consegna finale
+
+Checkpoint iniziale C **`89dfb14`**, bundle Debug/Release **build 8** verificati
+in `.build/04bc-bundles/delivery-{debug,release}/Signum.app`, manifest clean,
+firma ad hoc/hash/minimo 13.0 e rilocazione passati. Con gli helper impacchettati:
+**39/39** integrazioni; CLI verificata su **15/15** esempi sintetici. Build 8
+conservata come checkpoint, superata dalla candidata build 9.
+
+L'ultimo controllo avversariale ha sostituito soltanto l'OID dell'algoritmo di
+firma CMS con `1.2.840.113549.1.1.99`, lasciando digest e chiave RSA/SHA-256.
+OpenSSL rifiuta l'operazione non supportata; la prima versione la presentava
+impropriamente come digest/firma non corrispondente. La policy ora controlla anche
+l'OID di firma, compatibilità con chiave RSA/RSA-PSS/EC e digest coerente, prima
+della verifica matematica. Gli OID sconosciuti sono **non verificabili**, non
+attribuiti a un'alterazione dimostrata. Regressione eseguita sia in CAdES sia
+all'interno del CMS PAdES: suite dedicata **15/15** passata.
+
+Il timeout di trasporto/parser non è una garanzia di cancellazione di una lettura
+filesystem bloccata dal sistema operativo: acquisizione locale e hash avvengono
+fuori dal main actor, ma non sono coperti da una scadenza I/O OS indipendente.
+
+Correzione rieseguita prima del commit: Swift **317/317**, build SignumApp
+Debug/Release passate, PKCS#11 **40/40**, PAdES Debug/Release **63/63** ciascuna,
+packaging **10/10**, ASAN e TSAN mirati **54/54** ciascuno, native ASAN **63/63**.
+Questi ultimi sanitizer includono anche le fixture rafforzate di geometria e
+OID sconosciuti; zero skip/errori finali. Evidenze `04c-build9-*`. Nessun
+cambiamento alle primitive di firma o agli invarianti delle milestone precedenti.

@@ -6,7 +6,7 @@ A lightweight, native macOS application for signing documents with local PKCS#11
 
 Signum aims to make document signing practical and understandable, particularly in document-heavy workflows such as the Italian public administration, without locking users into a particular token vendor's desktop interface.
 
-> **Development status — 18 October 2026:** **0.4.0 / build 8 candidate on `codex/signum-0.4-pades-verification`.** Main and the working Alpha/build 6 remain preserved. Local candidate only; see the milestone reports below.
+> **Development status — 18 October 2026:** **0.4.0 / build 9 candidate on `codex/signum-0.4-pades-verification`.** Main and the working Alpha/build 6 remain preserved. Local candidate only; see the milestone reports below.
 > CAdES and PAdES have both passed real DigitalDNA/DS3 signing tests and independent checks with InfoCamere Sign. **This is not a public Beta or production-ready eIDAS validation product.** No signed, notarized distribution is available yet.
 
 ## Capabilities

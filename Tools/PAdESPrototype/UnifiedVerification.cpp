@@ -115,8 +115,17 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
         if(!when)when=CMS_signed_get0_data_by_OBJ(info,OBJ_nid2obj(NID_pkcs9_signingTime),-3,V_ASN1_GENERALIZEDTIME);
         if(when) {std::unique_ptr<BIO,decltype(&BIO_free)> b(BIO_new(BIO_s_mem()),BIO_free);if(b){ASN1_TIME_print(b.get(),static_cast<ASN1_TIME*>(when));s.declaredTime=bioString(b.get());}}
         int hash=digest?OBJ_obj2nid(digest->algorithm):NID_undef;
+        int signatureAlgorithm=algorithm?OBJ_obj2nid(algorithm->algorithm):NID_undef;
         EVP_PKEY* key=cert?X509_get0_pubkey(cert):nullptr;
-        bool algorithmSupported=key && (EVP_PKEY_is_a(key,"RSA")||EVP_PKEY_is_a(key,"EC")) &&
+        const bool rsaAlgorithm=signatureAlgorithm==NID_rsaEncryption || signatureAlgorithm==NID_rsassaPss ||
+            (signatureAlgorithm==NID_sha256WithRSAEncryption&&hash==NID_sha256) ||
+            (signatureAlgorithm==NID_sha384WithRSAEncryption&&hash==NID_sha384) ||
+            (signatureAlgorithm==NID_sha512WithRSAEncryption&&hash==NID_sha512);
+        const bool ecAlgorithm=(signatureAlgorithm==NID_ecdsa_with_SHA256&&hash==NID_sha256) ||
+            (signatureAlgorithm==NID_ecdsa_with_SHA384&&hash==NID_sha384) ||
+            (signatureAlgorithm==NID_ecdsa_with_SHA512&&hash==NID_sha512);
+        bool algorithmSupported=key &&
+            (((EVP_PKEY_is_a(key,"RSA")||EVP_PKEY_is_a(key,"RSA-PSS"))&&rsaAlgorithm) || (EVP_PKEY_is_a(key,"EC")&&ecAlgorithm)) &&
             (hash==NID_sha256||hash==NID_sha384||hash==NID_sha512);
         if(needsContent)s.reason="Firma detached: serve il contenuto esterno, non caricato automaticamente";
         else if(!supportedContent)s.reason="Tipo di contenuto CMS non supportato";
