@@ -17,7 +17,8 @@ import XCTest
             XCTAssertTrue(selection.showsPAdESPreview)
             XCTAssertTrue(selection.accepts(pades.identity.id, generation: first))
             selection.showingPDFPreview = false; XCTAssertFalse(selection.showsPAdESPreview)
-            selection.showingPDFPreview = true
+            selection.select(pades)
+            XCTAssertTrue(selection.showsPAdESPreview, "Selecting the same PAdES row reopens its preview")
             selection.select(cades)
             XCTAssertFalse(selection.showingPDFPreview); XCTAssertFalse(selection.showsPAdESPreview)
             XCTAssertFalse(selection.accepts(pades.identity.id, generation: first))

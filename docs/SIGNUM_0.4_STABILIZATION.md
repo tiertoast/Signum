@@ -63,3 +63,7 @@ Suite Swift completa **333/333**, zero skip/fallimenti (317 storici + 16 regress
 Nuovo end-to-end: job con artwork spostato e congelato, quattro PDF vettoriali firmati con provider software, rotazioni 0/90/180/270, crop/MediaBox traslati, pagina superiore A0/UserUnit 10. Controllati /AP/N, /Rect finale, aggiornamento incrementale, verifica unificata (ByteRange/CMS), originali invariati. Poppler sul vero PDF firmato e sul riferimento appiattito: centroidi dei pixel rossi coincidenti per tutte le rotazioni, non soltanto confronto dell’overlay.
 
 Incrementata soltanto la nuova candidata a **0.4.0/build 10**, minimo 13.0. Bundle Debug/Release da produrre in `.build/04stabilization-bundles/build10-{debug,release}/Signum.app`, mai nelle directory delle build precedenti. La verifica finale dei bundle viene registrata dopo la compilazione dal commit sorgente pulito.
+
+### Controllo finale del workspace
+
+Individuato e riprodotto durante la revisione M7: dopo il ritorno all’elenco, selezionare il nome dello stesso PAdES non riapriva la preview perché la selezione era trattata come no-op. Test iniziale 1 fallimento atteso su 2; corretto il modello per riaprire la preview con una nuova generazione, senza toccare il job. Dopo: selezione+hosting workspace 5/5. I primi bundle `build10-{debug,release}` da `b760a54` sono intermedi e preservati; usare soltanto i successivi `final-{debug,release}` registrati nella consegna finale.

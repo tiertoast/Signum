@@ -14,7 +14,11 @@ import SignumCore
         self.snapshot = snapshot; showingPDFPreview = snapshot?.format == .pades
     }
     func select(_ value: DocumentSnapshot?) {
-        guard snapshot?.identity.id != value?.identity.id else { return }
+        guard snapshot?.identity.id != value?.identity.id else {
+            if value?.format == .pades, !showingPDFPreview { generation = UUID() }
+            showingPDFPreview = value?.format == .pades
+            return
+        }
         generation = UUID(); snapshot = value
         showingPDFPreview = value?.format == .pades
     }
