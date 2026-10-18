@@ -36,10 +36,12 @@ struct PKCS11WorkerRequest: Codable {
 }
 struct WorkerToken: Codable {
     let slot: UInt, label: String, manufacturer: String, model: String, reader: String
+    let serial: String?
     init(_ token: SignumToken) {
         slot = token.slot; label = token.label; manufacturer = token.manufacturer; model = token.model; reader = token.reader
+        serial = token.serial
     }
-    var value: SignumToken { .init(slot: slot, label: label, manufacturer: manufacturer, model: model, reader: reader) }
+    var value: SignumToken { .init(slot: slot, label: label, manufacturer: manufacturer, model: model, reader: reader, serial: serial ?? "") }
 }
 struct WorkerCertificate: Codable {
     let label: String, identifier: Data, der: Data
@@ -57,5 +59,6 @@ struct PKCS11WorkerResponse: Codable {
     let signature: Data?
     let succeeded: Bool
     var failureKind: String? = nil
+    var libraryVersion: String? = nil
 }
 #endif

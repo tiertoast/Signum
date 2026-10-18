@@ -134,7 +134,7 @@ static CK_RV slots(CK_BBOOL present, CK_SLOT_ID_PTR out, CK_ULONG_PTR n) {
 static CK_RV token(CK_SLOT_ID slot, CK_TOKEN_INFO_PTR out) {
     (void)slot; BEGIN(M_TOKEN_INFO); memset(out, ' ', sizeof(*out));
     memcpy(out->label, "Signum Mock", 11); memcpy(out->model, "Synthetic", 9);
-    memcpy(out->manufacturerID, "Offline fixture", 15); return end(CKR_OK);
+    memcpy(out->manufacturerID, "Offline fixture", 15); memcpy(out->serialNumber, "SYNTHETIC-0001", 14); return end(CKR_OK);
 }
 static CK_RV slot_info(CK_SLOT_ID slot, CK_SLOT_INFO_PTR out) {
     (void)slot; BEGIN(M_SLOT_INFO); memset(out, ' ', sizeof(*out));

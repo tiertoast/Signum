@@ -31,6 +31,7 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
         public let provider: String
         public let tokens: [SignumToken]
         public let unavailableSlots: Int
+        public var version: String? = nil
     }
     public struct Certificate: Sendable {
         public let certificate: SignumCertificate
@@ -45,8 +46,9 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
         guard result.tokens.count <= 256, result.unavailable >= 0, result.unavailable <= 256,
               result.certificates.isEmpty, result.signature == nil,
               result.tokens.allSatisfy({ $0.label.utf8.count <= 128 && $0.model.utf8.count <= 128 &&
-                  $0.manufacturer.utf8.count <= 128 && $0.reader.utf8.count <= 256 }) else { throw SupervisedProcess.Failure.protocolViolation }
-        return Scan(provider: result.provider, tokens: result.tokens.map(\.value), unavailableSlots: result.unavailable)
+                  $0.manufacturer.utf8.count <= 128 && $0.reader.utf8.count <= 256 && ($0.serial?.utf8.count ?? 0) <= 32 }),
+              (result.libraryVersion?.utf8.count ?? 0) <= 32 else { throw SupervisedProcess.Failure.protocolViolation }
+        return Scan(provider: result.provider, tokens: result.tokens.map(\.value), unavailableSlots: result.unavailable, version: result.libraryVersion)
     }
     public func certificates(provider: String, slot: UInt, timeout: TimeInterval = 30,
                              expectedModule: MiddlewareFileIdentity? = nil, automatic: Bool = false,

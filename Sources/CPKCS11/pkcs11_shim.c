@@ -257,6 +257,15 @@ static int close_session(SGContext *ctx, CK_SESSION_HANDLE session, int status, 
     return -1;
 }
 
+int sg_module_version(SGContext *ctx, unsigned *major, unsigned *minor) {
+    if (!major || !minor || enter(ctx, NULL, 0)) return -1;
+    CK_INFO info;
+    CK_RV rv = ctx->api->C_GetInfo ? ctx->api->C_GetInfo(&info) : CKR_FUNCTION_NOT_SUPPORTED;
+    if (rv == CKR_OK) { *major = info.libraryVersion.major; *minor = info.libraryVersion.minor; }
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return rv == CKR_OK ? 0 : -1;
+}
+
 static int login_user(SGContext *ctx, CK_SESSION_HANDLE session, const uint8_t *pin, size_t pin_length,
                        char *error, size_t size) {
     CK_SESSION_INFO info;
@@ -312,6 +321,7 @@ static int sg_tokens_impl(SGContext *ctx, SGToken *out, size_t capacity,
         copy_padded(t->label, sizeof(t->label), info.label, sizeof(info.label));
         copy_padded(t->manufacturer, sizeof(t->manufacturer), info.manufacturerID, sizeof(info.manufacturerID));
         copy_padded(t->model, sizeof(t->model), (const unsigned char *)info.model, sizeof(info.model));
+        copy_padded(t->serial, sizeof(t->serial), info.serialNumber, sizeof(info.serialNumber));
         CK_SLOT_INFO slot_info;
         if (ctx->api->C_GetSlotInfo(slots[i], &slot_info) == CKR_OK) {
             copy_padded(t->reader, sizeof(t->reader), slot_info.slotDescription,

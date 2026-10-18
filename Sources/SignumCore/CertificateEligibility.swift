@@ -26,6 +26,7 @@ public enum CertificateEligibility {
         public let extendedKeyUsagePresent: Bool
         public let documentSigning: Bool
         public let anyExtendedKeyUsage: Bool
+        public let clientAuthentication: Bool
         public let publicKeyBits: Int
         public let certificateSHA256: String
         /// Only an affirmative local result permits a new signing operation.
@@ -62,6 +63,7 @@ public enum CertificateEligibility {
                           extendedKeyUsagePresent: result.eku_present != 0,
                           documentSigning: result.document_signing != 0,
                           anyExtendedKeyUsage: result.any_extended_key_usage != 0,
+                          clientAuthentication: result.client_authentication != 0,
                           publicKeyBits: Int(result.public_key_bits),
                           certificateSHA256: certificateDER.count <= 65536 ? SHA256.hash(data: certificateDER).map { String(format: "%02x", $0) }.joined() : "")
     }

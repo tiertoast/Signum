@@ -28,14 +28,16 @@ public struct SignumToken: Identifiable, Hashable, Sendable {
     public let manufacturer: String
     public let model: String
     public let reader: String
+    public let serial: String
 
     public init(slot: UInt, label: String, manufacturer: String,
-                model: String, reader: String = "") {
+                model: String, reader: String = "", serial: String = "") {
         self.slot = slot
         self.label = label
         self.manufacturer = manufacturer
         self.model = model
         self.reader = reader
+        self.serial = serial
     }
 
     public var id: UInt { slot }
@@ -50,7 +52,7 @@ public struct SignumToken: Identifiable, Hashable, Sendable {
             text.contains("smartcard") || text.contains("hamlet") {
             return "Smart card"
         }
-        return "Dispositivo PKCS#11"
+        return "Dispositivo di firma"
     }
 
     public var readerDescription: String {
@@ -130,6 +132,11 @@ public final class PKCS11Module: @unchecked Sendable {
         try scanTokens().tokens
     }
 
+    func reportedVersion() -> String? {
+        var major: UInt32 = 0, minor: UInt32 = 0
+        return sg_module_version(context, &major, &minor) == 0 ? "\(major).\(minor)" : nil
+    }
+
     /// A reader may expose a slot before its card is ready. Return the other
     /// usable devices, plus a count of transiently unavailable slots.
     public func scanTokens() throws -> SignumTokenScan {
@@ -145,7 +152,7 @@ public final class PKCS11Module: @unchecked Sendable {
         let found = rows.prefix(count).map {
             SignumToken(slot: UInt($0.slot), label: Self.fixedString($0.label),
                         manufacturer: Self.fixedString($0.manufacturer),
-                        model: Self.fixedString($0.model), reader: Self.fixedString($0.reader))
+                        model: Self.fixedString($0.model), reader: Self.fixedString($0.reader), serial: Self.fixedString($0.serial))
         }
         return SignumTokenScan(tokens: found, unavailableSlots: unavailable)
     }

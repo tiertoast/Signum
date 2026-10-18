@@ -41,3 +41,26 @@ positivo/errore/hang/crash/autenticazione richiesta. Audit: nessun Login/Sign.
 Il primo runner aveva un percorso worker errato nel test (xctest invece del
 prodotto SwiftPM); corretto il fixture harness e ripetuta la suite con successo.
 Non è stato caricato alcun middleware installato.
+
+## M3 — Certificati e vie di accesso
+
+Token: label/manufacturer/model/reader e seriale pubblico, più slot come localizzatore.
+Versione opzionale via C_GetInfo nel worker supervisionato; mai usata per fiducia.
+`DeviceCertificate` raggruppa soltanto DER uguali (SHA-256), conserva tutte le
+`DeviceCertificateRoute` con provider/percorso/file identity/token/slot/object ID.
+Non dichiara identità fisica condivisa fra moduli: questa non è dimostrabile con
+la sola metadata PKCS#11 disponibile. Anche seriali uguali e nomi omonimi non
+fondono certificati differenti. Lease fra provider diversi resta un limite noto.
+
+Nome, organizzazione ed emittente vengono dal DER, scadenza/idoneità dalla policy
+locale SG-04. Il nuovo flag clientAuth è solo descrittivo: nessuna modifica alle
+regole di idoneità o alle primitive. `DeviceSelection` non preseleziona certificati,
+invalida scelta/generazione al refresh e non effettua fallback, neppure al reinsert.
+La route verifica l'identità corrente del modulo off-main prima del consenso;
+job e motori continuano a vincolare provider/slot/ID/DER/snapshot immutabili.
+
+**Test mirati M3 e regressioni collegate: 42/42.** Comprendono DER comune fra
+provider/slot, omonimi con stesso seriale e diverso DER, firma/autenticazione/
+scaduto/KU incompatibile/indeterminato, rimozione/reinsert/cambio slot e provider,
+callback tardiva, sostituzione modulo dopo scelta e seriale letto nel figlio.
+Non è stato effettuato alcun collaudo del middleware installato.

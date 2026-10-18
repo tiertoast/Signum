@@ -57,10 +57,11 @@ public enum PKCS11WorkerEntrypoint {
         let module = try PKCS11Module(path: request.provider)
         let result = Result { () -> PKCS11WorkerResponse in
             var tokens: [WorkerToken] = [], certificates: [WorkerCertificate] = [], unavailable = 0
-            var signature: Data?
+            var signature: Data?, version: String?
             switch request.action {
             case .scan:
                 let scan = try module.scanTokens(); tokens = scan.tokens.map(WorkerToken.init); unavailable = scan.unavailableSlots
+                version = module.reportedVersion()
             case .certificates:
                 var total = 0
                 for certificate in try module.certificates(slot: request.slot!) {
@@ -76,7 +77,7 @@ public enum PKCS11WorkerEntrypoint {
                     pin: request.pin!, message: request.attributes!, expectedCertificateDER: certificate.der)
             }
             return PKCS11WorkerResponse(version: 1, id: request.id, action: request.action, provider: module.modulePath,
-                tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true)
+                tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true, libraryVersion: version)
         }
         // A blocked Finalize is contained by the parent's same deadline. Do not
         // announce success before checked provider teardown completes.

@@ -75,6 +75,7 @@ public struct MiddlewareDiscovery: Sendable {
         for (definition, path, origin) in candidates {
             var inspection: MiddlewareFileSecurity.Inspection?, tokens: [DiscoveredToken] = []
             var state: MiddlewareDetectionStatus = .communicationError, unavailable = 0
+            var version: String?
             func remaining() throws -> TimeInterval {
                 if isCancelled() { throw SupervisedProcess.Failure.cancelled }
                 let seconds = deadline - ProcessInfo.processInfo.systemUptime
@@ -88,6 +89,7 @@ public struct MiddlewareDiscovery: Sendable {
                     let scan = try scan(checked.canonicalPath, checked.identity, origin == .known, remaining())
                     guard scan.provider == checked.canonicalPath else { throw SupervisedProcess.Failure.protocolViolation }
                     unavailable = scan.unavailableSlots
+                    version = scan.version
                     state = unavailable > 0 ? .partial : (scan.tokens.isEmpty ? .noToken : .ready)
                     for (index, token) in scan.tokens.enumerated() {
                         var found: [IsolatedPKCS11Client.Certificate] = [], certificateState = DiscoveredToken.CertificateState.notInspected
@@ -114,7 +116,7 @@ public struct MiddlewareDiscovery: Sendable {
             catch SupervisedProcess.Failure.cancelled { state = .cancelled; tokens = [] }
             catch { state = .communicationError; tokens = [] }
             rows.append(.init(id: definition.id + ":" + path, definition: definition, origin: origin,
-                candidatePath: path, inspection: inspection, status: state, tokens: tokens, version: nil, unavailableSlots: unavailable))
+                candidatePath: path, inspection: inspection, status: state, tokens: tokens, version: version, unavailableSlots: unavailable))
         }
         return rows
     }
