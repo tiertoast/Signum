@@ -165,3 +165,142 @@ tutti gli altri test worker restano strumentati. Override solo nel test,
 `SIGNUM_TEST_LOCK_REFUSAL_WORKER`; nessuna eccezione o modifica a mlock nel prodotto.
 Non si deduce dai sanitizer che le pagine siano realmente bloccate: questo è
 provato separatamente dal runner normale. Log dei primi fallimenti preservati.
+
+## M8 — Candidata e consegna
+
+**Signum 0.4.0/build 6**, macOS arm64, codice **`37d21e8`**, tracciati puliti al
+packaging. Rispetto al core verificato `eec717d`, `40eb5ee` corregge soltanto la
+fixture sanitizer e `37d21e8` rende dinamica la descrizione del PIN accanto al
+consenso: individuata nel rendering una vecchia frase che negava la conservazione
+anche in modalità temporanea. Corretta usando la policy congelata del batch,
+**14/14** test interazione/preferenze/viste ripassati. Bundle rigenerati su questo
+commit in directory delivery nuove; i primi bundle final non sono la consegna.
+Rendering nativo della vista con 32 documenti ispezionato, PIN raggiungibile a
+650 punti; PNG in `.build/04a41-ui`. La versione 16.0/build 25229 nei PNG è
+quella dell'host XCTest, non della candidata. Test PDFKit preservato; nessuna
+accettazione interattiva completa o acquisizione pixel completa del PDF dichiarata.
+
+| Controllo finale | Esito |
+| --- | --- |
+| Swift completo, ripetuto con worker batch e helper PAdES del bundle Release | **293/293**, zero skip/fallimenti, 28 nuovi test rispetto alla baseline |
+| PKCS#11 nativo | **40/40** |
+| PAdES Debug/Release | **63/63** per configurazione, ripetuti sul bundle e copia rilocata |
+| Packaging Python | **10/10** |
+| ASAN mirato | **92/92**, zero skip/fallimenti; leak detection disabilitata |
+| TSAN mirato | **92/92**, zero skip/fallimenti, nessuna race segnalata |
+| Build Swift Debug/Release | Passate |
+| Bundle Debug/Release | Passati: firma ad hoc stretta, hash, rilocazione, dipendenze portabili |
+| Metadata/Mach-O | 0.4.0/build 6, minimo dichiarato 13.0 e cinque Mach-O minimo 13.0 |
+| Analyzer C | Nessuna diagnostica sui due file analizzati |
+
+Sanitizer su buffer C, shim e componenti batch/worker/lifecycle/coordinamento/UI:
+non sull'intera suite di 293 casi. Simboli ASAN/TSAN verificati nei due oggetti C;
+il mock/vendor e il probe risorse compilati separatamente non sono strumentati.
+Il solo test di rifiuto mlock usa un worker normale esplicito, come spiegato in
+M7. Nei worker delle candidate verificato il riferimento reale a mlock e
+l'assenza dei runtime sanitizer. Nessuna garanzia di pulizia forense della memoria.
+
+Percorsi assoluti delle app, **senza sostituire Alpha o build 5**:
+
+- `/Users/andreaoregioni/Developer/Signum-Reliability/.build/04a41-bundles/delivery-release/Signum.app`
+- `/Users/andreaoregioni/Developer/Signum-Reliability/.build/04a41-bundles/delivery-debug/Signum.app`
+
+Firma locale ad hoc, nessun Developer ID, hardened runtime, notarizzazione o
+distribuzione. Verificata anche la firma intatta dei due bundle precedenti
+build 5. CLI dei due nuovi bundle provata in discovery solo con provider sintetico.
+Target 13 statico: runtime macOS 13/14 e Mac pulito non collaudati.
+
+Evidenze `.build/reliability/evidence/04a41-*`: baseline e milestone, finali
+`delivery-swift.log`, `final-swift-validated.log`, `final-asan-validated.log`,
+`final-tsan-validated.log`, `final-pkcs.log`, `final-packaging-tests.log`,
+`final-build-{debug,release}.log`, `package-{debug,release}.log`,
+`delivery-package-{debug,release}.log`, `delivery-bundle-audit.log`,
+`bundle-audit.log`, `native-analyzer.log`, `lock-interceptor.log`. I primi log
+sanitizer senza suffisso `-validated` conservano il problema del test mlock.
+
+### Riproduzione
+
+```sh
+cd /Users/andreaoregioni/Developer/Signum-Reliability
+SIGNUM_TEST_BATCH_WORKER="$PWD/.build/04a41-bundles/delivery-release/Signum.app/Contents/Helpers/SignumPKCS11Worker" SIGNUM_TEST_PADES_HELPER="$PWD/.build/04a41-bundles/delivery-release/Signum.app/Contents/Helpers/signum-pades-local" swift test --scratch-path .build/reliability --jobs 4
+scripts/test-pkcs11-local.sh
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
+swift build --scratch-path .build/reliability --jobs 4 -c debug
+swift build --scratch-path .build/reliability --jobs 4 -c release
+```
+
+Per i sanitizer usare scratch distinti, `--sanitize=address`/`thread` e filtro
+`SecurePINBufferTests|SecureBatchNativeTests|BatchAuthenticationTests|BatchAuthIntegrationTests|BatchAuthenticationPreferenceTests|BatchWorkspaceSummaryTests|BatchSigningTests|SigningInteractionTests|SigningWorkspaceTests|PKCS11LifecycleIntegrationTests|PKCS11WorkerTests|ProcessCoordinationTests`.
+Esplicitare l'helper PAdES come sopra e `SIGNUM_TEST_LOCK_REFUSAL_WORKER` verso il
+worker Release normale; **non** impostare SIGNUM_TEST_BATCH_WORKER nel run
+sanitizer, altrimenti tutti i test batch userebbero il worker normale. Per ASAN
+`ASAN_OPTIONS=detect_leaks=0`. Per PAdES/packaging ripetere
+`scripts/build-beta-app.py --configuration debug`/`release`, con
+`--native-prefix .build/pr2-native-macos13/prefix` e `--output` nuovo per ogni app;
+il packager ricompila e verifica anche helper e copia rilocata. Nessuna
+installazione globale necessaria, non sovrascrivere le candidate consegnate.
+
+### Collaudo manuale preparato, non eseguito
+
+Demo `.build/04a41-demo`: sette `.txt` sintetici, PDF, certificato sintetico valido
+sette giorni e modulo software. Per questa demo il modulo è ricompilato con
+`SIGNUM_MOCK_DEFAULT_ALWAYS_AUTH=1` e `SIGNUM_MOCK_STRICT_CONTEXT=1`: richiede davvero
+CONTEXT_SPECIFIC per ogni Sign. Non rappresenta la policy di DigitalDNA o CNS.
+Solo preparazione e discovery CLI effettuate, nessuna GUI avviata interattivamente.
+
+1. Solo software: scollegare token reali, aprire l'app **delivery-release** esatta,
+   configurare `.build/04a41-demo/synthetic-provider.dylib` e scegliere il
+   certificato della demo. Utilizzare esclusivamente una stringa PIN fittizia.
+   Impostare «PIN temporaneo per il batch», controllare la descrizione, aggiungere
+   tre `.txt`, verificare le destinazioni e approvare una volta. Un inserimento
+   deve completare tre firme verificate; ripetere con sette file e destinazioni
+   nuove. In Auto/PIN per firma questa fixture deve invece chiedere nuovi PIN.
+2. Nuova sessione deve richiedere un nuovo inserimento. Provare annullamento e
+   chiusura finestra con documenti sintetici; nessuna prosecuzione dopo revoca.
+   PAdES e batch misti devono spiegare la limitazione e chiedere PIN individuali.
+3. **Solo dopo intervento/autorizzazione hardware espliciti dell'utente**:
+   DigitalDNA + Bit4id + DS3, cartella nuova e documenti sintetici. Ripetere
+   prima tre, poi sette CAdES in modalità temporanea. Annotare solo numero
+   richieste UI, messaggi di policy, esiti e verifiche con lo strumento abituale;
+   mai PIN o trace sensibili. Un inserimento UI non prova un singolo C_Login.
+4. Confrontare Auto/PIN per firma in sessioni distinte. Se attributo illeggibile,
+   sessione persa o policy non compatibile, è corretto interrompere o passare
+   esplicitamente a PIN per documento. Su PIN errato/bloccato/scaduto, errore
+   o incertezza fermarsi: nessun tentativo automatico o riuso del vecchio PIN.
+5. Ripetere separatamente su CNS se autorizzato; nessun risultato DigitalDNA
+   viene trasferito per presunzione a CNS. Verificare tutti gli output e il
+   comportamento di cancellazione/nuova sessione prima dell'uso quotidiano.
+
+### Limiti residui
+
+Prototipo verificato solo con provider sintetici: nessun esito hardware nuovo.
+PAdES/misti e riapertura automatica di sessioni USER non implementati. Attributo
+unknown, inizializzazione non posseduta e identità insufficiente impediscono il
+riuso; cambi di handle/policy sono terminali. Timeout/crash possono lasciare
+incerta l'operazione hardware, mai un output non verificato: niente retry.
+
+mlock protegge dalla normale paginazione, non da debugger/processo compromesso,
+middleware che copia credenziali, letture privilegiate o tutte le diagnostiche
+del sistema. Nessun crash report applicativo contiene deliberatamente il PIN;
+non si garantisce l'azzeramento di Swift/AppKit/vendor o del kernel. Su kill/crash
+il kernel rilascia le pagine: il cleanup esplicito potrebbe non essere eseguito.
+Se un processo è non terminabile dal kernel, lo slot resta riservato fino
+all'uscita e la chiusura non confermata richiede controllo. Opt-in aumenta la
+finestra di esposizione rispetto al PIN per firma. GUI interattiva completa,
+middleware reali e comportamento dopo sleep reale restano da collaudare.
+
+SG-01/14, SG-02, SG-03, SG-04, SG-05 e SG-06 preservati dai runner locali.
+Nessuna nuova primitiva, formato o integrazione pubblica. Non è un audit
+indipendente né una release pubblica.
+
+### Commit e stato finale
+
+M1 `5cbc389`; M2 `31355ce`; M3 `5f49bb4`; M4 `dc07bc3`; M5 `82ee4f5`;
+M6 `c4b1b89`; M7 `eec717d`; correzione fixture sanitizer `40eb5ee`;
+correzione descrizione consenso `37d21e8`;
+M8: commit che contiene questa consegna.
+
+Branch `codex/signum-0.4-secure-batch-pin`. Main invariato `be84a1e` e branch
+build 5 invariato `4366ed7`. Unico residuo intenzionale: review non tracciata
+preservata con hash M1. Nessun push/merge/tag/release, GitHub Actions,
+installazione globale, hardware/PIN reale, altro repository o HalleyMac.

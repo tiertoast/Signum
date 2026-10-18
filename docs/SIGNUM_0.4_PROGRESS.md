@@ -297,3 +297,39 @@ preservati. [Rapporto, commit, limiti e procedura manuale](SIGNUM_0.4_BATCH_AUTH
 Nuova autenticazione reale DigitalDNA/CNS, runtime macOS 13/14 e accettazione GUI
 completa non eseguiti. Nessun hardware/PIN reale, push/merge/tag/release, CI remoto,
 installazione globale o accesso a HalleyMac; main e branch build 4 invariati.
+
+## 18 ottobre 2026 — 0.4-A.4.1 Secure Batch PIN, sperimentale
+
+Branch `codex/signum-0.4-secure-batch-pin` da HEAD build 5 `4366ed7`. Richieste
+PIN ripetute nel collaudo build 5 riferite dall'utente: causa non attribuita.
+**M1–M8 implementate nel perimetro software**, prima di qualsiasi nuovo hardware.
+
+Terza modalità opt-in «PIN temporaneo per il batch», default sempre Automatica.
+PIN persistente solo nella pagina nativa mlock del worker CAdES approvato;
+payload binario iniziale separato dal manifesto, nessun PIN nei job, comandi
+successivi o preferenze. True noto: un inserimento UI e CONTEXT_SPECIFIC dopo
+ogni SignInit; false: buffer eliminato dopo il primo job, USER riutilizzato.
+Unknown/sessione persa/errori interrompono il riuso; nessun retry o USER relogin.
+Buffer cancellato prima del teardown e dell'ultimo commit. PAdES/misti rimangono
+per documento. Dichiarati limiti Swift/vendor e maggiore esposizione dell'opt-in.
+
+Verificati tre e sette CAdES con USER una volta, CONTEXT 3/7 volte e tutti gli
+output verificati. Non equivale a una sola autenticazione hardware. Core
+`eec717d`, fixture sanitizer `40eb5ee`, candidata finale **`37d21e8`** con ultima
+descrizione consenso corretta, nessun cambiamento alle primitive validate.
+
+Swift **293/293**, PKCS#11 **40/40**, PAdES Debug/Release **63/63** ciascuna
+anche nei bundle/rilocati, packaging **10/10**, ASAN/TSAN mirati **92/92** ciascuno.
+Primi sanitizer: quattro assert falliti ciascuno perché intercettano mlock come
+no-op; probe isolato ne dimostra la causa. Nei run finali quel solo test OS usa
+un worker normale esplicito, gli altri worker restano strumentati. Zero skip o
+fallimenti finali; nessuna diagnostica nei due file C analizzati con Clang.
+
+Build e bundle Debug/Release passati, firma ad hoc/hash/dipendenze e minimo 13.0
+verificati. **0.4.0/build 6** in `.build/04a41-bundles/delivery-release/Signum.app`
+(delivery-debug separata); demo sintetica ALWAYS_AUTHENTICATE true pronta.
+[Threat model, limiti, commit, esiti e collaudo](SIGNUM_0.4_SECURE_BATCH_PIN.md).
+Hardware DigitalDNA/CNS, GUI interattiva completa, sleep reale e runtime macOS
+13/14 non verificati. Alpha e build precedenti preservate; main/build 5 invariati.
+Nessun push/merge/tag/release, CI remoto, hardware/PIN reale, altro repository
+o HalleyMac.
