@@ -60,3 +60,21 @@ Non dichiarata la cancellazione di eventuali copie Swift/vendor/kernel.
 osservazione dei byte posseduti dopo clear, cicli allocazione/distruzione e
 processo isolato con RLIMIT_MEMLOCK=0 che rifiuta l'allocazione. Baseline Swift
 completa **265/265**, zero skip/fallimenti (`04a41-baseline-swift.log`).
+
+## M4 — Autenticazione nativa
+
+Entry point sperimentali separati, primitive RSA/CMS invariate. Lo shim conserva
+solo handle e policy della chiave, mai PIN. True noto: USER iniziale e CONTEXT
+dopo ogni SignInit; false: nessun login aggiuntivo. DER/policy locale/token/sessione
+controllati ogni volta; cambio handle o attributo ritira la sessione. Errori PIN
+incorrect/expired/locked/generici sono terminali. Nessun USER relogin automatico.
+
+Il test nativo iniziale ha esposto prima un conflitto di accesso esclusivo nella
+fixture Swift (inout e closure sullo stesso handle), poi una differenza reale
+tra la base temporale Foundation uptime e CLOCK_MONOTONIC macOS: il PIN risultava
+già scaduto. Fixture corretta; deadline dello shim ora costruita e controllata
+con la stessa funzione CLOCK_MONOTONIC. La supervisione usa separatamente la
+propria durata uptime. Nessuna riduzione del controllo di scadenza.
+
+Run finale M4 **15/15**: cinque test nativi nuovi (inclusi quattro RV di errore
+PIN, nessun retry) e dieci regressioni worker Auto. Log `04a41-m4-auth-clock-fixed.log`.

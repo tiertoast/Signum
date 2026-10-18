@@ -8,6 +8,8 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <time.h>
+#include <math.h>
 
 typedef struct SGProvider {
     char *canonical_path;
@@ -615,7 +617,9 @@ struct SGBatchSession {
     CK_TOKEN_INFO token;
     uint8_t id[64], der[65536];
     size_t id_length, der_length;
-    int reusable, failed;
+    int reusable, failed, temporary_pin, auth_known;
+    CK_BBOOL auth; CK_OBJECT_HANDLE key;
+    double pin_deadline;
 };
 static int batch_token(SGBatchSession *s, int initial, const char *serial, char *error, size_t size) {
     CK_TOKEN_INFO token;
@@ -643,6 +647,15 @@ static int batch_certificate(SGBatchSession *s, char *error, size_t size) {
     SGCertificateAssessment assessment = sg_certificate_assess(actual, attr.ulValueLen, sg_certificate_now());
     return assessment.status == SG_CERT_ELIGIBLE ? 0 : invalid(error, size, "Batch certificate no longer locally eligible");
 }
+double sg_batch_monotonic_now(void) {
+    struct timespec now;
+    return clock_gettime(CLOCK_MONOTONIC, &now) ? -1 : now.tv_sec + now.tv_nsec / 1e9;
+}
+static int batch_pin_current(SGBatchSession *s) {
+    if (!s->temporary_pin) return 1;
+    double now = sg_batch_monotonic_now();
+    return now >= 0 && now < s->pin_deadline;
+}
 static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t pin_length,
     const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
     if (!message || !message_length || message_length > 4096 || !signature || capacity < 8192 || !length || s->failed)
@@ -667,14 +680,20 @@ static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t p
         known = rv == CKR_OK && attribute.ulValueLen == sizeof(auth) && (auth == CK_FALSE || auth == CK_TRUE);
         if (rv != CKR_OK && rv != CKR_ATTRIBUTE_TYPE_INVALID && rv != CKR_ATTRIBUTE_SENSITIVE)
             status = failed(error, size, "Batch authentication attribute", rv);
-        if (!first && (!known || auth != CK_FALSE || !s->reusable)) status = invalid(error, size, "Batch key authentication policy changed");
+        if (!first && (!known || !s->auth_known || auth != s->auth || key != s->key || !s->reusable))
+            status = invalid(error, size, "Batch key or authentication policy changed");
+        if (!first && known && auth == CK_TRUE && (!s->temporary_pin || !pin || !pin_length))
+            status = invalid(error, size, "Missing authorized batch authentication");
+        if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired");
+        if (first) { s->auth_known = known; s->auth = auth; s->key = key; }
     }
     if (!status) {
         CK_MECHANISM mechanism = { CKM_SHA256_RSA_PKCS, NULL, 0 };
         rv = s->ctx->api->C_SignInit(s->handle, &mechanism, key);
         if (rv != CKR_OK) status = failed(error, size, "Batch C_SignInit", rv);
         if (!status && known && auth == CK_TRUE) {
-            rv = s->ctx->api->C_Login(s->handle, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
+            if (!batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before authentication");
+            rv = status ? CKR_GENERAL_ERROR : s->ctx->api->C_Login(s->handle, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
             if (rv != CKR_OK) status = failed(error, size, "Batch C_Login CONTEXT_SPECIFIC (no retry)", rv);
         }
         if (!status) {
@@ -683,14 +702,14 @@ static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t p
             if (rv != CKR_OK || count > capacity) status = failed(error, size, "Batch C_Sign (no retry)", rv == CKR_OK ? CKR_GENERAL_ERROR : rv);
             else *length = count;
         }
-        if (first) s->reusable = known && auth == CK_FALSE && s->ctx->provider->owns_initialization;
+        if (first) s->reusable = known && (auth == CK_FALSE || s->temporary_pin) && s->ctx->provider->owns_initialization;
     }
     if (status) { s->failed = 1; memset(signature, 0, capacity); *length = 0; }
     return status;
 }
-int sg_batch_first(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
+static int batch_first(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
     const uint8_t *der, size_t der_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length,
-    SGBatchSession **out, int *reusable, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    SGBatchSession **out, int *reusable, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size, int temporary_pin, double pin_deadline) {
     if (length) *length = 0;
     if (!out || !reusable || !signature || capacity < 8192 || !length || !message || !message_length || message_length > 4096 || !id || !id_length || id_length > 64 || !der || !der_length || der_length > 65536 || !pin || !pin_length || pin_length > 64)
         return invalid(error, size, "Invalid first batch request");
@@ -699,12 +718,13 @@ int sg_batch_first(SGContext *ctx, unsigned long slot, const char *serial, const
     SGBatchSession *s = calloc(1, sizeof(*s));
     int status = s ? 0 : invalid(error, size, "Cannot allocate batch session");
     if (s) {
-        s->ctx = ctx; s->slot = slot; s->id_length = id_length; s->der_length = der_length;
+        s->ctx = ctx; s->slot = slot; s->temporary_pin = temporary_pin; s->pin_deadline = pin_deadline; s->id_length = id_length; s->der_length = der_length;
         memcpy(s->id, id, id_length); memcpy(s->der, der, der_length);
         status = batch_token(s, 1, serial, error, size);
         if (!status) status = open_session(ctx, slot, &s->handle, error, size);
         if (!status) {
             status = batch_certificate(s, error, size);
+            if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before USER login");
             if (!status) status = login_user(ctx, s->handle, pin, pin_length, error, size);
             if (!status) status = batch_sign(s, 1, pin, pin_length, message, message_length, signature, capacity, length, error, size);
             if (!status && s->reusable) { *out = s; *reusable = 1; }
@@ -713,6 +733,30 @@ int sg_batch_first(SGContext *ctx, unsigned long slot, const char *serial, const
     }
     pthread_mutex_unlock(&ctx->provider->operations);
     return status;
+}
+int sg_batch_first(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
+    const uint8_t *der, size_t der_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length,
+    SGBatchSession **out, int *reusable, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    return batch_first(ctx, slot, serial, id, id_length, der, der_length, pin, pin_length, message, message_length,
+        out, reusable, signature, capacity, length, error, size, 0, 0);
+}
+int sg_batch_first_temporary(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
+    const uint8_t *der, size_t der_length, const uint8_t *pin, size_t pin_length, double deadline,
+    const uint8_t *message, size_t message_length, SGBatchSession **out, int *reusable,
+    uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    if (!isfinite(deadline) || deadline <= 0) return invalid(error, size, "Invalid PIN deadline");
+    return batch_first(ctx, slot, serial, id, id_length, der, der_length, pin, pin_length, message, message_length,
+        out, reusable, signature, capacity, length, error, size, 1, deadline);
+}
+int sg_batch_requires_pin(SGBatchSession *s) {
+    return s && !s->failed && s->reusable && s->temporary_pin && s->auth_known && s->auth == CK_TRUE;
+}
+int sg_batch_next_temporary(SGBatchSession *s, const uint8_t *pin, size_t pin_length,
+    const uint8_t *message, size_t message_length, uint8_t *signature,
+    size_t capacity, size_t *length, char *error, size_t size) {
+    if (!s || !s->temporary_pin || pin_length > 64 || enter(s->ctx, error, size)) return -1;
+    int status = batch_sign(s, 0, pin, pin_length, message, message_length, signature, capacity, length, error, size);
+    pthread_mutex_unlock(&s->ctx->provider->operations); return status;
 }
 int sg_batch_next(SGBatchSession *s, const uint8_t *message, size_t message_length, uint8_t *signature,
     size_t capacity, size_t *length, char *error, size_t size) {

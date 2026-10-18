@@ -65,6 +65,16 @@ int sg_batch_first(SGContext *context, unsigned long slot, const char *serial,
     char *error, size_t error_size);
 int sg_batch_next(SGBatchSession *session, const uint8_t *message, size_t message_length,
     uint8_t *signature, size_t capacity, size_t *length, char *error, size_t error_size);
+/* Experimental worker-only policy. PIN storage remains caller-owned; no copy
+ * retained here. Monotonic deadline checked before USER/CONTEXT login. Session
+ * loss is terminal: no automatic USER reauthentication. */
+double sg_batch_monotonic_now(void); // deadline clock; do not mix with Foundation uptime
+int sg_batch_first_temporary(SGContext *, unsigned long, const char *, const uint8_t *, size_t,
+    const uint8_t *, size_t, const uint8_t *, size_t, double,
+    const uint8_t *, size_t, SGBatchSession **, int *, uint8_t *, size_t, size_t *, char *, size_t);
+int sg_batch_next_temporary(SGBatchSession *, const uint8_t *, size_t,
+    const uint8_t *, size_t, uint8_t *, size_t, size_t *, char *, size_t);
+int sg_batch_requires_pin(SGBatchSession *); // only public policy, never secret bytes
 int sg_batch_close(SGBatchSession *session, char *error, size_t error_size);
 
 #ifdef __cplusplus
