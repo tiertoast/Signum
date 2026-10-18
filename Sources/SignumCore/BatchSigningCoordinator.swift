@@ -53,6 +53,9 @@ public struct BatchApproval: Sendable {
     @Published public private(set) var needsOutcomeReview = false
     @Published public private(set) var activeOperation: SigningOperation?
     public private(set) var approval: BatchApproval?
+    @Published public private(set) var review: BatchApproval?
+    @Published public private(set) var revision = UUID()
+    private var reviewRequest = UUID()
     private var acquisitionID = UUID()
     private var activeID: UUID?
     private var acquisitionOperation: SigningOperation?
@@ -62,6 +65,45 @@ public struct BatchApproval: Sendable {
     public init() {}
     init(capture: @escaping @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot) { captureDocument = capture }
 
+    /// Invalidates a displayed but unapproved plan. Approved jobs stay immutable.
+    public func invalidateReview() {
+        guard !isFrozen else { return }
+        reviewRequest = UUID(); review = nil
+    }
+
+    /// Read-only preflight for the main-screen summary. Does not freeze/approve,
+    /// create output or ask for a PIN; edits invalidate the plan by revision.
+    public func prepareReview(provider: String, slot: UInt, certificate: SignumCertificate,
+                              der: Data, destination: BatchOutputDestination) async throws -> BatchApproval {
+        guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
+        invalidateReview()
+        let request = reviewRequest, version = revision, selected = documents.map(\.snapshot)
+        let result = try await Task.detached(priority: .userInitiated) {
+            try CertificateEligibility.requireEligible(certificateDER: der)
+            for snapshot in selected { _ = try snapshot.verifiedBytes() }
+            let outputs = try destination.plan(selected)
+            let jobs = try zip(selected, outputs).map { snapshot, output in
+                try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot, certificate: certificate,
+                    certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity)
+            }
+            return BatchApproval(id: UUID(), jobs: jobs)
+        }.value
+        guard !Task.isCancelled, reviewRequest == request, revision == version, !isFrozen, !isPreparing else {
+            throw Self.failure("Il riepilogo è cambiato. Controlla la nuova lista prima di firmare.")
+        }
+        review = result
+        return result
+    }
+
+    /// Synchronous MainActor boundary: freeze exactly the plan already displayed.
+    public func freezeReview(_ value: BatchApproval) throws {
+        guard !isFrozen, !isPreparing, !isApproved, review?.id == value.id,
+              value.jobs.map(\.snapshotIdentity.id) == documents.map(\.id),
+              documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Riepilogo non più valido. Controlla la lista aggiornata.") }
+        approval = value; isFrozen = true
+        for i in documents.indices { documents[i].destination = value.jobs[i].destination }
+    }
+
     public var nextDocument: BatchDocument? { documents.first { !$0.state.isTerminal } }
     public var finishedCount: Int { documents.filter { $0.state.isTerminal }.count }
     public var sessionReport: String {
@@ -70,6 +112,7 @@ public struct BatchApproval: Sendable {
 
     public func addDocuments(_ urls: [URL], format: SigningFormat) async {
         guard !isFrozen, !isPreparing, !isRunning else { return }
+        invalidateReview(); revision = UUID()
         isPreparing = true; selectionIssues = []; selectionTechnicalDetails = []
         if urls.count > Self.maximumDocuments { selectionIssues.append("Acquisiti soltanto i primi 32 elementi della selezione.") }
         let request = UUID(); acquisitionID = request
@@ -102,10 +145,12 @@ public struct BatchApproval: Sendable {
 
     public func remove(_ id: UUID) {
         guard !isFrozen, !isPreparing, !isRunning, let index = documents.firstIndex(where: { $0.id == id }) else { return }
+        invalidateReview(); revision = UUID()
         documents.remove(at: index).snapshot.close()
     }
     public func reset() {
         guard !isRunning, !isPreparing else { return }
+        isFrozen = false; invalidateReview(); revision = UUID()
         documents.forEach { $0.snapshot.close() }
         documents = []; approval = nil; selectionIssues = []; selectionTechnicalDetails = []
         isFrozen = false; isApproved = false; needsOutcomeReview = false
@@ -155,12 +200,14 @@ public struct BatchApproval: Sendable {
     }
 
     public func cancelPending() {
+        invalidateReview(); revision = UUID()
         acquisitionOperation?.requestCancellation()
         acquisitionID = UUID()
         for id in documents.map(\.id) { cancelDocument(id) }
     }
     public func cancelDocument(_ id: UUID) {
         guard id != activeID, let index = documents.firstIndex(where: { $0.id == id }), !documents[index].state.isTerminal else { return }
+        invalidateReview(); revision = UUID()
         documents[index].state = .cancelled
         documents[index].result = "Nessuna richiesta privata inviata."
         documents[index].snapshot.close()

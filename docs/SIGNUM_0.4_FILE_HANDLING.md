@@ -70,3 +70,45 @@ assente, timeout con clock iniettato, annullamento e callback tardiva/concorrenz
 con barriera. Le 18 regressioni snapshot precedenti restano attive, incluse symlink,
 corruzione e cleanup crash. Prima compilazione del monitor corretta da kevent
 (collisione nome tipo/funzione Swift) a kevent64; nessuna rinuncia al controllo.
+
+M2 verificata: **37/37** Swift mirati, PKCS#11 **40/40**, PAdES Debug/Release
+**63/63** ciascuno, build Debug/Release passate. Un primo run mirato ometteva
+SIGNUM_TEST_PADES_HELPER e saltava due integrazioni: ripetuto con helper esplicito,
+zero skip nella verifica registrata `04a31-m2-acquisition-final.log`.
+
+## M3 — Il pulsante principale è il consenso
+
+Nuovo preflight read-only Core prepareReview: verifica gli snapshot e SG-04,
+determina nomi reali/collisioni prima del clic e produce job immutabili, senza
+congelare le selezioni, creare output o chiedere PIN. Il riepilogo ordinario mostra
+firmatario/certificato, documenti/formati, origini e destinazioni effettive;
+hash e identità/provider nei dettagli espandibili. Nessun nome nominale viene
+presentato come piano approvabile mentre il preflight è incompleto.
+
+SigningReviewContext lega revisione documenti, provider/slot/ID/DER certificato,
+destinazione, route e generazione discovery. Qualsiasi variazione disabilita
+immediatamente il pulsante anche prima dell'aggiornamento asincrono della vista.
+Callback cancellate/obsolete non pubblicano un piano nuovo sotto un vecchio
+contesto. Il clic chiama freezeReview e confirm sincronicamente sul MainActor,
+approvando solo l'ID già mostrato, senza altro lavoro asincrono tra verifica e
+consenso. Hash/integrità sono ricontrollati prima dell'operazione privata.
+
+Default persistente OFF: «Richiedi conferma aggiuntiva prima della firma», nella
+sezione Impostazioni. OFF non presenta alcun secondo popup; ON congela il medesimo
+piano, presenta il riepilogo modale e consente annullamento. Un cambio selezione
+durante il modal viene rifiutato prima di confirm. Preferenze successive non
+modificano job già approvati. PIN e consenso restano due atti distinti.
+
+Per ogni PAdES resta obbligatoria l'anteprima dello snapshot. Prima del clic
+occorre tornare a «Documenti ed esiti», rendendo visibile il riepilogo ordinario.
+Nessuna autenticazione automatica, cache PIN o nuovo worker persistente.
+Collisioni dopo il preflight/consenso bloccano la richiesta privata; non viene
+scelto silenziosamente un nuovo nome.
+
+M3: **38/38** Swift mirati (sei nuovi casi review/consenso), PKCS#11 **40/40**,
+PAdES Debug/Release **63/63** ciascuno, build Debug/Release passate. Test:
+zero modal nel percorso diretto, nessun PIN prima del clic, piano congelato,
+preferenza persistita/annullamento, sette cambi di contesto, rimozione con callback
+tardiva deterministica, cambio nel modal e collisioni pre/post clic. Restano attivi
+i test interazione/PIN e due test di gerarchia/rendering nativi. Non equivalgono
+ancora a un collaudo manuale completo del nuovo bundle.

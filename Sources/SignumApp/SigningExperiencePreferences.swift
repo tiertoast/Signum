@@ -17,9 +17,14 @@ struct SigningExperiencePreferences {
         static let showExcluded = "signum.signing.showExcludedCertificates.v1"
         static let alongsideOriginal = "signum.signing.alongsideOriginal.v1"
         static let customDirectory = "signum.signing.customDirectoryPath.v1"
+        static let additionalConfirmation = "signum.signing.additionalConfirmation.v1"
     }
     let defaults: UserDefaults
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    var additionalConfirmation: Bool {
+        get { defaults.bool(forKey: Keys.additionalConfirmation) }
+        nonmutating set { defaults.set(newValue, forKey: Keys.additionalConfirmation) }
+    }
     var showExcluded: Bool {
         get { defaults.bool(forKey: Keys.showExcluded) }
         nonmutating set { defaults.set(newValue, forKey: Keys.showExcluded) }

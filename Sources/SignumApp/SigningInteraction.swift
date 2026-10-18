@@ -9,6 +9,28 @@ import SignumCore
     @Published private(set) var isShowingConfirmation = false
     @Published private(set) var isSubmittingPIN = false
 
+    /// The principal button is consent for the exact main-screen review. The
+    /// optional modal adds confirmation, never substitutes a changed plan.
+    func approveDisplayed(batch: BatchSigningCoordinator, approval: BatchApproval,
+                          additionalConfirmation: Bool, isCurrent: () -> Bool,
+                          present: (BatchApproval) -> Bool) throws -> Bool {
+        guard !isRequestingApproval, !isSubmittingPIN, isCurrent() else {
+            throw SignumError.module("Il riepilogo è cambiato. Controlla la nuova lista prima di firmare.")
+        }
+        isRequestingApproval = true
+        defer { isRequestingApproval = false; isShowingConfirmation = false }
+        try batch.freezeReview(approval)
+        do {
+            if additionalConfirmation {
+                isShowingConfirmation = true
+                guard present(approval) else { batch.declineApproval(); return false }
+            }
+            guard isCurrent() else { throw SignumError.module("La selezione è cambiata. Controlla il riepilogo aggiornato.") }
+            try batch.confirm(approval)
+            return true
+        } catch { batch.declineApproval(); throw error }
+    }
+
     func prepareAndConfirm(batch: BatchSigningCoordinator,
                            prepare: () async throws -> BatchApproval,
                            present: (BatchApproval) -> Bool) async throws -> BatchApproval? {

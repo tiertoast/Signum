@@ -36,6 +36,8 @@ private enum SignumFormat: String, Hashable {
 @MainActor struct SignumWindow: View {
     @StateObject private var batch: BatchSigningCoordinator
     @StateObject private var interaction = SigningInteraction()
+    @StateObject private var review = SigningReview()
+    @AppStorage(SigningExperiencePreferences.Keys.additionalConfirmation) private var additionalConfirmation = false
     @FocusState private var pinFocused: Bool
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) private var showExcludedCertificates = false
     @AppStorage(SigningExperiencePreferences.Keys.alongsideOriginal) private var saveAlongsideOriginal = true
@@ -80,6 +82,7 @@ private enum SignumFormat: String, Hashable {
         _devices = State(initialValue: initialDevices); _provider = State(initialValue: initialProvider)
         _manualPaths = State(initialValue: MiddlewarePreferences(defaults: defaults).paths)
         _customDirectory = State(initialValue: SigningExperiencePreferences(defaults: defaults).customDirectory)
+        _additionalConfirmation = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.additionalConfirmation, store: defaults)
         _showExcludedCertificates = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.showExcluded, store: defaults)
         _saveAlongsideOriginal = AppStorage(wrappedValue: true, SigningExperiencePreferences.Keys.alongsideOriginal, store: defaults)
         _documentSnapshot = State(initialValue: selectedSnapshot)
@@ -92,14 +95,19 @@ private enum SignumFormat: String, Hashable {
     private var destinationPolicy: BatchOutputDestination? {
         SigningDestinationSelection(alongsideOriginal: saveAlongsideOriginal, customDirectory: customDirectory).policy
     }
+    private var reviewContext: SigningReviewContext? {
+        guard !batch.isPreparing, !batch.documents.isEmpty, let destination = destinationPolicy,
+              let path = provider.signingProvider, let slot = provider.selectedSlot,
+              let id = provider.selectedCertificateID, let route = devices.selectedRoute,
+              let certificate = provider.certificates.first(where: { $0.id == id }),
+              let der = provider.certificateDERs[id], provider.certificateAssessments[id]?.permitsSigning == true,
+              batch.documents.allSatisfy({ !$0.state.isTerminal && ($0.snapshot.format != .pades ||
+                (readyPreviews.contains($0.id) && SignumPAdESHelper.available)) }) else { return nil }
+        return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
+                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID)
+    }
     private var canApproveBatch: Bool {
-        guard !interfaceLocked, !batch.isFrozen, !batch.documents.isEmpty, destinationPolicy != nil,
-              provider.signingProvider != nil, provider.selectedSlot != nil,
-              let id = provider.selectedCertificateID, provider.certificateAssessments[id]?.permitsSigning == true else { return false }
-        return batch.documents.allSatisfy { entry in
-            !entry.state.isTerminal && (entry.snapshot.format != .pades ||
-                (readyPreviews.contains(entry.id) && SignumPAdESHelper.available))
-        }
+        !interfaceLocked && !batch.isFrozen && !showingPDFPreview && review.matches(reviewContext, batch: batch)
     }
     private var canAuthorizeNext: Bool {
         !interfaceLocked && interaction.canSubmitPIN(provider.pin, batch: batch)
@@ -171,6 +179,8 @@ private enum SignumFormat: String, Hashable {
                             CAdESVerificationPane()
                         } else {
                             Button("Configura dispositivo…") { showDeviceConfiguration = true }
+                            Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
+                            Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.").font(.caption).foregroundStyle(.secondary)
                             SignumGraphicSettingsPane()
                         }
                     }
@@ -191,6 +201,10 @@ private enum SignumFormat: String, Hashable {
                 search: { discover() }, browse: chooseManualModule,
                 loadManual: { discover(manual: manualPath) }, remove: removeManualModule,
                 selectRoute: selectRoute)
+        }
+        .task(id: batch.isFrozen ? nil : reviewContext) {
+            let context = reviewContext, route = devices.selectedRoute
+            await review.prepare(context, batch: batch, validate: { try route?.requireCurrentModule() })
         }
         .onChange(of: showExcludedCertificates) { show in
             guard !batch.isFrozen, let route = devices.selectedRoute,
@@ -254,6 +268,14 @@ private enum SignumFormat: String, Hashable {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3)))
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted, perform: receiveDrop)
+                if let route = devices.selectedRoute {
+                    Text("Firmatario: \(selectedHolder) · Certificato: \(route.title)").font(.caption).textSelection(.enabled)
+                }
+                if let plan = review.approval, review.matches(reviewContext, batch: batch), !batch.isApproved {
+                    DisclosureGroup("Dettagli tecnici del riepilogo") {
+                        ScrollView { Text(plan.technicalDetails).font(.caption2).textSelection(.enabled) }.frame(maxHeight: 110)
+                    }
+                }
                 if !batch.documents.isEmpty {
                     ProgressView(value: Double(batch.finishedCount), total: Double(max(1, batch.documents.count)))
                     Text("\(batch.finishedCount) di \(batch.documents.count) conclusi · \(presentation.resultSummary)").font(.caption)
@@ -301,12 +323,12 @@ private enum SignumFormat: String, Hashable {
             }
             Text("Origine: " + BatchDisplay.sourceLabel(entry.snapshot.originalURL, among: batch.documents.map { $0.snapshot.originalURL }))
                 .font(.caption).foregroundStyle(.secondary)
-            let proposed = entry.destination ?? destinationPolicy?.proposedURL(for: entry.snapshot)
+            let proposed = entry.destination ?? (review.matches(reviewContext, batch: batch) ? review.approval?.jobs.first(where: { $0.snapshotIdentity.id == entry.id })?.destination : nil)
             if let proposed {
-                Text((entry.destination == nil ? "Destinazione prevista: " : "Destinazione: ") +
-                     BatchDisplay.destinationLabel(proposed, among: batch.documents.compactMap { $0.destination ?? destinationPolicy?.proposedURL(for: $0.snapshot) }))
+                Text("Destinazione: " +
+                     BatchDisplay.destinationLabel(proposed, among: batch.documents.compactMap { item in item.destination ?? review.approval?.jobs.first(where: { $0.snapshotIdentity.id == item.id })?.destination }))
                     .font(.caption).textSelection(.enabled)
-            } else { Text("Destinazione da scegliere").font(.caption) }
+            } else { Text("Destinazione da preparare prima della firma").font(.caption) }
             if !entry.result.isEmpty { Text(entry.result).font(.caption) }
             DisclosureGroup("Dettagli tecnici del documento") {
                 Text("Origine: \(entry.snapshot.originalURL.path)\nDestinazione: \(proposed?.path ?? "Da scegliere")\n\(entry.snapshot.identity.byteCount) byte · SHA-256 \(entry.snapshot.identity.sha256)\nSnapshot: \(entry.id)")
@@ -450,7 +472,9 @@ private enum SignumFormat: String, Hashable {
             VStack(alignment: .leading, spacing: 10) {
                 if !batch.isApproved {
                     Button(presentation.signButtonTitle) { prepareBatch() }.disabled(!canApproveBatch)
-                    Text("Il riepilogo include tutti i documenti. Per ogni PDF apri prima l'anteprima dall'elenco.")
+                    if review.isPreparing { ProgressView("Preparazione del riepilogo…").controlSize(.small) }
+                    if !review.issue.isEmpty { Text(review.issue).font(.caption) }
+                    Text("Il clic approva i documenti e le destinazioni mostrati. Per ogni PDF apri prima l'anteprima, poi torna a Documenti ed esiti.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     if let prompt = presentation.pinPrompt, let next = batch.nextDocument {
@@ -486,7 +510,7 @@ private enum SignumFormat: String, Hashable {
                     ProgressView(workPhase.message).controlSize(.small)
                     Button("Annulla lettura") { work.requestCancellation() }
                 }
-                Text("La conferma fissa i documenti da firmare. Il PIN autorizza una firma alla volta e non viene conservato per il documento successivo. Nessun tentativo automatico aggiuntivo.")
+                Text("Il clic su Firma fissa i documenti da firmare. Il PIN autorizza una firma alla volta e non viene conservato per il documento successivo. Nessun tentativo automatico aggiuntivo.")
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
@@ -638,7 +662,7 @@ private enum SignumFormat: String, Hashable {
         Task { @MainActor in
             await batch.addDocuments(urls, format: kind)
             if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
-            status = "\(batch.documents.count) documenti nella selezione. Controllali prima della conferma."
+            status = "\(batch.documents.count) documenti nella selezione. Controlla il riepilogo prima di firmare."
         }
     }
 
@@ -652,38 +676,30 @@ private enum SignumFormat: String, Hashable {
     }
 
     private func prepareBatch() {
-        guard canApproveBatch, let selectedProvider = provider.signingProvider, let slot = provider.selectedSlot,
-              let certificate = provider.certificates.first(where: { $0.id == provider.selectedCertificateID }),
-              let der = provider.certificateDERs[certificate.id], let selectedRoute = devices.selectedRoute,
-              let destination = destinationPolicy else { return }
-        provider.pin = ""; busy = true
-        let holder = selectedHolder, selectionGeneration = devices.requestID
+        guard canApproveBatch, let plan = review.approval, let context = reviewContext,
+              let route = devices.selectedRoute else { return }
+        provider.pin = ""
+        let holder = selectedHolder
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
         let fields = placements.mapValues { value in SignumPAdESHelper.Field(pageIndex: value.pageIndex,
             x: Double(value.rectangle.minX), y: Double(value.rectangle.minY), width: Double(value.rectangle.width), height: Double(value.rectangle.height)) }
-        Task { @MainActor in
-            defer { busy = false }
-            do {
-                let approved = try await interaction.prepareAndConfirm(batch: batch, prepare: {
-                    try await Task.detached(priority: .userInitiated) { try selectedRoute.requireCurrentModule() }.value
-                    guard devices.requestID == selectionGeneration, devices.selectedRouteID == selectedRoute.id else { throw SupervisedProcess.Failure.cancelled }
-                    return try await batch.prepareApproval(provider: selectedProvider, slot: slot, certificate: certificate, der: der, destination: destination)
-                }, present: { approval in
+        do {
+            let approved = try interaction.approveDisplayed(batch: batch, approval: plan,
+                additionalConfirmation: additionalConfirmation, isCurrent: { reviewContext == context }, present: { approval in
                     let alert = NSAlert()
                     alert.messageText = "Conferma firma"
-                    alert.informativeText = "Firmatario: \(holder)\nCertificato: \(selectedRoute.title) · \(selectedRoute.identity?.issuer ?? "Emittente non disponibile")\n\(approval.jobs.count) documenti. Seguirà il PIN per ogni firma."
+                    alert.informativeText = "Firmatario: \(holder)\nCertificato: \(route.title) · \(route.identity?.issuer ?? "Emittente non disponibile")\n\(approval.jobs.count) documenti. Seguirà il PIN per ogni firma."
                     let content = NSHostingView(rootView: BatchConsentView(approval: approval))
                     content.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
                     alert.accessoryView = content
                     alert.addButton(withTitle: "Conferma e prosegui"); alert.addButton(withTitle: "Annulla")
                     return alert.runModal() == .alertFirstButtonReturn
                 })
-                if approved != nil {
-                    approvedFields = fields; approvedHolder = holder; approvedRoute = selectedRoute
-                    status = "Documenti confermati. Inserisci il PIN per la firma corrente."
-                } else { status = "Conferma annullata. Nessuna firma avviata." }
-            } catch { status = error.localizedDescription }
-        }
+            if approved {
+                approvedFields = fields; approvedHolder = holder; approvedRoute = route
+                status = "Documenti approvati. Inserisci il PIN per la firma corrente."
+            } else { status = "Conferma annullata. Nessuna firma avviata." }
+        } catch { status = error.localizedDescription }
     }
 
     private func authorizeNextDocument() {
