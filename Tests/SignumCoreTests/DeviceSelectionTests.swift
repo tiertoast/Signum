@@ -29,7 +29,7 @@ final class DeviceSelectionTests: XCTestCase {
     func testEligibleAuthenticationExpiredAmbiguousRemainDistinctAndNeverPreselected() throws {
         let fixture = try CertificateEligibilityTests.fixtures.get()
         let names = ["valid", "authentication", "expired", "wrongKU", "missingKU"]
-        let providers = try names.enumerated().map { provider("test\($0.offset)", der: try fixture.der($0.element)) }
+        let providers = names.enumerated().map { provider("test\($0.offset)", der: fixture.der($0.element)) }
         var state = DeviceSelection(); let request = state.beginDiscovery()
         XCTAssertTrue(state.accept(providers, request: request)); XCTAssertNil(state.selectedRoute)
         let routes = state.certificates.flatMap(\.routes)

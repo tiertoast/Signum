@@ -64,3 +64,35 @@ provider/slot, omonimi con stesso seriale e diverso DER, firma/autenticazione/
 scaduto/KU incompatibile/indeterminato, rimozione/reinsert/cambio slot e provider,
 callback tardiva, sostituzione modulo dopo scelta e seriale letto nel figlio.
 Non è stato effettuato alcun collaudo del middleware installato.
+
+## M4 — Flusso GUI e consenso
+
+All'apertura ricerca dei soli candidati noti in coda off-main, senza dlopen GUI.
+Certificati in primo piano: titolare, organizzazione (se presente), emittente,
+scadenza, uso/idoneità e dispositivo. Selezione sempre esplicita; certificati non
+idonei ispezionabili ma non approvabili. «Configura dispositivo» mostra stato dei
+software e possibilità di nuova ricerca; dettagli avanzati contengono percorsi,
+versione, origine, file identity, seriale/slot/ID e vie alternative dello stesso DER.
+
+Modulo manuale tramite inserimento o NSOpenPanel, caricamento **esplicito**.
+UserDefaults conserva al massimo otto percorsi e il provider preferito, nessun PIN.
+Un percorso ricordato non viene eseguito al lancio; una ricerca manuale sostituisce
+le osservazioni precedenti, la ricerca ordinaria torna ai candidati noti. Rimuovere
+una configurazione invalida la selezione; cambiare via cancella PIN e cache precedenti.
+Refresh/cancel e callback tardive sono vincolati a generazioni. Il worker deve
+confermare la nuova verifica di identità: una vecchia risposta priva della prova
+non basta per la discovery automatica.
+
+Il riepilogo conserva una sola conferma dell'insieme immutabile, distinta dal PIN
+per documento. Destinazioni brevi; sorgenti omonime distinguibili con il minimo
+suffisso di cartella necessario. Percorsi assoluti/hash nei dettagli tecnici.
+Il modulo scelto viene ricontrollato off-main prima del consenso e prima di ogni
+job; la route approvata resta congelata e non viene sostituita dopo errori.
+Nessuna riscrittura del coordinatore, snapshot o motori di firma.
+
+**Test mirati: 39/39, zero skip**, inclusi 12 batch e quattro nuovi test esperienza:
+preferenze limitate/validate/rimovibili senza segreti o esecuzione implicita,
+cambio route/PIN/DER, omonimi e ispezione di certificati non idonei. Un primo run
+senza variabile helper saltava il caso misto PAdES opzionale; ripetuto con helper
+esplicito, caso eseguito. Build SwiftUI riuscita. Click/layout interattivi non
+ancora verificati; non è stata avviata una GUI che carichi middleware installati.

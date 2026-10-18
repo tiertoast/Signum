@@ -96,6 +96,7 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
         if !response.succeeded, response.failureKind == "authenticationRequired", request.action != .rsaSHA256 { throw Failure.authenticationRequired }
         guard response.succeeded, response.failureKind == nil else { throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.") }
         if let expected = request.expectedModule {
+            guard response.validatedModule == expected, response.automaticValidated == request.automaticModule else { throw SupervisedProcess.Failure.protocolViolation }
             let inspected = try MiddlewareFileSecurity.inspect(request.provider, automatic: request.automaticModule == true)
             guard inspected.identity == expected, inspected.canonicalPath == response.provider else { throw MiddlewareFileSecurity.Failure.changed }
         }

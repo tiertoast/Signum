@@ -60,5 +60,7 @@ struct PKCS11WorkerResponse: Codable {
     let succeeded: Bool
     var failureKind: String? = nil
     var libraryVersion: String? = nil
+    var validatedModule: MiddlewareFileIdentity? = nil
+    var automaticValidated: Bool? = nil
 }
 #endif

@@ -9,16 +9,19 @@ public struct DeviceSelection: Sendable {
     public private(set) var providers: [DiscoveredMiddleware] = []
     public private(set) var certificates: [DeviceCertificate] = []
     public private(set) var selectedRouteID: String?
+    public private(set) var isSearching = false
+    private var wasCancelled = false
     public init() {}
     public var selectedRoute: DeviceCertificateRoute? {
         certificates.lazy.flatMap(\.routes).first { $0.id == selectedRouteID }
     }
     @discardableResult public mutating func beginDiscovery() -> UUID {
-        self = DeviceSelection(); return requestID
+        self = DeviceSelection(); isSearching = true; return requestID
     }
+    public mutating func cancelDiscovery() { self = DeviceSelection(); wasCancelled = true }
     @discardableResult public mutating func accept(_ results: [DiscoveredMiddleware], request: UUID, at date: Date = Date()) -> Bool {
         guard request == requestID else { return false }
-        providers = results; certificates = DeviceCertificate.collect(results, at: date); selectedRouteID = nil
+        providers = results; certificates = DeviceCertificate.collect(results, at: date); selectedRouteID = nil; isSearching = false
         return true
     }
     @discardableResult public mutating func select(routeID: String?) -> Bool {
@@ -27,7 +30,9 @@ public struct DeviceSelection: Sendable {
         selectedRouteID = routeID; return true
     }
     public var message: String {
-        if providers.isEmpty { return "Ricerca dei dispositivi di firma…" }
+        if wasCancelled { return "Ricerca annullata. Cerca nuovamente." }
+        if isSearching { return "Ricerca dei dispositivi di firma…" }
+        if providers.isEmpty { return "Nessuna ricerca completata. Cerca nuovamente." }
         if providers.contains(where: { $0.status == .cancelled }) { return "Ricerca annullata. Cerca nuovamente." }
         if providers.contains(where: { $0.status == .communicationError || $0.status == .partial }) {
             return "Impossibile comunicare con alcuni dispositivi o leggere tutti i certificati. Consulta Configura dispositivo."

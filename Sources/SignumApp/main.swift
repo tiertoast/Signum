@@ -39,7 +39,13 @@ private enum SignumFormat: String, Hashable {
     @State private var readyPreviews = Set<UUID>()
     @State private var approvedFields: [UUID: SignumPAdESHelper.Field] = [:]
     @State private var approvedHolder = ""
+    @State private var approvedRoute: DeviceCertificateRoute?
     @State private var provider = ProviderSelection()
+    @State private var devices = DeviceSelection()
+    @State private var discoveryStarted = false
+    @State private var showDeviceConfiguration = false
+    @State private var manualPath = ""
+    @State private var manualPaths = MiddlewarePreferences().paths
     @State private var work: SigningOperation?
     @State private var workPhase: SigningOperationPhase = .idle
     @State private var operation: SignumOperation = .sign
@@ -51,7 +57,7 @@ private enum SignumFormat: String, Hashable {
     @State private var inputFile: URL?
     @State private var lastSignedFile: URL?
     @State private var dropTargeted = false
-    @State private var status = "Collega un dispositivo e premi Carica."
+    @State private var status = "Ricerca dei dispositivi di firma…"
     @State private var busy = false
 
     private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning }
@@ -109,10 +115,10 @@ private enum SignumFormat: String, Hashable {
                 HSplitView {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
-                            formatPicker
-                            documentPicker
                             tokenControls
                             certificateControls
+                            formatPicker
+                            documentPicker
                             signingControls
                             statusFooter
                         }
@@ -130,6 +136,7 @@ private enum SignumFormat: String, Hashable {
                         if operation == .verify {
                             CAdESVerificationPane()
                         } else {
+                            Button("Configura dispositivo…") { showDeviceConfiguration = true }
                             SignumGraphicSettingsPane()
                         }
                     }
@@ -138,11 +145,25 @@ private enum SignumFormat: String, Hashable {
                 }
             }
         }
+        .onAppear {
+            guard !discoveryStarted else { return }
+            discoveryStarted = true
+            discover()
+        }
+        .sheet(isPresented: $showDeviceConfiguration) {
+            DeviceConfigurationView(providers: devices.providers, savedPaths: manualPaths,
+                routes: selectedCertificateRoutes, selectedRouteID: devices.selectedRouteID,
+                manualPath: $manualPath, locked: interfaceLocked || batch.isFrozen,
+                search: { discover() }, browse: chooseManualModule,
+                loadManual: { discover(manual: manualPath) }, remove: removeManualModule,
+                selectRoute: selectRoute)
+        }
         .onChange(of: format) { _ in provider.pin = "" }
         .onDisappear {
             work?.requestCancellation()
             batch.cancelAll()
             selectionRequestID = UUID()
+            devices.beginDiscovery(); provider.beginDiscovery()
             documentSnapshot = nil
         }
     }
@@ -195,14 +216,16 @@ private enum SignumFormat: String, Hashable {
                         }
                         Text("\(entry.snapshot.format.rawValue.uppercased()) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.snapshot.identity.byteCount), countStyle: .file)) · \(entry.state.message)")
                             .font(.caption)
-                        Text(entry.destination?.path ?? "Destinazione: cartella da scegliere alla conferma")
+                        Text("Origine: " + BatchDisplay.sourceLabel(entry.snapshot.originalURL, among: batch.documents.map { $0.snapshot.originalURL }))
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text(entry.destination.map(BatchDisplay.destinationLabel) ?? "Destinazione: cartella da scegliere alla conferma")
                             .font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
                         if !entry.result.isEmpty { Text(entry.result).font(.caption) }
                     }.padding(.vertical, 4)
                 }
                 if let snapshot = documentSnapshot {
                     DisclosureGroup("Dettagli tecnici del documento selezionato") {
-                        Text("\(snapshot.identity.byteCount) byte · SHA-256 \(snapshot.identity.sha256)")
+                        Text("Origine: \(snapshot.originalURL.path)\nDestinazione: \(batch.documents.first(where: { $0.id == snapshot.identity.id })?.destination?.path ?? "Da scegliere")\n\(snapshot.identity.byteCount) byte · SHA-256 \(snapshot.identity.sha256)")
                             .font(.caption2).textSelection(.enabled)
                     }
                 }
@@ -213,7 +236,7 @@ private enum SignumFormat: String, Hashable {
                     .font(.caption).foregroundStyle(.secondary)
                 if !batch.documents.isEmpty {
                     Button("Nuova sessione") {
-                        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]
+                        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]; approvedRoute = nil
                         showDocument(nil); provider.pin = ""; lastSignedFile = nil
                     }.disabled(interfaceLocked)
                     DisclosureGroup("Resoconto sessione") {
@@ -225,68 +248,61 @@ private enum SignumFormat: String, Hashable {
     }
 
     private var tokenControls: some View {
-        GroupBox("Dispositivo e lettore") {
-            VStack(alignment: .leading, spacing: 7) {
+        GroupBox("Dispositivi di firma") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(devices.message).font(.caption)
                 HStack {
-                    TextField("Percorso PKCS#11", text: Binding(get: { provider.path }, set: { next in
-                        guard next != provider.path else { return }
-                        work?.requestCancellation()
-                        provider.changePath(next)
-                        work = nil; busy = false; workPhase = .idle
-                        status = "Provider modificato. Premi Carica per selezionare nuovamente dispositivo e certificato."
-                    }))
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(interfaceLocked || batch.isFrozen)
-                    Button("Carica") { load() }.disabled(interfaceLocked || batch.isFrozen)
-                }
-                List(provider.tokens, selection: Binding(
-                    get: { provider.selectedSlot },
-                    set: { slot in
-                        provider.selectedSlot = slot
-                        loadCertificates(slot: slot)
-                    }
-                )) { token in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: token.iconName)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(token.label).font(.subheadline.weight(.medium))
-                            Text("\(token.deviceKind) · \(token.model)")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(token.slot)
-                }
-                .frame(height: 105)
-                .disabled(interfaceLocked || batch.isFrozen)
-            }
-            .padding(5)
+                    Button("Cerca nuovamente") { discover() }
+                    Button("Configura dispositivo…") { showDeviceConfiguration = true }
+                }.disabled(interfaceLocked || batch.isFrozen)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(5)
         }
     }
 
+    private var selectedCertificateRoutes: [DeviceCertificateRoute] {
+        guard let selected = devices.selectedRoute else { return [] }
+        return devices.certificates.first(where: { $0.id == selected.certificateFingerprint })?.routes ?? []
+    }
+
     private var certificateControls: some View {
-        GroupBox("Certificato di firma") {
-            VStack(alignment: .leading) {
-                List(provider.certificates, selection: $provider.selectedCertificateID) { certificate in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(provider.certificateIdentities[certificate.id]?.title ?? certificate.label)
-                            .font(.caption.weight(.semibold)).lineLimit(2)
-                        Text("\(certificate.label) · ID \(certificate.id)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Text(provider.certificateAssessments[certificate.id]?.status.description ?? "Idoneità indeterminata")
-                            .font(.caption2)
+        GroupBox("Scegli il certificato") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(devices.certificates) { group in
+                    if let route = group.routes.first {
+                        Button {
+                            if devices.selectedRoute?.certificateFingerprint != group.id {
+                                let preferred = MiddlewarePreferences().preferredPath
+                                selectRoute(group.routes.first(where: { $0.providerPath == preferred })?.id ?? route.id)
+                            }
+                        } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: devices.selectedRoute?.certificateFingerprint == group.id ? "largecircle.fill.circle" : "circle")
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(route.title).font(.subheadline.weight(.semibold))
+                                    if let organization = route.identity?.organization { Text(organization).font(.caption) }
+                                    Text("Emittente: \(route.identity?.issuer ?? "non disponibile")").font(.caption)
+                                    Text("Scadenza: \(route.assessment.notAfter?.formatted(date: .numeric, time: .omitted) ?? "non disponibile")").font(.caption)
+                                    Text(route.purpose).font(.caption)
+                                    Text(route.deviceDescription).font(.caption).foregroundStyle(.secondary)
+                                    if group.routes.count > 1 {
+                                        Text("Disponibile tramite \(group.routes.count) vie di accesso · scelta in Configura dispositivo").font(.caption2)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5)
+                        }.buttonStyle(.plain).disabled(interfaceLocked || batch.isFrozen)
                     }
-                    .tag(certificate.id)
                 }
-                .frame(height: 130)
-                .disabled(interfaceLocked || batch.isFrozen)
-                if let id = provider.selectedCertificateID, let assessment = provider.certificateAssessments[id] {
-                    Text(assessment.explanation).font(.caption)
-                    Text(assessment.usageDescription).font(.caption2).foregroundStyle(.secondary)
+                if let selected = devices.selectedRoute {
+                    Text("Software selezionato: \(selected.providerName)").font(.caption)
+                    Text(selected.assessment.explanation).font(.caption)
+                    DisclosureGroup("Dettagli tecnici del certificato") {
+                        Text("Provider: \(selected.providerPath)\nSlot: \(selected.token.slot) · ID: \(selected.certificate.id)\nSHA-256: \(selected.certificateFingerprint)\n\(selected.assessment.usageDescription)")
+                            .font(.caption2).textSelection(.enabled)
+                    }
                 }
-                Text(CertificateEligibility.scope)
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(5)
+                Text(CertificateEligibility.scope).font(.caption2).foregroundStyle(.secondary)
+            }.padding(5)
         }
     }
 
@@ -328,7 +344,7 @@ private enum SignumFormat: String, Hashable {
                     ProgressView(workPhase.message).controlSize(.small)
                     Button("Annulla lettura") { work.requestCancellation() }
                 }
-                Text("Il PIN viene richiesto per ogni documento; il provider può richiedere USER e CONTEXT_SPECIFIC per quella firma. Nessun retry automatico. Attendibilità CA e revoca non valutate.")
+                Text("La conferma fissa i documenti da firmare. Il PIN autorizza una firma alla volta e non viene conservato per il documento successivo. Nessun tentativo automatico aggiuntivo.")
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
@@ -397,87 +413,55 @@ private enum SignumFormat: String, Hashable {
         return operation
     }
 
-    private nonisolated static func readCertificates(_ worker: IsolatedPKCS11Client, provider: String,
-                                         slot: UInt?, operation: SigningOperation) throws -> LoadedCertificates {
-        dispatchPrecondition(condition: .notOnQueue(.main))
-        guard let slot else { return LoadedCertificates() }
-        var result = LoadedCertificates()
-        for row in try worker.certificates(provider: provider, slot: slot,
-                                           isCancelled: { operation.isCancellationRequested }) {
-            let certificate = row.certificate, der = row.der
-            result.certificates.append(certificate)
-            result.derByID[certificate.id] = der
-            result.assessments[certificate.id] = CertificateEligibility.evaluate(certificateDER: der)
-            if let identity = try? SignumCertificateIdentity(certificateDER: der) { result.identities[certificate.id] = identity }
-        }
-        return result
-    }
-
-    private func applyCertificates(_ loaded: LoadedCertificates) {
-        provider.applyCertificates(loaded)
-        status = "\(loaded.certificates.count) certificati · \(loaded.identities.count) identità lette."
-    }
-
-    private func load(allowRetry: Bool = true) {
+    private func discover(manual: String? = nil) {
         guard !interfaceLocked, !batch.isFrozen else { return }
-        let inputPath = provider.path, path = inputPath.trimmingCharacters(in: .whitespacesAndNewlines), previousSlot = provider.selectedSlot
-        let request = provider.beginDiscovery(), operation = beginWork(), worker = IsolatedPKCS11Client()
-        busy = true
-        status = "Lettura del dispositivo in processo separato…"
+        let paths = manual.map { [$0.trimmingCharacters(in: .whitespacesAndNewlines)] } ?? []
+        if let path = paths.first {
+            guard MiddlewarePreferences.valid(path) else { status = "Scegli un percorso assoluto valido."; return }
+            MiddlewarePreferences().remember(path); manualPaths = MiddlewarePreferences().paths
+        }
+        provider.beginDiscovery()
+        let request = devices.beginDiscovery(), operation = beginWork()
+        busy = true; status = "Ricerca dei dispositivi in corso…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { () -> (IsolatedPKCS11Client.Scan, UInt?, LoadedCertificates) in
-                let scan = try worker.scan(provider: path, isCancelled: { operation.isCancellationRequested })
-                let next = scan.tokens.first(where: { $0.slot == previousSlot })?.slot ?? scan.tokens.first?.slot
-                let cache = try Self.readCertificates(worker, provider: scan.provider, slot: next, operation: operation)
-                return (scan, next, cache)
-            }
-            operation.transition(to: operation.isCancellationRequested ? .cancelled : (result.isSuccess ? .completed : .failed))
+            let results = MiddlewareDiscovery().discover(registry: paths.isEmpty ? MiddlewareRegistry.known : [],
+                manualPaths: paths, isCancelled: { operation.isCancellationRequested })
             DispatchQueue.main.async {
-                guard self.provider.requestID == request else { return }
-                self.busy = false; self.workPhase = operation.state; self.work = nil
-                if operation.isCancellationRequested { self.status = "Lettura annullata."; return }
-                switch result {
-                case .success(let (scan, slot, cache)):
-                    guard self.provider.acceptDiscovery(request: request, inputPath: inputPath, canonicalPath: scan.provider,
-                        tokens: scan.tokens, slot: slot, certificates: cache) else { return }
-                    self.status = "\(cache.certificates.count) certificati · \(cache.identities.count) identità lette."
-                    if scan.unavailableSlots > 0 {
-                        self.status = "\(scan.tokens.count) dispositivi pronti; \(scan.unavailableSlots) in inizializzazione."
-                        if allowRetry {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(450)) {
-                                guard !self.busy, self.provider.requestID == request, !operation.isCancellationRequested,
-                                      self.provider.path.trimmingCharacters(in: .whitespacesAndNewlines) == path else { return }
-                                self.load(allowRetry: false) // Public discovery only: no PIN or signing retry.
-                            }
-                        }
-                    } else if scan.tokens.isEmpty { self.status = "Nessun dispositivo riconosciuto." }
-                case .failure(let error):
-                    self.provider.beginDiscovery(); self.status = error.localizedDescription
+                guard self.devices.requestID == request else { return }
+                self.busy = false; self.work = nil
+                if operation.isCancellationRequested {
+                    self.devices.cancelDiscovery(); self.provider.beginDiscovery()
+                    self.status = "Ricerca annullata. Cerca nuovamente."; return
                 }
+                guard self.devices.accept(results, request: request) else { return }
+                self.status = self.devices.message
             }
         }
     }
 
-    private func loadCertificates(slot: UInt?) {
+    private func selectRoute(_ id: String) {
         guard !interfaceLocked, !batch.isFrozen else { return }
-        let request = provider.beginCertificateLoad()
-        guard let path = provider.signingProvider, let slot else { return }
-        let operation = beginWork(), worker = IsolatedPKCS11Client()
-        busy = true; status = "Lettura certificati in processo separato…"
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try Self.readCertificates(worker, provider: path, slot: slot, operation: operation) }
-            operation.transition(to: operation.isCancellationRequested ? .cancelled : (result.isSuccess ? .completed : .failed))
-            DispatchQueue.main.async {
-                guard self.provider.requestID == request else { return }
-                self.busy = false; self.workPhase = operation.state; self.work = nil
-                if operation.isCancellationRequested { self.status = "Lettura annullata."; return }
-                guard self.provider.selectedSlot == slot else { return }
-                switch result {
-                case .success(let cache): self.applyCertificates(cache)
-                case .failure(let error): self.status = error.localizedDescription
-                }
-            }
-        }
+        provider.beginDiscovery() // Clears certificate caches and PIN atomically.
+        guard devices.select(routeID: id), let route = devices.selectedRoute else { return }
+        provider.select(route: route)
+        MiddlewarePreferences().prefer(route.providerPath)
+        status = "Certificato selezionato: \(route.title). \(route.assessment.status.description)."
+    }
+
+    private func chooseManualModule() {
+        guard !interfaceLocked, !batch.isFrozen else { return }
+        let picker = NSOpenPanel()
+        picker.title = "Seleziona il software del dispositivo"
+        picker.canChooseFiles = true; picker.canChooseDirectories = false; picker.allowsMultipleSelection = false
+        if picker.runModal() == .OK, let path = picker.url?.path { manualPath = path }
+    }
+
+    private func removeManualModule(_ path: String) {
+        guard !interfaceLocked, !batch.isFrozen else { return }
+        MiddlewarePreferences().remove(path); manualPaths = MiddlewarePreferences().paths
+        if manualPath == path { manualPath = "" }
+        devices.beginDiscovery(); provider.beginDiscovery()
+        status = "Configurazione manuale rimossa. Cerca nuovamente per scegliere un certificato."
     }
 
     private func chooseFile() {
@@ -526,30 +510,32 @@ private enum SignumFormat: String, Hashable {
     private func prepareBatch() {
         guard canApproveBatch, let selectedProvider = provider.signingProvider, let slot = provider.selectedSlot,
               let certificate = provider.certificates.first(where: { $0.id == provider.selectedCertificateID }),
-              let der = provider.certificateDERs[certificate.id] else { return }
+              let der = provider.certificateDERs[certificate.id], let selectedRoute = devices.selectedRoute else { return }
         let picker = NSOpenPanel()
         picker.title = "Cartella delle copie firmate"
         picker.canChooseFiles = false; picker.canChooseDirectories = true; picker.allowsMultipleSelection = false
         guard picker.runModal() == .OK, let directory = picker.url else { return }
         provider.pin = ""; busy = true
-        let holder = selectedHolder
+        let holder = selectedHolder, selectionGeneration = devices.requestID
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
         let fields = placements.mapValues { value in SignumPAdESHelper.Field(pageIndex: value.pageIndex,
             x: Double(value.rectangle.minX), y: Double(value.rectangle.minY), width: Double(value.rectangle.width), height: Double(value.rectangle.height)) }
         Task { @MainActor in
             defer { busy = false }
             do {
+                try await Task.detached(priority: .userInitiated) { try selectedRoute.requireCurrentModule() }.value
+                guard devices.requestID == selectionGeneration, devices.selectedRouteID == selectedRoute.id else { throw SupervisedProcess.Failure.cancelled }
                 let approval = try await batch.prepareApproval(provider: selectedProvider, slot: slot, certificate: certificate, der: der, directory: directory)
                 let alert = NSAlert()
                 alert.messageText = "Conferma firma"
-                alert.informativeText = "Firmatario: \(holder)\n\(approval.jobs.count) documenti. Confermi questa lista? Ogni firma richiederà una propria autorizzazione."
+                alert.informativeText = "Firmatario: \(holder)\n\(approval.jobs.count) documenti. L'autenticazione del dispositivo seguirà questa conferma."
                 let content = NSHostingView(rootView: BatchConsentView(approval: approval))
                 content.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
                 alert.accessoryView = content
                 alert.addButton(withTitle: "Conferma documenti"); alert.addButton(withTitle: "Annulla")
                 if alert.runModal() == .alertFirstButtonReturn {
                     try batch.confirm(approval)
-                    approvedFields = fields; approvedHolder = holder
+                    approvedFields = fields; approvedHolder = holder; approvedRoute = selectedRoute
                     status = "Lista confermata. Autorizza il primo documento."
                 } else { batch.declineApproval(); status = "Conferma annullata. Nessuna firma avviata." }
             } catch { status = error.localizedDescription }
@@ -560,9 +546,11 @@ private enum SignumFormat: String, Hashable {
         guard canAuthorizeNext else { return }
         let secret = provider.pin; provider.pin = ""
         let fields = approvedFields, holder = approvedHolder
+        guard let route = approvedRoute else { return }
         Task { @MainActor in
             do {
                 try await batch.authorizeNext(pin: secret) { job, pin, operation in
+                    try route.requireCurrentModule()
                     if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
                     else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
                         field: fields[job.snapshotIdentity.id], operation: operation) }

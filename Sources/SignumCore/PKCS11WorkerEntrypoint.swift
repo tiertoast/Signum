@@ -77,7 +77,8 @@ public enum PKCS11WorkerEntrypoint {
                     pin: request.pin!, message: request.attributes!, expectedCertificateDER: certificate.der)
             }
             return PKCS11WorkerResponse(version: 1, id: request.id, action: request.action, provider: module.modulePath,
-                tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true, libraryVersion: version)
+                tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true,
+                libraryVersion: version, validatedModule: request.expectedModule, automaticValidated: request.automaticModule)
         }
         // A blocked Finalize is contained by the parent's same deadline. Do not
         // announce success before checked provider teardown completes.

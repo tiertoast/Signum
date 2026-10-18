@@ -12,7 +12,8 @@ struct BatchConsentView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(job.snapshot.originalURL.lastPathComponent).font(.headline)
                             Text(job.format.rawValue.uppercased()).font(.caption)
-                            Text(job.destination.path).font(.caption).textSelection(.enabled)
+                            Text("Origine: " + BatchDisplay.sourceLabel(job.snapshot.originalURL, among: approval.jobs.map { $0.snapshot.originalURL })).font(.caption)
+                            Text("Destinazione: " + BatchDisplay.destinationLabel(job.destination)).font(.caption).textSelection(.enabled)
                         }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
