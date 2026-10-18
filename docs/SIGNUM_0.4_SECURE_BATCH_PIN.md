@@ -45,3 +45,18 @@ L'handle della chiave e la policy letta devono restare identici tra job. Il PIN
 non autorizza attributi nuovi: ogni richiesta deve corrispondere al manifesto
 approvato, verificato nel padre prima di commit senza sovrascrittura. I cambi di
 contesto o il fallimento ritirano definitivamente la capability.
+
+## M3 — Buffer nativo
+
+Target `CSecurePIN`: mmap privato, pagina dati tra due guard page, mlock
+obbligatorio, ricezione diretta dalla pipe con lunghezza binaria e timeout
+monotono. Clear riscrive l'intera pagina con store volatile non eliminabili;
+destroy esegue clear prima di munlock/munmap. Nessun percorso di logging.
+`explicit_bzero` non è dichiarato dall'SDK macOS usato: il primo tentativo di
+compilazione lo ha rilevato, sostituito con l'equivalente a store volatile.
+Non dichiarata la cancellazione di eventuali copie Swift/vendor/kernel.
+
+**3/3** test buffer passati: limiti/NUL, ricezione valida/parziale/timeout,
+osservazione dei byte posseduti dopo clear, cicli allocazione/distruzione e
+processo isolato con RLIMIT_MEMLOCK=0 che rifiuta l'allocazione. Baseline Swift
+completa **265/265**, zero skip/fallimenti (`04a41-baseline-swift.log`).
