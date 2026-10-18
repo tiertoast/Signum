@@ -96,3 +96,56 @@ cambio route/PIN/DER, omonimi e ispezione di certificati non idonei. Un primo ru
 senza variabile helper saltava il caso misto PAdES opzionale; ripetuto con helper
 esplicito, caso eseguito. Build SwiftUI riuscita. Click/layout interattivi non
 ancora verificati; non è stata avviata una GUI che carichi middleware installati.
+
+## M5 — Decisione sull'autenticazione batch
+
+**Ottimizzazione non attivata.** Nessuna capability di sessione persistente è
+stata dimostrata per DigitalDNA/OpenSC o per il percorso misto CAdES/PAdES.
+La baseline GUI autorizza esplicitamente un documento per azione; il coordinatore
+non contiene PIN, il campo viene svuotato prima dell'invio. Ogni job CAdES usa un
+worker one-shot; ogni PAdES un helper nativo distinto con propria sessione e lease.
+Questa architettura e l'interazione GUI spiegano le richieste indipendenti di
+Signum, ma **non dimostrano** CKA_ALWAYS_AUTHENTICATE o la policy del token reale.
+Tre firme/tre richieste PIN è il dato riferito dall'utente, non una diagnosi vendor.
+
+Analisi del codice effettivo (`pkcs11_shim.c`, worker, helper e coordinatore):
+
+| Passaggio | Comportamento conservato |
+|---|---|
+| Discovery / C_FindObjects | Sessioni pubbliche, nessun C_Login. DER pubblico letto nuovamente e vincolato prima dell'operazione privata. Auth richiesta dalla lettura segnalata senza tentativi |
+| C_Login USER | Una chiamata per richiesta; stato condiviso già autenticato o race USER_ALREADY_LOGGED_IN rifiutati. Un successo altrui non verifica il PIN inserito da questa richiesta |
+| C_FindObjects privato | Ricerca della chiave per ID nella sessione della richiesta; nessun passaggio a un'altra route se manca |
+| C_SignInit | Meccanismo RSA/SHA-256 esistente, nessun cambiamento crittografico |
+| CKA_ALWAYS_AUTHENTICATE | Letto sulla chiave dopo SignInit; se true, una sola login CONTEXT_SPECIFIC per quella firma. Attributo non leggibile non diventa capability batch |
+| C_Login CONTEXT_SPECIFIC | Usa l'autorizzazione esplicita della firma corrente, senza cache fra job e senza retry dopo errore. Il protocollo esistente per singola firma non viene cambiato |
+| C_Sign | Un tentativo; fallimento non causa un secondo tentativo o cambio middleware |
+| Cleanup | Chiude solo le sessioni possedute, non C_Logout/C_CloseAllSessions indiscriminati. Errori di close/finalize non vengono mascherati; provider quarantinato nel figlio |
+| Initialize/Finalize | Ownership in-process SG-02 conservata. Finalize soltanto per inizializzazione posseduta e ultimo riferimento; il worker non risponde prima del teardown verificato |
+| Timeout/cancel/crash | Supervisione con TERM/KILL e lease fino alla morte; stato autenticato non riutilizzato. Dopo possibile operazione privata, esito incerto e nessuna prosecuzione automatica |
+
+Riferimento normativo consultato: [OASIS PKCS#11 2.40, sezioni 4.9 e
+C_CloseSession/C_Login/C_Logout](https://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html).
+La specifica limita CONTEXT_SPECIFIC alla singola operazione con chiave che richiede
+riautenticazione; la chiusura dell'ultima sessione riporta l'app allo stato pubblico.
+Una sessione USER persistente potrebbe evitare login ripetute per alcuni token,
+ma non prova autorizzazione unica o compatibilità della chiave scelta.
+
+Un futuro worker per batch richiede sessione privata dedicata al dispositivo,
+protocollo che mantenga job/snapshot/DER/route separati, capability dimostrata con
+fixture e hardware autorizzato, nessun riuso automatico CONTEXT_SPECIFIC e teardown
+su cancel/errori/timeout/crash. Non basta mantenere vivo il processo: occorre anche
+mantenere la sessione corretta e rivedere l'helper PAdES senza indebolire isolamento,
+verifica e pubblicazione. Le lease attuali coordinano provider/inode+slot; non
+provano equivalenza fisica fra provider diversi e non controllano app terze.
+
+Preferenza **solo progettuale**: «Automatica, quando supportata» / «Richiedi
+un'autorizzazione per ogni documento». Nessun toggle operativo viene mostrato.
+PIN mai salvato nei nuovi modelli/preferenze; restano i limiti della memoria
+Swift/vendor e non viene promessa zeroizzazione completa. Nessun logout di sessioni
+estranee per ottenere una nuova login.
+
+**Verifica locale M5:** suite nativa PKCS#11 **40/40**, inclusi USER, CONTEXT,
+ALWAYS_AUTHENTICATE, stato condiviso, errori PIN senza retry, zero Logout, rimozione,
+errori e cleanup. M4 ha rieseguito batch con un Login/Sign per azione, cancel/esito
+incerto e blocco della seconda autorizzazione concorrente. Nessuna sessione
+persistente implementata o dichiarata testata; nessun hardware usato.
