@@ -2,116 +2,187 @@
 import SwiftUI
 import AppKit
 import PDFKit
+import UniformTypeIdentifiers
 import SignumCore
 
-/// Coordinates are PDF page space (points, origin bottom-left), NOT view pixels.
-/// They can be passed to the eventual PoDoFo signature widget.
 struct PAdESPlacement: Equatable {
     let pageIndex: Int
     let rectangle: CGRect
+    var appearance: RenderedPAdESAppearance? = nil
 }
 
-/// PDFKit is used exclusively for preview and interactive field placement.
-/// NEVER save PDFKit's temporary annotation as though it were a PAdES signature.
+private actor AppearanceRenderWorker {
+    static let shared = AppearanceRenderWorker()
+    func render(_ config:PAdESAppearanceConfiguration,der:Data,crop:CGRect) throws -> RenderedPAdESAppearance {
+        try Task.checkCancellation()
+        return try PAdESAppearanceRenderer.render(config,certificateDER:der,cropBox:crop)
+    }
+}
 struct PAdESPlacementPane: View {
     let snapshot: DocumentSnapshot
     let previewReady: (UUID, Bool) -> Void
     let holder: String
+    var certificateDER: Data? = nil
     @Binding var placement: PAdESPlacement?
-    @State private var page = 0
-    @State private var visible = true
+    @State private var configuration = PAdESAppearanceConfiguration()
     @State private var pdfDocument: PDFDocument?
-
-    private var pageCount: Int { pdfDocument?.pageCount ?? 0 }
-
-    var body: some View {
-        GroupBox("Firma grafica — posizionamento PDF") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 12) {
-                    Toggle("Mostra firma nel PDF", isOn: $visible)
-                    Spacer()
-                    Text("Pagina")
-                    Picker("Pagina", selection: $page) {
-                        ForEach(0..<max(1, pageCount), id: \.self) { index in
-                            Text("\(index + 1)").tag(index)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 85)
-                    .disabled(pageCount == 0)
-                }
-                if let pdfDocument, pageCount > 0 {
-                    SignaturePlacementPDFView(
-                        document: pdfDocument, selectedPage: $page,
-                        placement: $placement, holder: holder,
-                        visible: visible,
-                        onDisplayed: { previewReady(snapshot.identity.id, true) }
-                    )
-                    .frame(minHeight: 350, maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
-                    Text(visible
-                         ? "Clicca o trascina sul PDF per posizionare il riquadro di firma. Usa il menu pagina per spostarti."
-                         : "Firma invisibile: nessun riquadro grafico, ma la firma crittografica sarà presente.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if visible {
-                        HStack(alignment: .center, spacing: 12) {
-                            Text("Timbro PDF di questa versione:")
-                                .font(.caption).foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Firmato digitalmente da")
-                                    .font(.system(size: 10))
-                                Text(holder)
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .padding(9)
-                            .background(Color.white)
-                            .foregroundStyle(Color.black)
-                            .overlay(RoundedRectangle(cornerRadius: 3)
-                                .stroke(Color.gray, lineWidth: 1))
-                            Spacer()
-                        }
-                    }
-                    if let placement, visible {
-                        Text("Pagina \(placement.pageIndex + 1) · x \(Int(placement.rectangle.minX)), y \(Int(placement.rectangle.minY)) · \(Int(placement.rectangle.width)) × \(Int(placement.rectangle.height)) pt")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("Impossibile aprire il PDF. Seleziona un documento valido e non protetto.")
-                        .foregroundStyle(.orange)
-                }
-                Text("Il timbro con nome è sperimentale. L'immagine personalizzata e la data nel timbro non sono ancora incorporate; verifica sempre il PDF firmato.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(5)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { loadPreview() }
-        .onChange(of: snapshot.identity.id) { _ in
-            page = 0
-            placement = nil
-            loadPreview()
-        }
-        .onChange(of: visible) { newValue in if !newValue { placement = nil } }
+    @State private var rendered: RenderedPAdESAppearance?
+    @State private var issue = ""
+    @State private var renderID = UUID()
+    @State private var rendering = false
+    @State private var renderTask: Task<Void,Never>?
+    private var crop: CGRect {
+        guard let page = pdfDocument?.page(at: configuration.pageIndex)?.pageRef else { return .zero }
+        return page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox))
     }
-    private func loadPreview() {
-        // PDFKit parses precisely the immutable value hashed at acquisition.
-        // Never load, save or reopen the original URL, including at signing time.
-        let loaded = PDFDocument(data: snapshot.approvedBytes)
-        if let loaded, !loaded.isEncrypted, !loaded.isLocked, loaded.pageCount > 0 {
-            pdfDocument = loaded
-        } else {
-            pdfDocument = nil
-            previewReady(snapshot.identity.id, false)
+    var body: some View {
+        GroupBox("Firma grafica PAdES") {
+            VStack(alignment:.leading, spacing:8) {
+                HStack {
+                    Toggle("Mostra firma nel PDF",isOn:editing(\.visible))
+                    Spacer()
+                    Picker("Pagina", selection:editing(\.pageIndex)) {
+                        ForEach(0..<max(1,pdfDocument?.pageCount ?? 0),id:\.self) { Text("\($0+1)").tag($0) }
+                    }.frame(width:150)
+                }
+                if configuration.visible {
+                    HStack {
+                        Toggle("Nome dal certificato",isOn:editing(\.showSigner))
+                        Toggle("Firmato digitalmente",isOn:editing(\.showLabel))
+                        Toggle("Data locale",isOn:Binding(get:{configuration.localDate != nil},set:{previewReady(snapshot.identity.id,false); configuration.localDate = $0 ? Date() : nil}))
+                    }.font(.caption)
+                    TextField("Testo personalizzato (distinto dall'identità del certificato)",text:editing(\.customText)).textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button("PNG o JPEG…") { chooseImage() }
+                        if configuration.image != nil { Button("Rimuovi immagine") { previewReady(snapshot.identity.id,false); configuration.image = nil } }
+                        Picker("Allineamento",selection:editing(\.alignment)) {
+                            Text("Sinistra").tag(PAdESAppearanceConfiguration.Alignment.leading)
+                            Text("Centro").tag(PAdESAppearanceConfiguration.Alignment.center)
+                            Text("Destra").tag(PAdESAppearanceConfiguration.Alignment.trailing)
+                        }.frame(width:180)
+                        Stepper("Testo \(Int(configuration.fontSize)) pt",value:editing(\.fontSize),in:7...18)
+                    }
+                    HStack {
+                        Stepper("Larghezza \(Int(configuration.rectangle.width)) pt",value:Binding(get:{configuration.rectangle.width},set:{previewReady(snapshot.identity.id,false); configuration.rectangle.size.width=$0}),in:80...800,step:5)
+                        Stepper("Altezza \(Int(configuration.rectangle.height)) pt",value:Binding(get:{configuration.rectangle.height},set:{previewReady(snapshot.identity.id,false); configuration.rectangle.size.height=$0}),in:40...500,step:5)
+                    }.font(.caption)
+                }
+                if let pdfDocument {
+                    AppearancePDFView(document:pdfDocument, page:configuration.pageIndex, appearance:rendered,
+                        choose:{ index,point,resize in choose(index,point,resize) })
+                        .frame(minHeight:300,maxHeight:.infinity)
+                        .clipShape(RoundedRectangle(cornerRadius:6))
+                }
+                if rendering { ProgressView("Preparazione appearance…").controlSize(.small) }
+                if !issue.isEmpty { Text(issue).font(.caption).foregroundStyle(.orange) }
+                Text(configuration.visible ? "Clic/trascina per posizionare. Option+trascina per ridimensionare. L'anteprima usa le stesse risorse incorporate nel PDF finale." : "Firma invisibile: nessuna immagine, firma crittografica presente.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("L'aspetto grafico non prova l'integrità. La data locale non è una marca temporale qualificata.").font(.caption).foregroundStyle(.secondary)
+            }.padding(5)
         }
+        .onAppear {
+            pdfDocument = PDFDocument(data:snapshot.approvedBytes)
+            if let saved = placement?.appearance { configuration = saved.configuration }
+            else {
+                configuration.visible = false
+                configuration.showSigner = UserDefaults.standard.object(forKey:"signum.appearance.signer") as? Bool ?? true
+                configuration.showLabel = true
+            }
+            resetRectangleIfNeeded(); render()
+        }
+        .onChange(of:configuration) { _ in render() }
+        .onChange(of:certificateDER) { _ in render() }
+        .onChange(of:configuration.pageIndex) { _ in resetRectangle(); render() }
+        .onDisappear { renderID = UUID(); renderTask?.cancel() }
+    }
+    private func editing<T>(_ path:WritableKeyPath<PAdESAppearanceConfiguration,T>)->Binding<T> {
+        Binding(get:{configuration[keyPath:path]},set:{previewReady(snapshot.identity.id,false); configuration[keyPath:path]=$0})
+    }
+    private func resetRectangleIfNeeded() { if !crop.contains(configuration.rectangle) { resetRectangle() } }
+    private func resetRectangle() {
+        configuration.rectangle = CGRect(x:crop.minX+min(20,crop.width/10),y:crop.minY+min(20,crop.height/10),width:min(240,crop.width-40),height:min(100,crop.height-40))
+    }
+    private func choose(_ index:Int,_ point:CGPoint,_ resize:Bool) {
+        previewReady(snapshot.identity.id,false)
+        configuration.pageIndex = index
+        let r = configuration.rectangle
+        if resize {
+            configuration.rectangle.size = CGSize(width:min(max(80,point.x-r.minX),min(800,crop.maxX-r.minX)),height:min(max(40,point.y-r.minY),min(500,crop.maxY-r.minY)))
+        } else {
+            configuration.rectangle.origin = CGPoint(x:min(max(point.x-r.width/2,crop.minX),crop.maxX-r.width),y:min(max(point.y-r.height/2,crop.minY),crop.maxY-r.height))
+        }
+    }
+    private func render() {
+        guard let pdfDocument, !pdfDocument.isEncrypted, pdfDocument.pageCount > configuration.pageIndex, !crop.isEmpty else {
+            issue="PDF non disponibile o protetto."; previewReady(snapshot.identity.id,false); return
+        }
+        renderTask?.cancel()
+        let id=UUID(); renderID=id; rendering=true; previewReady(snapshot.identity.id,false)
+        let config=configuration, der=certificateDER ?? Data(), bounds=crop
+        renderTask = Task { @MainActor in
+            let result:Result<RenderedPAdESAppearance,Error>
+            do { result = .success(try await AppearanceRenderWorker.shared.render(config,der:der,crop:bounds)) }
+            catch { result = .failure(error) }
+            guard renderID == id, !Task.isCancelled else { return }; rendering=false
+            switch result {
+            case .success(let value): rendered=value; issue=""; placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value); previewReady(snapshot.identity.id,true)
+            case .failure(let error): issue=error.localizedDescription; rendered=nil; previewReady(snapshot.identity.id,false)
+            }
+        }
+    }
+    private func chooseImage() {
+        let chooser=NSOpenPanel(); chooser.allowedContentTypes=[.png,.jpeg]; chooser.allowsMultipleSelection=false
+        guard chooser.runModal() == .OK, let url=chooser.url else { return }
+        do { let image = try PAdESAppearanceImage.load(url); previewReady(snapshot.identity.id,false); configuration.image = image } catch { issue=error.localizedDescription }
     }
 }
 
+final class AppearancePDFAnnotation: PDFAnnotation {
+    private let artwork: CGPDFDocument
+    init?(appearance:RenderedPAdESAppearance) {
+        guard let source=CGDataProvider(data:appearance.pdf as CFData), let pdf=CGPDFDocument(source), pdf.numberOfPages == 1 else { return nil }
+        artwork = pdf
+        super.init(bounds:appearance.configuration.rectangle,forType:.stamp,withProperties:nil)
+    }
+    required init?(coder:NSCoder) { nil }
+    override func draw(with box:PDFDisplayBox,in context:CGContext) {
+        guard let page=artwork.page(at:1) else { return }
+        context.saveGState()
+        // PDFKit's annotation draw callback receives box drawing coordinates.
+        // Match its native /AP renderer, including nonzero origin and /Rotate.
+        if let original=self.page?.pageRef {
+            let cgBox:CGPDFBox = box == .mediaBox ? .mediaBox : .cropBox
+            let source=original.getBoxRect(cgBox), rotated=abs(original.rotationAngle)%180 == 90
+            let size=rotated ? CGSize(width:source.height,height:source.width) : source.size
+            context.concatenate(original.getDrawingTransform(cgBox,rect:CGRect(origin:.zero,size:size),rotate:0,preserveAspectRatio:false))
+        }
+        context.translateBy(x:bounds.minX,y:bounds.minY)
+        context.scaleBy(x:bounds.width/page.getBoxRect(.mediaBox).width,y:bounds.height/page.getBoxRect(.mediaBox).height)
+        context.drawPDFPage(page); context.restoreGState()
+    }
+}
+
+private struct AppearancePDFView:NSViewRepresentable {
+    let document:PDFDocument, page:Int, appearance:RenderedPAdESAppearance?
+    let choose:(Int,CGPoint,Bool)->Void
+    func makeNSView(context:Context)->PlacementPDFView {
+        let v=PlacementPDFView(); v.autoScales=true; v.displayMode = .singlePage; v.minScaleFactor=0.25; v.maxScaleFactor=5; return v
+    }
+    func updateNSView(_ v:PlacementPDFView,context:Context) {
+        if v.document !== document { v.document=document }
+        if let selected=document.page(at:page), v.currentPage !== selected { v.go(to:selected) }
+        v.onChoose = { p,point in choose(document.index(for:p),point,false) }
+        v.onResize = { p,point in choose(document.index(for:p),point,true) }
+        v.updateAppearance(appearance)
+    }
+}
 final class PlacementPDFView: PDFView {
     var previewAnnotation: PDFAnnotation?
     var currentPreviewPlacement: PAdESPlacement?
     private var currentPreviewName: String?
     private var currentPreviewVisible = false
+    private var renderedIdentity: String?
+    var onResize: ((PDFPage, CGPoint) -> Void)?
     var onChoose: ((PDFPage, CGPoint) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
@@ -125,9 +196,17 @@ final class PlacementPDFView: PDFView {
     private func choose(_ event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard let page = page(for: point, nearest: true) else { return }
-        onChoose?(page, convert(point, to: page))
+        if event.modifierFlags.contains(.option) { onResize?(page,convert(point,to:page)) }
+        else { onChoose?(page, convert(point, to: page)) }
     }
 
+    func updateAppearance(_ value: RenderedPAdESAppearance?) {
+        guard renderedIdentity != value?.approvalIdentity else { return }
+        renderedIdentity=value?.approvalIdentity
+        if let old=previewAnnotation { old.page?.removeAnnotation(old); previewAnnotation=nil }
+        guard let value, value.configuration.visible, let page=document?.page(at:value.configuration.pageIndex) else { return }
+        guard let annotation=AppearancePDFAnnotation(appearance:value) else { return }; page.addAnnotation(annotation); previewAnnotation=annotation
+    }
     func updatePreview(_ placement: PAdESPlacement?, name: String, visible: Bool) {
         if currentPreviewPlacement != placement || currentPreviewName != name || currentPreviewVisible != visible {
             setPreview(placement, name: name, visible: visible)
@@ -155,67 +234,4 @@ final class PlacementPDFView: PDFView {
     }
 }
 
-private struct SignaturePlacementPDFView: NSViewRepresentable {
-    let document: PDFDocument
-    @Binding var selectedPage: Int
-    @Binding var placement: PAdESPlacement?
-    let holder: String
-    let visible: Bool
-    let onDisplayed: () -> Void
-
-    func makeNSView(context: Context) -> PlacementPDFView {
-        let viewer = PlacementPDFView()
-        viewer.autoScales = true
-        viewer.displayMode = .singlePage
-        viewer.minScaleFactor = 0.25
-        viewer.maxScaleFactor = 5.0
-        viewer.backgroundColor = NSColor.windowBackgroundColor
-        viewer.displaysPageBreaks = true
-        return viewer
-    }
-
-    func updateNSView(_ viewer: PlacementPDFView, context: Context) {
-        context.coordinator.parent = self
-        if viewer.document !== document {
-            viewer.document = document
-            viewer.autoScales = true
-            viewer.previewAnnotation = nil
-            viewer.currentPreviewPlacement = nil
-            DispatchQueue.main.async { self.onDisplayed() }
-        }
-
-        viewer.onChoose = { [weak viewer] page, point in
-            guard let viewer, self.visible, let document = viewer.document else { return }
-            let index = document.index(for: page)
-            guard index != NSNotFound else { return }
-            let crop = page.bounds(for: .cropBox)
-            let width = min(190.0, crop.width)
-            let height = min(62.0, crop.height)
-            guard width > 0, height > 0 else { return }
-            let x = min(max(point.x - width / 2, crop.minX), crop.maxX - width)
-            let y = min(max(point.y - height / 2, crop.minY), crop.maxY - height)
-            let selected = PAdESPlacement(
-                pageIndex: index,
-                rectangle: CGRect(x: x, y: y, width: width, height: height)
-            )
-            DispatchQueue.main.async {
-                self.selectedPage = index
-                self.placement = selected
-            }
-        }
-
-        if let doc = viewer.document,
-           let selected = doc.page(at: selectedPage), viewer.currentPage !== selected {
-            viewer.go(to: selected)
-        }
-        viewer.updatePreview(placement, name: holder, visible: visible)
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    final class Coordinator {
-        var parent: SignaturePlacementPDFView
-        init(parent: SignaturePlacementPDFView) { self.parent = parent }
-    }
-}
 #endif

@@ -22,16 +22,16 @@ public enum PAdESHelperProcess {
     }
     public static func run(executable: URL, arguments: [String], input: inout Data,
                            destination: URL, timeout: TimeInterval = 120,
-                           expectedJobID: UUID? = nil,
+                           expectedJobID: UUID? = nil, maximumInput: Int = 512,
                            isCancelled: () -> Bool = { false }) -> Outcome {
         defer { input.resetBytes(in: 0..<input.count) }
         func exists() -> Bool { var info = stat(); return lstat(destination.path, &info) == 0 }
         guard !exists() else { return .failed("La destinazione esiste già.") }
         guard !isCancelled() else { return .cancelled("Firma annullata prima dell'avvio.") }
-        guard input.count <= 512, timeout.isFinite, timeout > 0 else { return .failed("Richiesta al motore non valida.") }
+        guard (512...8*1024*1024+69).contains(maximumInput), input.count <= maximumInput, timeout.isFinite, timeout > 0 else { return .failed("Richiesta al motore non valida.") }
         do {
             let response = try SupervisedProcess.run(executable: executable, arguments: arguments, input: &input,
-                maximumInput: 512, timeout: timeout, isCancelled: isCancelled)
+                maximumInput: maximumInput, timeout: timeout, isCancelled: isCancelled)
             if let expectedJobID {
                 guard response.count <= 1024, let status = try? JSONDecoder().decode(Status.self, from: response),
                       status.version == 4, status.jobID == expectedJobID else {

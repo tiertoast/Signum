@@ -24,7 +24,7 @@ enum SignumPAdESHelper {
     }
 
     static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?, operation: SigningOperation? = nil,
-                     executable: URL? = nil, timeout: TimeInterval = 120) throws {
+                     executable: URL? = nil, timeout: TimeInterval = 120, appearance: RenderedPAdESAppearance? = nil) throws {
         defer { job.snapshot.close() }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
         try job.requireAvailableDestination()
@@ -56,6 +56,14 @@ enum SignumPAdESHelper {
             String(slot),
             certificateID
         ]
+        let field = appearance.map { value -> Field? in
+            guard value.configuration.visible else { return nil }
+            let c = value.configuration, r = c.rectangle
+            return Field(pageIndex:c.pageIndex,x:r.minX,y:r.minY,width:r.width,height:r.height)
+        } ?? field
+        if let appearance {
+            guard appearance.certificateSHA256 == job.certificateSHA256, appearance.pdf.count <= PAdESAppearanceRenderer.maximumPDFBytes else { throw SignumError.module("Appearance non vincolata al certificato approvato.") }
+        }
         if let field {
             let values = [field.x, field.y, field.width, field.height]
             guard field.pageIndex >= 0,
@@ -72,13 +80,17 @@ enum SignumPAdESHelper {
             ]
         }
         args.append("--pin-stdin")
-        if field != nil { args.append("--appearance-stdin") }
+        if field != nil { args.append(appearance == nil ? "--appearance-stdin" : "--appearance-pdf-stdin") }
 
         // Supply exactly one line to the helper. This avoids getpass() in GUI
         // contexts and avoids leaking credentials through command arguments.
         var secret = Data(pin.utf8)
         secret.append(0x0A)
-        if field != nil {
+        if field != nil, let appearance {
+            guard !appearance.pdf.isEmpty else { throw SignumError.module("Appearance mancante.") }
+            secret.append(contentsOf:(0..<4).reversed().map { UInt8((UInt32(appearance.pdf.count) >> ($0*8)) & 255) })
+            secret.append(appearance.pdf)
+        } else if field != nil {
             // Helvetica (PDF Standard 14) is used by this first text-only AP.
             // Limit to printable ASCII and avoid injecting protocol delimiters.
             let normalizedName = appearanceName.folding(
@@ -104,6 +116,7 @@ enum SignumPAdESHelper {
                  "--expected-cert-sha256", fingerprint, "--verified-output-v4"]
         let outcome = PAdESHelperProcess.run(executable: engine, arguments: args, input: &secret,
             destination: output, timeout: timeout, expectedJobID: job.id,
+            maximumInput: appearance == nil ? 512 : PAdESAppearanceRenderer.maximumPDFBytes+69,
             isCancelled: { operation?.isCancellationRequested ?? false })
         try PAdESHelperProcess.requirePublished(outcome)
         operation?.transition(to: .verifying); operation?.recordPublished()

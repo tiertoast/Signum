@@ -333,3 +333,22 @@ Hardware DigitalDNA/CNS, GUI interattiva completa, sleep reale e runtime macOS
 13/14 non verificati. Alpha e build precedenti preservate; main/build 5 invariati.
 Nessun push/merge/tag/release, CI remoto, hardware/PIN reale, altro repository
 o HalleyMac.
+
+
+## 18 ottobre 2026 — 0.4-B PAdES Appearance
+
+Branch `codex/signum-0.4-pades-verification`, da HEAD build 6 `72060b7`.
+Appearance configurabile per documento, un solo rendering CoreGraphics/CoreText
+condiviso da PDFKit e PoDoFo, risorse incorporate prima della firma. Testo,
+nome dal DER, data locale opzionale, PNG/JPEG, geometria raw/CropBox/rotazioni,
+visibile/invisibile; consenso invalida su ogni modifica e congela l'appearance.
+Batch PAdES conserva autenticazione per documento. Nessuna nuova primitiva.
+
+Swift **302/302**, PKCS#11 **40/40**, PAdES Debug/Release **63/63** ciascuna,
+packaging unit **10/10**, build Debug/Release passate. ASAN/TSAN Swift mirati
+**30/30** ciascuno; native ASAN **63/63** e appearance ASAN end-to-end **9/9**.
+Confronto raster indipendente dei veri PDF firmati su quattro rotazioni: delta
+medio zero. Fonte candidata **0.4.0/build 7**; build 6 preservata.
+[Architettura, evidenze, limiti e collaudi](SIGNUM_0.4_PADES_APPEARANCE.md).
+C non sviluppata prima del checkpoint B. Nessun hardware/PIN reale, push, merge,
+tag, release, PR #3, GitHub Actions o accesso ad altri repository.

@@ -1,3 +1,4 @@
+#include <cmath>
 #include "process_coordination.h"
 #include "SignumCertificatePolicy.h"
 #include <cctype>
@@ -186,6 +187,38 @@ static std::string read_appearance_name() {
     return name;
 }
 
+static std::string read_appearance_pdf() {
+    uint8_t header[4];
+    auto exact = [](void* data, size_t size) {
+        auto p = static_cast<uint8_t*>(data);
+        while (size) {
+            auto n = ::read(STDIN_FILENO, p, size);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) throw std::runtime_error("Incomplete appearance frame");
+            p += n; size -= static_cast<size_t>(n);
+        }
+    };
+    exact(header, 4);
+    uint32_t length = (uint32_t(header[0])<<24)|(uint32_t(header[1])<<16)|(uint32_t(header[2])<<8)|header[3];
+    if (!length || length > 8*1024*1024) throw std::runtime_error("Appearance PDF exceeds limit");
+    std::string bytes(length, '\0'); exact(bytes.data(), bytes.size()); return bytes;
+}
+static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, const Rect& rect, const std::string& bytes) {
+    charbuff buffer(bytes);
+    auto device = std::make_shared<BufferStreamDevice>(buffer);
+    PdfMemDocument appearance(device);
+    if (appearance.GetPages().GetCount() != 1) throw std::runtime_error("Appearance must have exactly one page");
+    auto& source = appearance.GetPages().GetPageAt(0);
+    auto box = source.GetRectRaw().GetNormalized();
+    if (source.GetRotation() || std::abs(box.X) > .001 || std::abs(box.Y) > .001 ||
+        std::abs(box.Width-rect.Width) > .01 || std::abs(box.Height-rect.Height) > .01)
+        throw std::runtime_error("Appearance geometry mismatch");
+    auto form = doc.CreateXObjectForm(Rect(0,0,rect.Width,rect.Height));
+    form->FillFromPage(source);
+    field.MustGetWidget().SetRectRaw(Corners(rect.X,rect.Y,rect.X+rect.Width,rect.Y+rect.Height));
+    field.MustGetWidget().SetAppearanceStreamRaw(*form);
+}
+
 
 int main(int argc, char** argv) {
     if (sg_worker_watch_parent() != 0) return 2;
@@ -238,14 +271,14 @@ int main(int argc, char** argv) {
         }
         close(reply); return 0;
     };
-    const bool appearanceFromPipe = protocolCount > 1 &&
-        std::strcmp(argv[protocolCount - 1], "--appearance-stdin") == 0;
-    const int afterAppearance = protocolCount - (appearanceFromPipe ? 1 : 0);
+    const bool pdfAppearanceFromPipe = protocolCount > 1 && std::strcmp(argv[protocolCount-1], "--appearance-pdf-stdin") == 0;
+    const bool appearanceFromPipe = protocolCount > 1 && std::strcmp(argv[protocolCount-1], "--appearance-stdin") == 0;
+    const int afterAppearance = protocolCount - ((appearanceFromPipe || pdfAppearanceFromPipe) ? 1 : 0);
     const bool pinFromPipe = afterAppearance > 1 &&
         std::strcmp(argv[afterAppearance - 1], "--pin-stdin") == 0;
     const int positionalCount = afterAppearance - (pinFromPipe ? 1 : 0);
     if ((positionalCount != 6 && positionalCount != 11) ||
-        (appearanceFromPipe && (!pinFromPipe || positionalCount != 11))) {
+        ((appearanceFromPipe || pdfAppearanceFromPipe) && (!pinFromPipe || positionalCount != 11))) {
         std::cerr << "Usage: signum-pades-local INPUT.pdf OUTPUT.pdf MODULE SLOT CERT_ID_HEX"
                   << " [PAGE_ZERO_BASED X Y WIDTH HEIGHT] [--pin-stdin] [--appearance-stdin]\n";
         return 2;
@@ -298,10 +331,11 @@ int main(int argc, char** argv) {
             wipe_secret(userPIN, std::strlen(userPIN));
         }
 
-        std::string appearanceName;
-        if (appearanceFromPipe) {
+        std::string appearanceName, appearancePDF;
+        if (appearanceFromPipe || pdfAppearanceFromPipe) {
             try {
-                appearanceName = read_appearance_name();
+                if (pdfAppearanceFromPipe) appearancePDF = read_appearance_pdf();
+                else appearanceName = read_appearance_name();
             } catch (...) {
                 wipe_pin(pin);
                 throw;
@@ -326,8 +360,19 @@ int main(int argc, char** argv) {
             if (pageIndex >= doc.GetPages().GetCount())
                 throw std::runtime_error("Page index exceeds PDF page count");
             auto& page = doc.GetPages().GetPageAt(pageIndex);
+            if (pdfAppearanceFromPipe) {
+                auto crop = page.GetCropBoxRaw().GetNormalized();
+                auto media = page.GetRectRaw().GetNormalized();
+                const double left = std::max(crop.X,media.X), bottom = std::max(crop.Y,media.Y);
+                const double right = std::min(crop.X+crop.Width,media.X+media.Width), top = std::min(crop.Y+crop.Height,media.Y+media.Height);
+                if (!std::isfinite(rectangle.X) || !std::isfinite(rectangle.Y) || !std::isfinite(rectangle.Width) || !std::isfinite(rectangle.Height) ||
+                    rectangle.Width < 80 || rectangle.Width > 800 || rectangle.Height < 40 || rectangle.Height > 500 ||
+                    rectangle.X < left || rectangle.Y < bottom || rectangle.X+rectangle.Width > right || rectangle.Y+rectangle.Height > top)
+                    throw std::runtime_error("Appearance rectangle outside visible page");
+            }
             auto& field = page.CreateField<PdfSignature>("SignumSignature-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()), rectangle);
             field.SetSignatureDate(PdfDate::UtcNow());
+            if (!appearancePDF.empty()) set_embedded_appearance(doc, field, rectangle, appearancePDF);
             if (!appearanceName.empty())
                 signum::setTextAppearance(doc, field, rectangle, appearanceName);
 

@@ -12,10 +12,11 @@ struct SigningReviewContext: Equatable {
     let destination: BatchOutputDestination
     let routeID: String
     let discoveryID: UUID
+    var appearanceHashes: [UUID:String] = [:]
     static func == (a: Self, b: Self) -> Bool {
         a.revision == b.revision && a.provider == b.provider && a.slot == b.slot &&
         a.certificate.identifier == b.certificate.identifier && a.der == b.der &&
-        a.destination == b.destination && a.routeID == b.routeID && a.discoveryID == b.discoveryID
+        a.destination == b.destination && a.routeID == b.routeID && a.discoveryID == b.discoveryID && a.appearanceHashes == b.appearanceHashes
     }
 }
 

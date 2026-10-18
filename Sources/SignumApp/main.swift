@@ -49,6 +49,7 @@ private enum SignumFormat: String, Hashable {
     @State private var customDirectory: URL?
     @State private var placements: [UUID: PAdESPlacement] = [:]
     @State private var readyPreviews = Set<UUID>()
+    @State private var approvedAppearances: [UUID:RenderedPAdESAppearance] = [:]
     @State private var approvedFields: [UUID: SignumPAdESHelper.Field] = [:]
     @State private var approvedHolder = ""
     @State private var approvedRoute: DeviceCertificateRoute?
@@ -113,9 +114,9 @@ private enum SignumFormat: String, Hashable {
               let certificate = provider.certificates.first(where: { $0.id == id }),
               let der = provider.certificateDERs[id], provider.certificateAssessments[id]?.permitsSigning == true,
               batch.documents.allSatisfy({ !$0.state.isTerminal && ($0.snapshot.format != .pades ||
-                (readyPreviews.contains($0.id) && SignumPAdESHelper.available)) }) else { return nil }
+                (readyPreviews.contains($0.id) && placements[$0.id]?.appearance?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
         return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
-                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID)
+                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity })
     }
     private var canApproveBatch: Bool {
         !interfaceLocked && !batch.isFrozen && !showingPDFPreview && review.matches(reviewContext, batch: batch)
@@ -371,7 +372,7 @@ private enum SignumFormat: String, Hashable {
         guard !interfaceLocked else { return }
         authenticationSession?.requestStop(); authenticationSession = nil
         authenticationAttempted = false; authenticationStatus = ""
-        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]; approvedRoute = nil
+        batch.reset(); placements = [:]; readyPreviews = []; approvedFields = [:]; approvedAppearances = [:]; approvedRoute = nil
         showDocument(nil); provider.pin = ""; lastSignedFile = nil
         status = "Nuova sessione. Scegli i documenti da firmare."
     }
@@ -570,11 +571,11 @@ private enum SignumFormat: String, Hashable {
                     guard documentSnapshot?.identity.id == id else { return }
                     if ready { previewSnapshotID = id; readyPreviews.insert(id) }
                     if !ready {
-                        batch.remove(id); showDocument(batch.documents.first?.id); provider.pin = ""
-                        status = "Anteprima non disponibile: seleziona un PDF valido e non protetto."
+                        readyPreviews.remove(id); provider.pin = ""
+                        status = "Anteprima in preparazione o appearance da correggere."
                     }
                 },
-                holder: selectedHolder,
+                holder: selectedHolder, certificateDER: devices.selectedRoute?.der,
                 placement: Binding(get: { pdfPlacement }, set: { value in
                     guard !interfaceLocked, !batch.isFrozen, documentSnapshot?.identity.id == snapshot.identity.id else { return }
                     pdfPlacement = value; placements[snapshot.identity.id] = value
@@ -714,6 +715,7 @@ private enum SignumFormat: String, Hashable {
         provider.pin = ""
         let holder = selectedHolder, requestedAuthenticationMode = authenticationMode
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
+        let appearances = placements.compactMapValues { $0.appearance }
         let fields = placements.mapValues { value in SignumPAdESHelper.Field(pageIndex: value.pageIndex,
             x: Double(value.rectangle.minX), y: Double(value.rectangle.minY), width: Double(value.rectangle.width), height: Double(value.rectangle.height)) }
         do {
@@ -729,7 +731,7 @@ private enum SignumFormat: String, Hashable {
                     return alert.runModal() == .alertFirstButtonReturn
                 })
             if approved {
-                approvedFields = fields; approvedHolder = holder; approvedRoute = route
+                approvedAppearances = appearances; approvedFields = fields; approvedHolder = holder; approvedRoute = route
                 approvedAuthenticationMode = requestedAuthenticationMode
                 authenticationAttempted = false
                 authenticationStatus = BatchAuthenticationPolicy.explanation(formats: plan.jobs.map(\.format), serial: route.token.serial, mode: requestedAuthenticationMode)
@@ -740,7 +742,7 @@ private enum SignumFormat: String, Hashable {
 
     private func authorizeNextDocument() {
         guard canAuthorizeNext, let route = approvedRoute else { return }
-        let fields = approvedFields, holder = approvedHolder
+        let appearances = approvedAppearances, fields = approvedFields, holder = approvedHolder
         if !authenticationAttempted, let plan = batch.approval,
            BatchAuthenticationPolicy.canAttempt(jobs: plan.jobs, serial: route.token.serial, mode: approvedAuthenticationMode) {
             authenticationAttempted = true
@@ -758,7 +760,7 @@ private enum SignumFormat: String, Hashable {
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
             else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
-                field: fields[job.snapshotIdentity.id], operation: operation) }
+                field: fields[job.snapshotIdentity.id], operation: operation, appearance: appearances[job.snapshotIdentity.id]) }
         }, completion: { result in
             lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
             if let session {

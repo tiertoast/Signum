@@ -1,0 +1,161 @@
+#if os(macOS)
+import Foundation
+import CoreGraphics
+import CoreText
+import ImageIO
+import CryptoKit
+import Darwin
+
+public struct PAdESAppearanceConfiguration: Equatable, Sendable {
+    public enum Alignment: String, CaseIterable, Sendable { case leading, center, trailing }
+    public var visible = true
+    public var pageIndex = 0
+    public var rectangle = CGRect(x: 30, y: 30, width: 240, height: 90)
+    public var showSigner = true
+    public var showLabel = true
+    public var localDate: Date? = nil
+    public var customText = ""
+    public var alignment: Alignment = .leading
+    public var fontSize: Double = 10
+    public var image: PAdESAppearanceImage? = nil
+    public init() {}
+    public func validate(cropBox: CGRect) throws {
+        let r = rectangle
+        guard pageIndex >= 0, !visible || ([r.minX,r.minY,r.width,r.height,cropBox.minX,cropBox.minY,cropBox.width,cropBox.height].allSatisfy(\.isFinite) &&
+            r.width >= 80 && r.height >= 40 && r.width <= 800 && r.height <= 500 && cropBox.contains(r)),
+            (7...18).contains(fontSize), fontSize.isFinite, customText.utf8.count <= 1024,
+            !customText.unicodeScalars.contains(where: { $0.value < 32 && $0.value != 10 }),
+            localDate.map({ $0.timeIntervalSince1970.isFinite }) ?? true else {
+            throw SignumError.module("Aspetto o rettangolo della firma non valido: deve rientrare nella pagina (80–800 × 40–500 pt).")
+        }
+    }
+}
+
+public struct PAdESAppearanceImage: Equatable, Sendable {
+    public static let maximumBytes = 5 * 1024 * 1024
+    public let data: Data
+    public let width: Int, height: Int
+    public init(data: Data) throws {
+        guard !data.isEmpty, data.count <= Self.maximumBytes else { throw SignumError.module("Immagine superiore a 5 MiB o vuota.") }
+        // Reject compressed/custom ICC metadata before ImageIO can expand it.
+        let bytes = [UInt8](data)
+        if bytes.starts(with: [137,80,78,71,13,10,26,10]) {
+            var offset = 8, chunks = 0
+            while offset + 12 <= bytes.count {
+                let n = bytes[offset..<offset+4].reduce(0) { ($0 << 8) | Int($1) }
+                guard n <= bytes.count-offset-12, chunks < 4096 else { throw SignumError.module("PNG malformato.") }
+                let type = String(bytes: bytes[offset+4..<offset+8], encoding: .ascii)
+                guard !["iCCP", "zTXt", "iTXt"].contains(type ?? "") else { throw SignumError.module("Profilo ICC o metadati compressi non supportati: esporta in sRGB senza metadati incorporati.") }
+                offset += n + 12; chunks += 1
+                if type == "IEND" { break }
+            }
+        } else if bytes.starts(with: [255,216]) {
+            var offset = 2, markers = 0
+            while offset + 4 <= bytes.count, bytes[offset] == 255 {
+                let marker = bytes[offset+1]; offset += 2
+                if marker == 218 || marker == 217 { break }
+                guard marker != 0, marker != 255, offset + 2 <= bytes.count else { throw SignumError.module("JPEG malformato.") }
+                let n = (Int(bytes[offset]) << 8) | Int(bytes[offset+1])
+                guard n >= 2, n <= bytes.count-offset, markers < 4096 else { throw SignumError.module("JPEG malformato.") }
+                guard marker != 226 else { throw SignumError.module("JPEG con profilo esteso non supportato: esporta in sRGB senza profilo incorporato.") }
+                offset += n; markers += 1
+            }
+        } else { throw SignumError.module("Serve un'immagine PNG o JPEG reale.") }
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              CGImageSourceGetCount(source) == 1,
+              let type = CGImageSourceGetType(source) as String?, ["public.png", "public.jpeg"].contains(type),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString:Any],
+              let w = properties[kCGImagePropertyPixelWidth] as? Int, let h = properties[kCGImagePropertyPixelHeight] as? Int,
+              w > 0, h > 0, w <= 4096, h <= 4096, w * h <= 8_000_000,
+              let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately:true] as CFDictionary),
+              [.rgb, .monochrome, .indexed].contains(image.colorSpace?.model ?? .unknown), image.width == w, image.height == h else {
+            throw SignumError.module("Immagine non decodificabile o oltre i limiti: 4096 px per lato, 8 milioni di pixel, RGB/grigio.")
+        }
+        self.data = data; width = w; height = h
+    }
+    public static func load(_ url: URL) throws -> Self {
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { throw SignumError.module("Immagine non disponibile o collegamento simbolico.") }
+        defer { close(fd) }
+        var before = stat()
+        guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG, before.st_size > 0, before.st_size <= maximumBytes else {
+            throw SignumError.module("Serve un'immagine regolare fino a 5 MiB.")
+        }
+        var data = Data(count: Int(before.st_size))
+        try data.withUnsafeMutableBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let n = read(fd, bytes.baseAddress!.advanced(by: offset), bytes.count-offset)
+                if n < 0 && errno == EINTR { continue }
+                guard n > 0 else { throw SignumError.module("Lettura immagine incompleta.") }; offset += n
+            }
+        }
+        var extra: UInt8 = 0, after = stat()
+        guard read(fd, &extra, 1) == 0, fstat(fd, &after) == 0, before.st_size == after.st_size,
+              before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec, before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec else {
+            throw SignumError.module("Immagine cambiata durante la lettura.")
+        }
+        return try Self(data: data)
+    }
+}
+
+public struct RenderedPAdESAppearance: Equatable, Sendable {
+    public let configuration: PAdESAppearanceConfiguration
+    public let pdf: Data
+    public let certificateSHA256: String
+    public var approvalIdentity: String {
+        let c = configuration, r = c.rectangle
+        return DocumentSnapshot.digest(Data("\(c.visible)|\(c.pageIndex)|\(r.minX)|\(r.minY)|\(r.width)|\(r.height)|\(sha256)|\(certificateSHA256)".utf8))
+    }
+    public var sha256: String { SHA256.hash(data: pdf).map { String(format: "%02x", $0) }.joined() }
+}
+
+public enum PAdESAppearanceRenderer {
+    public static let maximumPDFBytes = 8 * 1024 * 1024
+    public static func render(_ configuration: PAdESAppearanceConfiguration, certificateDER: Data, cropBox: CGRect) throws -> RenderedPAdESAppearance {
+        try configuration.validate(cropBox: cropBox)
+        let fingerprint = SHA256.hash(data: certificateDER).map { String(format:"%02x", $0) }.joined()
+        guard configuration.visible else { return .init(configuration: configuration, pdf: Data(), certificateSHA256: fingerprint) }
+        var lines: [String] = []
+        if configuration.showLabel { lines.append("Firmato digitalmente") }
+        if configuration.showSigner { lines.append(try SignumCertificateIdentity(certificateDER: certificateDER).fullName) }
+        if let date = configuration.localDate {
+            let formatter = DateFormatter(); formatter.locale = Locale(identifier:"it_IT"); formatter.dateFormat = "dd/MM/yyyy HH:mm:ss ZZZZZ"
+            lines.append("Data locale: " + formatter.string(from: date))
+        }
+        if !configuration.customText.isEmpty { lines.append(configuration.customText) }
+        guard !lines.isEmpty || configuration.image != nil else { throw SignumError.module("La firma visibile richiede testo o immagine.") }
+        var box = CGRect(origin:.zero, size: configuration.rectangle.size)
+        let output = NSMutableData()
+        guard let sink = CGDataConsumer(data: output as CFMutableData), let context = CGContext(consumer:sink, mediaBox:&box, nil) else { throw SignumError.module("Rendering appearance non disponibile.") }
+        context.beginPDFPage(nil)
+        context.setFillColor(CGColor(gray:1,alpha:1)); context.fill(box)
+        context.setStrokeColor(CGColor(gray:0.45,alpha:1)); context.setLineWidth(0.7); context.stroke(box.insetBy(dx:0.5,dy:0.5))
+        var textBox = box.insetBy(dx:7,dy:7)
+        if let image = configuration.image, let source = CGImageSourceCreateWithData(image.data as CFData, nil), let cg = CGImageSourceCreateImageAtIndex(source,0,nil) {
+            let region = CGRect(x:7,y:7,width: lines.isEmpty ? box.width-14 : box.width*0.32,height:box.height-14)
+            let scale = min(region.width/CGFloat(image.width),region.height/CGFloat(image.height))
+            context.draw(cg, in:CGRect(x:region.midX-CGFloat(image.width)*scale/2,y:region.midY-CGFloat(image.height)*scale/2,width:CGFloat(image.width)*scale,height:CGFloat(image.height)*scale))
+            if !lines.isEmpty { textBox.origin.x = region.maxX+7; textBox.size.width = box.maxX-textBox.minX-7 }
+        }
+        if !lines.isEmpty {
+            var alignment: CTTextAlignment = configuration.alignment == .leading ? .left : (configuration.alignment == .center ? .center : .right)
+            let paragraph = withUnsafePointer(to:&alignment) { pointer in
+                var setting = CTParagraphStyleSetting(spec:.alignment,valueSize:MemoryLayout<CTTextAlignment>.size,value:pointer)
+                return CTParagraphStyleCreate(&setting,1)
+            }
+            let text = lines.joined(separator:"\n")
+            let attributes: [NSAttributedString.Key:Any] = [NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Helvetica" as CFString,configuration.fontSize,nil),
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray:0.08,alpha:1), NSAttributedString.Key(kCTParagraphStyleAttributeName as String):paragraph]
+            let attributed = NSAttributedString(string:text,attributes:attributes)
+            let setter = CTFramesetterCreateWithAttributedString(attributed)
+            let frame = CTFramesetterCreateFrame(setter,CFRange(location:0,length:0),CGPath(rect:textBox,transform:nil),nil)
+            guard CTFrameGetVisibleStringRange(frame).length == attributed.length else { throw SignumError.module("Testo troppo lungo per il riquadro: aumenta le dimensioni o riduci il testo.") }
+            CTFrameDraw(frame,context)
+        }
+        context.endPDFPage(); context.closePDF()
+        guard output.length <= maximumPDFBytes else { throw SignumError.module("Appearance superiore a 8 MiB.") }
+        return .init(configuration:configuration,pdf:output as Data,certificateSHA256:fingerprint)
+    }
+}
+#endif
