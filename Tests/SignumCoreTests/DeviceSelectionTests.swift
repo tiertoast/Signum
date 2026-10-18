@@ -83,5 +83,21 @@ final class DeviceSelectionTests: XCTestCase {
         XCTAssertFalse(selection.accept([provider(der: der)], request: request))
         XCTAssertTrue(selection.certificates.isEmpty); XCTAssertNil(selection.selectedRoute)
     }
+    @MainActor func testPreparedCertificatesApplyOnMainWithoutProviderOrFilesystemAccess() async throws {
+        let der = try CertificateEligibilityTests.fixtures.get().der("valid")
+        let observed = provider(der: der) // Deliberately nonexistent provider path.
+        let prepared = await Task.detached {
+            dispatchPrecondition(condition: .notOnQueue(.main))
+            return DeviceDiscoveryResult(providers: [observed])
+        }.value
+        var selection = DeviceSelection(); let request = selection.beginDiscovery()
+        XCTAssertTrue(selection.accept(prepared, request: request))
+        XCTAssertEqual(selection.certificates.first?.routes.first?.der, der)
+        XCTAssertEqual(selection.certificates.first?.routes.first?.assessment.status, .eligible)
+        XCTAssertNil(selection.selectedRoute)
+        selection.beginDiscovery()
+        XCTAssertFalse(selection.accept(prepared, request: request))
+        XCTAssertTrue(selection.certificates.isEmpty)
+    }
 }
 #endif

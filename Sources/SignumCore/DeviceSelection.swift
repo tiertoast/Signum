@@ -1,6 +1,18 @@
 #if os(macOS)
 import Foundation
 
+/// Prepare off-main: local X.509 evaluation and DER identity parsing can involve
+/// up to 256 certificates. Applying the immutable result requires no vendor,
+/// filesystem or certificate processing on the UI thread.
+public struct DeviceDiscoveryResult: Sendable {
+    public let providers: [DiscoveredMiddleware]
+    public let certificates: [DeviceCertificate]
+    public init(providers: [DiscoveredMiddleware], at date: Date = Date()) {
+        self.providers = providers
+        certificates = DeviceCertificate.collect(providers, at: date)
+    }
+}
+
 /// UI-independent selection lifecycle. No automatic route selection/fallback,
 /// including refresh, removal/reinsert, changed slot or provider. A signing job
 /// remains a separate immutable value once approved.
@@ -21,7 +33,11 @@ public struct DeviceSelection: Sendable {
     public mutating func cancelDiscovery() { self = DeviceSelection(); wasCancelled = true }
     @discardableResult public mutating func accept(_ results: [DiscoveredMiddleware], request: UUID, at date: Date = Date()) -> Bool {
         guard request == requestID else { return false }
-        providers = results; certificates = DeviceCertificate.collect(results, at: date); selectedRouteID = nil; isSearching = false
+        return accept(DeviceDiscoveryResult(providers: results, at: date), request: request)
+    }
+    @discardableResult public mutating func accept(_ result: DeviceDiscoveryResult, request: UUID) -> Bool {
+        guard request == requestID else { return false }
+        providers = result.providers; certificates = result.certificates; selectedRouteID = nil; isSearching = false
         return true
     }
     @discardableResult public mutating func select(routeID: String?) -> Bool {

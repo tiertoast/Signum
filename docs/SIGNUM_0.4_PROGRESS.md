@@ -167,3 +167,41 @@ Nessun push/merge/tag/release/GitHub Actions; nessun accesso a HalleyMac.
 `main` locale resta `be84a1e`; branch Beta precedente resta `b48b3ae`. Review non
 tracciata preservata con SHA-256
 `2f275328cdca3ebe2023ade1c87b3179bc89540af8d7a898b304241d61a168a6`.
+
+## 18 ottobre 2026 — 0.4-A.2 Device Discovery
+
+L'utente riferisce completato il collaudo hardware **della precedente 0.4-A**:
+DigitalDNA, tre documenti, tre firme valide InfoCamere, tre richieste PIN. È un
+riscontro manuale della baseline, non una prova automatica o del nuovo candidato.
+
+Nuovo branch `codex/signum-0.4-device-discovery` da `dd1e786`, senza toccare main,
+Alpha o integrazioni. **Implementati M1–M4:** registro Bit4id/OpenSC, discovery
+pubblica nei worker con controlli root/permessi/ACL e identità file, token/seriali,
+certificati raggruppati per DER con route esplicite, selezione senza fallback,
+GUI centrata sul certificato e configurazione manuale avanzata. Ricerca al lancio
+oppure esplicita; nessun monitoraggio USB continuo o autenticazione di discovery.
+Consenso batch semplificato, nomi omonimi distinguibili, dettagli tecnici separati.
+
+**M5 analizzata:** sessione batch/autenticazione unica non dimostrate sicure sui
+percorsi CAdES/PAdES, quindi rimangono autorizzazioni per documento, nessuna cache
+PIN, nessun retry e nessun toggle ingannevole. Causa della policy hardware non
+attribuita al produttore senza prove.
+
+**M6 verificata sul codice `02f94a3`:** Swift **195/195**, 29 nuovi test;
+PKCS#11 **40/40**; PAdES Debug/Release **63/63**; packaging **10/10**;
+ASAN e TSAN mirati **33/33** ciascuno. Zero skip/fallimenti nei runner finali;
+build Swift Debug/Release e nuovi bundle ad hoc/rilocati passati, 0.4.0/build 2,
+minimo dichiarato/Mach-O 13.0. Nessun hardware o middleware installato caricato
+nelle prove. GUI interattiva, compatibilità reale OpenSC/Bit4id del nuovo flusso,
+macOS 13/14 e Mac pulito restano da collaudare. Non è una release pubblica.
+
+Candidato: `.build/04a2-bundles/release/Signum.app` (Debug separato);
+demo manuale sintetica pronta in `.build/04a2-demo`. Precedenti bundle preservati.
+Architettura, policy, esiti, commit, limiti e procedura di collaudo sono nel
+[rapporto Device Discovery](SIGNUM_0.4_DEVICE_DISCOVERY.md). B/C della roadmap
+funzionale non iniziate in questa porzione. Nessun push/merge/tag o CI remoto.
+
+Checkpoint successivo M6: test esplicito di tre PAdES nella stessa coda da una
+route scoperta, suite 196/196 e ASAN/TSAN 34/34. Ultimo consolidamento: valutazione
+X.509/raggruppamento fuori dal main thread con `DeviceDiscoveryResult`, test
+selezione 8/8; ripetizione finale e nuovi bundle ancora in verifica.

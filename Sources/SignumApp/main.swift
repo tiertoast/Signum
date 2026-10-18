@@ -430,6 +430,7 @@ private enum SignumFormat: String, Hashable {
         DispatchQueue.global(qos: .userInitiated).async {
             let results = MiddlewareDiscovery().discover(registry: paths.isEmpty ? MiddlewareRegistry.known : [],
                 manualPaths: paths, isCancelled: { operation.isCancellationRequested })
+            let prepared = DeviceDiscoveryResult(providers: operation.isCancellationRequested ? [] : results)
             DispatchQueue.main.async {
                 guard self.devices.requestID == request else { return }
                 self.busy = false; self.work = nil
@@ -437,7 +438,7 @@ private enum SignumFormat: String, Hashable {
                     self.devices.cancelDiscovery(); self.provider.beginDiscovery()
                     self.status = "Ricerca annullata. Cerca nuovamente."; return
                 }
-                guard self.devices.accept(results, request: request) else { return }
+                guard self.devices.accept(prepared, request: request) else { return }
                 self.status = self.devices.message
             }
         }
