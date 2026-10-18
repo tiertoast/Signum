@@ -17,14 +17,22 @@ struct BatchWorkerStart: Codable {
     let moduleIdentity: MiddlewareFileIdentity
     let jobs: [BatchWorkerJob]
     var pin: String?
+    var temporaryPIN: Bool? = nil
+    var pinLifetimeSeconds: Double? = nil
+    var pinIdleSeconds: Double? = nil
+    var lifetime: Double { pinLifetimeSeconds ?? 600 }
+    var idle: Double { pinIdleSeconds ?? 60 }
     var valid: Bool {
-        version == 2 && provider.hasPrefix("/") && provider.utf8.count <= 4096 && !provider.utf8.contains(0) &&
+        ((version == 2 && temporaryPIN != true && pinLifetimeSeconds == nil && pinIdleSeconds == nil &&
+          pin.map { (1...64).contains($0.utf8.count) && !$0.utf8.contains(0) } == true) ||
+         (version == 3 && temporaryPIN == true && pin == nil && lifetime.isFinite && idle.isFinite &&
+          (0.05...600).contains(lifetime) && (0.05...60).contains(idle))) && provider.hasPrefix("/") && provider.utf8.count <= 4096 && !provider.utf8.contains(0) &&
         (1...16).contains(serial.utf8.count) && !serial.utf8.contains(0) && certificate.valid &&
         (1...32).contains(jobs.count) && Set(jobs.map(\.id)).count == jobs.count &&
         Set(jobs.map(\.snapshotID)).count == jobs.count && jobs.allSatisfy {
             $0.sha256.utf8.count == 64 && $0.sha256.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } &&
             (1...4096).contains($0.attributes.count)
-        } && pin.map { (1...64).contains($0.utf8.count) && !$0.utf8.contains(0) } == true
+        }
     }
 }
 struct BatchWorkerCommand: Codable {
@@ -44,5 +52,6 @@ struct BatchWorkerReply: Codable {
     let reusable: Bool
     let closed: Bool
     let succeeded: Bool
+    var failureKind: String? = nil
 }
 #endif

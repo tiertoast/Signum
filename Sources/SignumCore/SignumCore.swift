@@ -162,6 +162,32 @@ public final class PKCS11Module: @unchecked Sendable {
         return Data(output.prefix(length))
     }
 
+    var batchRequiresPIN: Bool { sg_batch_requires_pin(batchSession) == 1 }
+    func firstTemporaryBatchSignature(slot: UInt, serial: String, certificate: SignumCertificate, der: Data,
+                                     attributes: Data, pin: WorkerBatchPINContext) throws -> (Data, Bool) {
+        var output = [UInt8](repeating: 0, count: 8192), length = 0, reusable: Int32 = 0
+        try execute { error in certificate.identifier.withUnsafeBytes { id in der.withUnsafeBytes { approved in
+            attributes.withUnsafeBytes { message in
+                sg_batch_first_temporary(context, slot, serial, id.bindMemory(to: UInt8.self).baseAddress, id.count,
+                    approved.bindMemory(to: UInt8.self).baseAddress, approved.count, pin.bytes, pin.length, pin.deadline,
+                    message.bindMemory(to: UInt8.self).baseAddress, message.count, &batchSession, &reusable,
+                    &output, output.count, &length, error.baseAddress, error.count)
+            }
+        }}}
+        guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
+        return (Data(output.prefix(length)), reusable == 1)
+    }
+    func nextTemporaryBatchSignature(attributes: Data, pin: WorkerBatchPINContext) throws -> Data {
+        guard let batchSession else { throw SignumError.module("Batch session closed") }
+        var output = [UInt8](repeating: 0, count: 8192), length = 0
+        try execute { error in attributes.withUnsafeBytes { bytes in
+            sg_batch_next_temporary(batchSession, pin.bytes, pin.length,
+                bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &output, output.count, &length, error.baseAddress, error.count)
+        }}
+        guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
+        return Data(output.prefix(length))
+    }
+
     public func tokens() throws -> [SignumToken] {
         try scanTokens().tokens
     }

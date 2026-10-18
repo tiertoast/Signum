@@ -78,3 +78,35 @@ propria durata uptime. Nessuna riduzione del controllo di scadenza.
 
 Run finale M4 **15/15**: cinque test nativi nuovi (inclusi quattro RV di errore
 PIN, nessun retry) e dieci regressioni worker Auto. Log `04a41-m4-auth-clock-fixed.log`.
+
+## M5 — Worker e batch CAdES
+
+Avvio interno v3: manifesto pubblico senza PIN, poi lunghezza 4 byte e PIN
+binario (1…64 byte), stessa pipe privata. Il padre usa writev atomico <=68 byte,
+senza conversione JSON/Data del segreto; il worker legge direttamente nella
+pagina bloccata. Resta una String iniziale transitoria nel submit/stack Swift,
+rilasciata dopo la prima operazione, mai catturata dalla continuazione. Il
+percorso Auto v2 è conservato; nessuna migrazione del protocollo pubblico.
+
+Batch ID coincide con approval ID e vincola il manifesto; gli attributi CMS
+immutabili derivano dai job approvati con snapshot/hash/formato/destinazione
+nel padre. Provider canonico/identità, token/slot/DER e handle chiave restano
+vincolati. Il worker non riceve documenti né destinazioni. Ogni firma è
+verificata RSA/CMS e pubblicata atomicamente prima di richiedere la successiva.
+
+Buffer eliminato dopo la prima firma se non servono altre autenticazioni,
+altrimenti subito dopo l'ultima Sign, prima della sua risposta e del commit
+finale. Su errore/EOF/finish scade prima di CloseSession/Finalize potenzialmente
+bloccanti. Timeout idle 60s e vita massima 600s (limiti interni riducibili nei
+manifesti sintetici), supervisione monotona del padre anche durante Sign.
+mlock non disponibile produce un rifiuto esplicito **prima di caricare il
+provider**, nessun login: serve una nuova sessione con PIN per firma. Gli altri
+errori senza firma verificabile mantengono la gestione conservativa dell'incertezza.
+
+Run M5 **40/40**, zero skip/fallimenti (`04a41-m5-delivery.log`): 3/7 CAdES
+con un solo valore UI, USER una volta e CONTEXT 3/7 volte, verifica di tutti gli
+output, Auto e per-firma, attributo sconosciuto, timeout idle/durata, autenticazione
+fallita senza retry, crash/hang/cancel, collisione secondo output, batch/job/ordine
+estranei, nuova sessione senza segreto, mlock rifiutato nel worker via limite
+risorse ereditato. Il mock sperimentale richiede effettivamente un nuovo CONTEXT
+tra SignInit e ogni Sign; non basta contarne le chiamate.

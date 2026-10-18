@@ -7,8 +7,11 @@ import Darwin
 final class SupervisedWorkerChannel {
     private let process = Process(), input = Pipe(), output = Pipe()
     private var pending = Data(), retired = false
+    private let maximumLifetime: TimeInterval
     private let started = ProcessInfo.processInfo.systemUptime
-    init(executable: URL) throws {
+    init(executable: URL, lifetime: TimeInterval = 600) throws {
+        maximumLifetime = lifetime
+        guard lifetime.isFinite, (0.05...600).contains(lifetime) else { throw SupervisedProcess.Failure.protocolViolation }
         guard SupervisedProcess.acquire() else { throw SupervisedProcess.Failure.capacity }
         do {
             process.executableURL = executable; process.arguments = ["--batch-v1"]
@@ -25,7 +28,7 @@ final class SupervisedWorkerChannel {
         } catch { SupervisedProcess.release(); retired = true; throw SupervisedProcess.Failure.launch }
     }
     deinit { abort() }
-    func exchange<Request: Encodable>(_ value: Request, timeout: TimeInterval,
+    func exchange<Request: Encodable>(_ value: Request, secret: String? = nil, timeout: TimeInterval,
                                       isCancelled: () -> Bool) throws -> BatchWorkerReply {
         var bytes = try JSONEncoder().encode(value)
         defer { bytes.resetBytes(in: 0..<bytes.count) }
@@ -33,8 +36,10 @@ final class SupervisedWorkerChannel {
         var frame = Data((0..<4).reversed().map { UInt8((UInt32(bytes.count) >> ($0*8)) & 255) })
         frame.append(bytes); bytes.resetBytes(in: 0..<bytes.count)
         defer { frame.resetBytes(in: 0..<frame.count) }
+        if let secret { guard (1...64).contains(secret.utf8.count), !secret.utf8.contains(0) else { throw SupervisedProcess.Failure.protocolViolation } }
+        var secretSent = secret == nil
         var sent = 0, chunk = [UInt8](repeating: 0, count: 8192)
-        let deadline = min(ProcessInfo.processInfo.systemUptime + timeout, started + 600)
+        let deadline = min(ProcessInfo.processInfo.systemUptime + timeout, started + maximumLifetime)
         do {
             while true {
                 if isCancelled() { throw SupervisedProcess.Failure.cancelled }
@@ -45,6 +50,18 @@ final class SupervisedWorkerChannel {
                     else if count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK { throw SupervisedProcess.Failure.protocolViolation }
                     if sent == frame.count { frame.resetBytes(in: 0..<frame.count) }
                 }
+                if sent == frame.count, !secretSent, let secret {
+                    let length = secret.utf8.count
+                    let header = (0..<4).reversed().map { UInt8((UInt32(length) >> ($0*8)) & 255) }
+                    let count = secret.withCString { pointer in header.withUnsafeBytes { prefix in
+                        var vectors = [iovec(iov_base: UnsafeMutableRawPointer(mutating: prefix.baseAddress), iov_len: 4),
+                            iovec(iov_base: UnsafeMutableRawPointer(mutating: pointer), iov_len: length)]
+                        return Darwin.writev(input.fileHandleForWriting.fileDescriptor, &vectors, 2)
+                    }}
+                    // <=68 bytes, below PIPE_BUF: one nonblocking atomic write.
+                    if count == length + 4 { secretSent = true }
+                    else if count >= 0 || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) { throw SupervisedProcess.Failure.protocolViolation }
+                }
                 let count = Darwin.read(output.fileHandleForReading.fileDescriptor, &chunk, chunk.count)
                 if count > 0 {
                     guard count <= 65540-pending.count else { throw SupervisedProcess.Failure.protocolViolation }
@@ -54,7 +71,7 @@ final class SupervisedWorkerChannel {
                     let length = pending.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
                     guard length > 0, length <= 65536 else { throw SupervisedProcess.Failure.protocolViolation }
                     if pending.count >= length+4 {
-                        guard pending.count == length+4, sent == frame.count,
+                        guard pending.count == length+4, sent == frame.count, secretSent,
                               let reply = try? JSONDecoder().decode(BatchWorkerReply.self, from: pending.dropFirst(4)) else { throw SupervisedProcess.Failure.protocolViolation }
                         pending.removeAll(keepingCapacity: false)
                         return reply

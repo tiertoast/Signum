@@ -39,7 +39,7 @@ void mock_replace_certificate(const unsigned char *bytes, size_t length, unsigne
     pthread_mutex_unlock(&mutex);
 }
 static int blocked_operation = -1, blocked, released, always_auth, external_session;
-typedef struct { int active, delivered; CK_OBJECT_CLASS kind; } Session;
+typedef struct { int active, delivered, sign_active, context_ready; CK_OBJECT_CLASS kind; } Session;
 static Session sessions[512];
 static CK_ULONG next_session = 1;
 void mock_stats(MockStats *out) { pthread_mutex_lock(&mutex); *out = stats; pthread_mutex_unlock(&mutex); }
@@ -181,6 +181,12 @@ static CK_RV session_info(CK_SESSION_HANDLE h, CK_SESSION_INFO_PTR out) {
 static CK_RV login(CK_SESSION_HANDLE h, CK_USER_TYPE user, CK_UTF8CHAR_PTR value, CK_ULONG length) {
     (void)value; (void)length; // deliberately never inspect, store or log credentials
     BEGIN(user == CKU_CONTEXT_SPECIFIC ? M_LOGIN_CONTEXT : M_LOGIN_USER); VALID(h);
+#if SIGNUM_MOCK_STRICT_CONTEXT
+    if (user == CKU_CONTEXT_SPECIFIC) {
+        if (!always_auth || !sessions[h].sign_active) return end(CKR_OPERATION_NOT_INITIALIZED);
+        sessions[h].context_ready = 1;
+    }
+#endif
     if (user == CKU_USER) {
         if (stats.logged_in) return end(CKR_USER_ALREADY_LOGGED_IN);
         stats.logged_in = 1;
@@ -233,10 +239,14 @@ static CK_RV attribute(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE obj, CK_ATTRIBUTE_P
     return end(CKR_OK);
 }
 static CK_RV sign_init(CK_SESSION_HANDLE h, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE key) {
-    (void)key; BEGIN(M_SIGN_INIT); VALID(h); stats.last_mechanism = mechanism->mechanism; return end(CKR_OK);
+    (void)key; BEGIN(M_SIGN_INIT); VALID(h); sessions[h].sign_active = 1; sessions[h].context_ready = 0; stats.last_mechanism = mechanism->mechanism; return end(CKR_OK);
 }
 static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PTR signature, CK_ULONG_PTR length) {
     (void)bytes; (void)n; BEGIN(M_SIGN); VALID(h);
+#if SIGNUM_MOCK_STRICT_CONTEXT
+    if (!stats.logged_in || !sessions[h].sign_active || (always_auth && !sessions[h].context_ready)) return end(CKR_USER_NOT_LOGGED_IN);
+    sessions[h].sign_active = sessions[h].context_ready = 0;
+#endif
 #ifdef SIGNUM_MOCK_SOFTWARE_KEY
     SecKeyAlgorithm algorithm = kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256;
     if (stats.last_mechanism == CKM_RSA_PKCS) {

@@ -5,9 +5,9 @@ import CProcessCoordination
 
 /// Runs only behind the worker's parent-death/core-dump/vendor-output hardening.
 enum BatchWorkerServer {
-    private static func readFrame() throws -> Data? {
+    private static func readFrame(until limit: Double = .infinity, idle: Double = 60) throws -> Data? {
         var result = Data(), expected = 4, payload = false
-        let deadline = ProcessInfo.processInfo.systemUptime + 60
+        let deadline = min(limit, ProcessInfo.processInfo.systemUptime + idle)
         while result.count < expected {
             var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
             let count = poll(&descriptor, 1, 100)
@@ -47,7 +47,9 @@ enum BatchWorkerServer {
     static func serve(reply: Int32) -> Int32 {
         var module: PKCS11Module?
         var lease: OpaquePointer?
+        var securePIN: WorkerBatchPINContext?
         defer {
+            securePIN?.erase() // Erase before any potentially blocking vendor teardown.
             if let module { try? module.closeInWorker() }
             if let lease { sg_token_lease_release(lease) }
         }
@@ -56,6 +58,15 @@ enum BatchWorkerServer {
             var start: BatchWorkerStart
             do { defer { frame.resetBytes(in: 0..<frame.count) }; start = try JSONDecoder().decode(BatchWorkerStart.self, from: frame) }
             guard start.valid else { return 2 }
+            if start.version == 3 {
+                do { securePIN = try WorkerBatchPINContext(lifetime: start.lifetime) }
+                catch WorkerBatchPINContext.Failure.memoryUnavailable {
+                    try write(.init(version: 2, batchID: start.batchID, jobID: start.jobs[0].id, index: 0,
+                        signature: nil, reusable: false, closed: true, succeeded: false, failureKind: "pinMemoryUnavailable"), to: reply)
+                    return 0 // No provider loaded, no private operation attempted.
+                }
+            }
+            let deadline = securePIN?.supervisionDeadline ?? (ProcessInfo.processInfo.systemUptime + 600)
             // Release the decoded PIN immediately after the first operation,
             // before reading any later job command. No PIN field in commands.
             guard let owned = sg_token_lease_acquire(start.provider, UInt64(start.slot), 0, 10000) else { return 2 }
@@ -65,11 +76,19 @@ enum BatchWorkerServer {
             let first: (Data, Bool)
             do {
                 defer { start.pin = nil }
-                first = try loaded.firstBatchSignature(slot: start.slot, serial: start.serial,
-                    certificate: start.certificate.value, der: start.certificate.der,
-                    attributes: start.jobs[0].attributes, pin: start.pin!)
+                if let securePIN {
+                    first = try loaded.firstTemporaryBatchSignature(slot: start.slot, serial: start.serial,
+                        certificate: start.certificate.value, der: start.certificate.der,
+                        attributes: start.jobs[0].attributes, pin: securePIN)
+                    if !loaded.batchRequiresPIN || start.jobs.count == 1 { securePIN.erase() }
+                } else {
+                    first = try loaded.firstBatchSignature(slot: start.slot, serial: start.serial,
+                        certificate: start.certificate.value, der: start.certificate.der,
+                        attributes: start.jobs[0].attributes, pin: start.pin!)
+                }
             }
             if !first.1 {
+                securePIN?.erase()
                 module = nil; try loaded.closeInWorker()
                 try write(.init(version: 2, batchID: start.batchID, jobID: start.jobs[0].id, index: 0,
                     signature: first.0, reusable: false, closed: true, succeeded: true), to: reply)
@@ -78,13 +97,13 @@ enum BatchWorkerServer {
             try write(.init(version: 2, batchID: start.batchID, jobID: start.jobs[0].id, index: 0,
                 signature: first.0, reusable: true, closed: false, succeeded: true), to: reply)
             var next = 1
-            let deadline = ProcessInfo.processInfo.systemUptime + 600
-            while let data = try readFrame() {
+            while let data = try readFrame(until: deadline, idle: start.idle) {
                 guard ProcessInfo.processInfo.systemUptime < deadline,
                       let command = try? JSONDecoder().decode(BatchWorkerCommand.self, from: data),
                       command.version == 2, command.batchID == start.batchID, command.index == next else { return 2 }
                 if command.finish {
                     guard command.jobID == nil, !command.skip else { return 2 }
+                    securePIN?.erase()
                     module = nil; try loaded.closeInWorker()
                     try write(.init(version: 2, batchID: start.batchID, jobID: nil, index: next,
                         signature: nil, reusable: false, closed: true, succeeded: true), to: reply)
@@ -94,15 +113,21 @@ enum BatchWorkerServer {
                 if command.skip {
                     try write(.init(version: 2, batchID: start.batchID, jobID: command.jobID, index: next,
                         signature: nil, reusable: true, closed: false, succeeded: true), to: reply)
-                    next += 1; continue
+                    next += 1
+                    if next == start.jobs.count { securePIN?.erase() }
+                    continue
                 }
                 try requireModule(start)
-                let signature = try loaded.nextBatchSignature(attributes: start.jobs[next].attributes)
+                let signature: Data
+                if let securePIN { signature = try loaded.nextTemporaryBatchSignature(attributes: start.jobs[next].attributes, pin: securePIN) }
+                else { signature = try loaded.nextBatchSignature(attributes: start.jobs[next].attributes) }
+                if next + 1 == start.jobs.count { securePIN?.erase() }
                 try write(.init(version: 2, batchID: start.batchID, jobID: command.jobID, index: next,
                     signature: signature, reusable: true, closed: false, succeeded: true), to: reply)
                 next += 1
             }
             // Parent closed stdin: terminate rather than retaining authentication.
+            securePIN?.erase()
             module = nil; try loaded.closeInWorker()
             return 0
         } catch { return 2 } // No vendor/PIN diagnostics across the pipe.

@@ -17,7 +17,7 @@ final class MockModule: @unchecked Sendable {
     let waitBlocked: @convention(c) () -> Int32
     let release: @convention(c) () -> Void
 
-    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false, reportVersion: Bool = false, alwaysAuth: Bool = false, unknownAuth: Bool = false, preauthenticated: Bool = false, preinitialized: Bool = false, faultAfter: Int = 0) throws {
+    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false, reportVersion: Bool = false, alwaysAuth: Bool = false, unknownAuth: Bool = false, preauthenticated: Bool = false, preinitialized: Bool = false, faultAfter: Int = 0, strictContext: Bool = false) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         folder = root.appendingPathComponent(".build/swift-provider-tests/" + UUID().uuidString)
@@ -31,6 +31,7 @@ final class MockModule: @unchecked Sendable {
         if audit {
             compiler.arguments! += ["-DSIGNUM_MOCK_AUDIT_PATH=" + String(reflecting: folder.appendingPathComponent("operations").path)]
         }
+        if strictContext { compiler.arguments! += ["-DSIGNUM_MOCK_STRICT_CONTEXT=1"] }
         if alwaysAuth { compiler.arguments! += ["-DSIGNUM_MOCK_DEFAULT_ALWAYS_AUTH=1"] }
         compiler.arguments! += [
                                  "-DSIGNUM_MOCK_UNKNOWN_AUTH=\(unknownAuth ? 1 : 0)",

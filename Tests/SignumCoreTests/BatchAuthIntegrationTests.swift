@@ -7,15 +7,15 @@ import XCTest
     private func count(_ mock: MockModule, _ op: Int) -> Int {
         ((try? String(contentsOf: mock.folder.appendingPathComponent("operations"))) ?? "").split(separator: "\n").filter { $0 == String(op) }.count
     }
-    private func fixture(always: Bool = false, phase: Int? = nil, effect: Int = 0, after: Int = 0,
+    private func fixture(always: Bool = false, phase: Int? = nil, effect: Int = 0, after: Int = 0, temporary: Bool = false, documents: Int = 3,
         _ body: (URL, MockModule, BatchSigningCoordinator, BatchApproval, BatchCAdESSession) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: root) }
         let signer = try SoftwareSigner(folder: root)
         let mock = try MockModule(certificate: signer.der, privateKey: signer.rsaPrivateDER(), workerPhase: phase,
-            workerEffect: effect, audit: true, alwaysAuth: always, faultAfter: after)
-        let files = try (1...3).map { index -> URL in
+            workerEffect: effect, audit: true, alwaysAuth: always, faultAfter: after, strictContext: temporary)
+        let files = try (1...documents).map { index -> URL in
             let file = root.appendingPathComponent("synthetic-\(index).txt"); try Data("Approved batch \(index)".utf8).write(to: file); return file
         }
         let batch = BatchSigningCoordinator(); defer { batch.reset() }
@@ -24,7 +24,7 @@ import XCTest
             certificate: .init(label: "Synthetic", identifier: Data([1])), der: signer.der)
         try batch.confirm(plan)
         let inspected = try MiddlewareFileSecurity.inspect(mock.path.path, automatic: false)
-        let session = try BatchCAdESSession(approval: plan, serial: "SYNTHETIC-0001", moduleIdentity: inspected.identity, executable: worker)
+        let session = try BatchCAdESSession(approval: plan, serial: "SYNTHETIC-0001", moduleIdentity: inspected.identity, temporaryPIN: temporary, executable: worker)
         do { try await body(root, mock, batch, plan, session) }
         catch { await session.stopAndWait(); throw error }
         await session.stopAndWait()
@@ -144,6 +144,60 @@ import XCTest
             XCTAssertTrue(session.cleanupUncertain); XCTAssertTrue(batch.needsOutcomeReview)
             XCTAssertFalse(batch.authenticationNotice.isEmpty); XCTAssertFalse(batch.isContinuingAuthenticated)
             XCTAssertEqual(count(mock, 16), 1)
+        }
+    }
+
+    func testTemporaryPINThreeAndSevenCAdESHaveDistinctContextLoginsAndVerifiedOutputs() async throws {
+        for documents in [3, 7] {
+            try await fixture(always: true, temporary: true, documents: documents) { root, mock, batch, plan, session in
+                try await first(batch, session)
+                await batch.continueAuthenticatedBatch(using: session)
+                XCTAssertTrue(batch.documents.allSatisfy { $0.state == .completed })
+                for (index, job) in plan.jobs.enumerated() {
+                    XCTAssertEqual(try CAdESVerifier.verify(file: job.destination).originalDocument, Data("Approved batch \(index+1)".utf8))
+                }
+                XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 9), documents)
+                XCTAssertEqual(count(mock, 16), documents); XCTAssertEqual(count(mock, 1), 1)
+                XCTAssertFalse(session.canContinue)
+                XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasPrefix(".signum-staging-") })
+            }
+        }
+    }
+    func testTemporarySecondFailureAndCollisionDoNotAdvanceOrOverwrite() async throws {
+        for collision in [false, true] {
+            try await fixture(always: true, phase: collision ? nil : 9, effect: 4, after: 1, temporary: true) { _, mock, batch, plan, session in
+                try await first(batch, session)
+                if collision { try Data("PRESERVE".utf8).write(to: plan.jobs[1].destination) }
+                await batch.continueAuthenticatedBatch(using: session)
+                XCTAssertEqual(batch.documents.map(\.state), [.completed, collision ? .failed : .uncertain, .waitingForAuthorization])
+                XCTAssertEqual(count(mock, 16), 1); XCTAssertEqual(count(mock, 9), collision ? 1 : 2)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: plan.jobs[2].destination.path))
+                if collision { XCTAssertEqual(try String(contentsOf: plan.jobs[1].destination), "PRESERVE") }
+                await batch.continueAuthenticatedBatch(using: session)
+                XCTAssertEqual(count(mock, 16), 1)
+            }
+        }
+    }
+    func testTemporaryCancellationDuringSignNeverContinuesOrPublishes() async throws {
+        try await fixture(always: true, phase: 16, effect: 2, temporary: true) { _, mock, batch, plan, session in
+            let task = Task { try await first(batch, session) }
+            let deadline = ProcessInfo.processInfo.systemUptime + 5
+            while count(mock, 16) == 0 && ProcessInfo.processInfo.systemUptime < deadline { await Task.yield() }
+            XCTAssertEqual(count(mock, 16), 1)
+            batch.cancelAll(); session.requestStop(); try await task.value; await session.stopAndWait()
+            XCTAssertTrue(batch.needsOutcomeReview); XCTAssertEqual(count(mock, 16), 1); XCTAssertEqual(count(mock, 9), 1)
+            XCTAssertFalse(plan.jobs.contains { FileManager.default.fileExists(atPath: $0.destination.path) })
+        }
+    }
+    func testTemporaryCrashAndTimeoutNeverRetryOrPublish() async throws {
+        for effect in [2, 3] {
+            try await fixture(always: true, phase: 16, effect: effect, temporary: true) { _, mock, batch, plan, session in
+                try await first(batch, session, timeout: 0.2)
+                XCTAssertEqual(batch.documents[0].state, .uncertain)
+                await batch.continueAuthenticatedBatch(using: session)
+                XCTAssertEqual(count(mock, 16), 1); XCTAssertEqual(count(mock, 9), 1)
+                XCTAssertFalse(plan.jobs.contains { FileManager.default.fileExists(atPath: $0.destination.path) })
+            }
         }
     }
 

@@ -7,13 +7,14 @@ import Darwin
 public final class BatchCAdESSession: @unchecked Sendable {
     public let approvalID: UUID
     private let jobs: [SigningJob], serial: String, identity: MiddlewareFileIdentity, automatic: Bool, executable: URL
+    private let temporaryPIN: Bool
     private let ioLock = NSLock(), state = NSLock()
     private var connection: BatchSignatureConnection?
     private var stopped = false, reusable = false, began = false, cleanupFailed = false
     public var cleanupUncertain: Bool { state.lock(); defer { state.unlock() }; return cleanupFailed }
     public var canContinue: Bool { state.lock(); defer { state.unlock() }; return reusable && !stopped }
     public init(approval: BatchApproval, serial: String, moduleIdentity: MiddlewareFileIdentity,
-                automaticModule: Bool = false, startingAt snapshotID: UUID? = nil, remainingSnapshotIDs: Set<UUID>? = nil,
+                automaticModule: Bool = false, temporaryPIN: Bool = false, startingAt snapshotID: UUID? = nil, remainingSnapshotIDs: Set<UUID>? = nil,
                 executable: URL = IsolatedPKCS11Client.bundledExecutable) throws {
         guard approval.jobs.count > 1, approval.jobs.allSatisfy({ $0.format == .cades }),
               (1...16).contains(serial.utf8.count), !serial.utf8.contains(0), let first = approval.jobs.first,
@@ -28,6 +29,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
         } else { start = 0 }
         jobs = approval.jobs.dropFirst(start).filter { remainingSnapshotIDs?.contains($0.snapshotIdentity.id) ?? true }; approvalID = approval.id
         guard !jobs.isEmpty else { throw SignumError.module("Nessun documento in attesa.") }
+        self.temporaryPIN = temporaryPIN
         self.serial = serial; identity = moduleIdentity; automatic = automaticModule; self.executable = executable
     }
     private func update(reusable: Bool) { state.lock(); self.reusable = reusable; state.unlock() }
@@ -79,10 +81,12 @@ public final class BatchCAdESSession: @unchecked Sendable {
                     let attributes = try CAdES.Prepared(document: bytes, certificateDER: approved.certificateDER).attributesToSign
                     return .init(id: approved.id, snapshotID: approved.snapshotIdentity.id, sha256: approved.contentSHA256, attributes: attributes)
                 }
-                connection = BatchSignatureConnection(manifest: .init(version: 2, batchID: approvalID,
+                var manifest = BatchWorkerStart(version: temporaryPIN ? 3 : 2, batchID: approvalID,
                     provider: job.providerPath, slot: job.slot, serial: serial,
                     certificate: WorkerCertificate(job.certificate, der: job.certificateDER), automatic: automatic,
-                    moduleIdentity: identity, jobs: manifestJobs, pin: nil), executable: executable)
+                    moduleIdentity: identity, jobs: manifestJobs, pin: nil)
+                if temporaryPIN { manifest.temporaryPIN = true }
+                connection = BatchSignatureConnection(manifest: manifest, executable: executable)
                 began = true
             }
             guard let connection, pin == nil || connection.next == 0 else { throw SupervisedProcess.Failure.protocolViolation }
@@ -113,6 +117,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
             // already terminated the worker, otherwise it is idle here.
             try? connection?.finish(); connection?.abort(); connection = nil
             state.lock(); stopped = true; state.unlock()
+            if error is BatchSignatureConnection.Failure { throw error } // Explicit pre-login refusal, not an uncertain Sign.
             if submitted && !receivedSignature {
                 throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Non ripetere automaticamente questo job.")
             }
