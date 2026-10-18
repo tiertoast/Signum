@@ -24,3 +24,17 @@ Foundation. Nessun worker batch persistente o ottimizzazione PIN in questa fase.
 
 Milestone: M2 filtro; M3 destinazioni; M4 conferma/PIN; M5 workspace;
 M6 regressioni, packaging e istruzioni manuali. Ogni passaggio ha un commit locale.
+
+## M2 — Filtro certificati
+
+Default persistente OFF per «Mostra certificati non idonei». La presentazione usa
+`CertificateVisibility`, senza cambiare SG-04: OFF mostra solo eligible; ON mostra
+anche ineligible e indeterminate, mantenendo stati e motivi distinti. Gli
+indeterminati hanno un accesso avanzato esplicito anche a filtro chiuso. Una
+selezione esclusa nascosta viene cancellata insieme al PIN; nessuna preselezione
+al refresh e nessuna possibilità di firmare con un certificato escluso.
+
+Test mirati filtro/preferenza/selezione/provider: **17/17**. Cinque nuovi casi:
+OFF/ON, stati e motivi, persistenza isolata senza credenziali, blocco SG-04 anche
+quando il certificato è visibile, refresh senza preselezione. GUI compilata;
+nessun collaudo interattivo o hardware implicato da questi test.

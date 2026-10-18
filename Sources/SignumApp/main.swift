@@ -35,6 +35,7 @@ private enum SignumFormat: String, Hashable {
 
 @MainActor struct SignumWindow: View {
     @StateObject private var batch = BatchSigningCoordinator()
+    @AppStorage(SigningExperiencePreferences.Keys.showExcluded) private var showExcludedCertificates = false
     @State private var placements: [UUID: PAdESPlacement] = [:]
     @State private var readyPreviews = Set<UUID>()
     @State private var approvedFields: [UUID: SignumPAdESHelper.Field] = [:]
@@ -158,6 +159,12 @@ private enum SignumFormat: String, Hashable {
                 loadManual: { discover(manual: manualPath) }, remove: removeManualModule,
                 selectRoute: selectRoute)
         }
+        .onChange(of: showExcludedCertificates) { show in
+            guard !batch.isFrozen, let route = devices.selectedRoute,
+                  !CertificateVisibility(devices.certificates).includes(route: route, showExcluded: show) else { return }
+            provider.beginDiscovery(); devices.select(routeID: nil)
+            status = "Il certificato escluso è stato nascosto. Scegli un certificato localmente idoneo."
+        }
         .onChange(of: format) { _ in provider.pin = "" }
         .onDisappear {
             work?.requestCancellation()
@@ -267,7 +274,12 @@ private enum SignumFormat: String, Hashable {
     private var certificateControls: some View {
         GroupBox("Scegli il certificato") {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(devices.certificates) { group in
+                Toggle("Mostra certificati non idonei", isOn: $showExcludedCertificates)
+                    .disabled(interfaceLocked || batch.isFrozen)
+                if CertificateVisibility(devices.certificates).eligible.isEmpty && !devices.isSearching {
+                    Text("Nessun certificato localmente idoneo alla firma.").font(.caption)
+                }
+                ForEach(CertificateVisibility(devices.certificates).visible(showExcluded: showExcludedCertificates)) { group in
                     if let route = group.routes.first(where: { $0.id == devices.selectedRouteID }) ?? group.routes.first {
                         Button {
                             if devices.selectedRoute?.certificateFingerprint != group.id {
@@ -283,6 +295,7 @@ private enum SignumFormat: String, Hashable {
                                     Text("Emittente: \(route.identity?.issuer ?? "non disponibile")").font(.caption)
                                     Text("Scadenza: \(route.assessment.notAfter?.formatted(date: .numeric, time: .omitted) ?? "non disponibile")").font(.caption)
                                     Text(route.purpose).font(.caption)
+                                    if !route.assessment.permitsSigning { Text(route.assessment.explanation).font(.caption2) }
                                     Text(route.deviceDescription).font(.caption).foregroundStyle(.secondary)
                                     if group.routes.count > 1 {
                                         Text("Disponibile tramite \(group.routes.count) vie di accesso · scelta in Configura dispositivo").font(.caption2)
@@ -291,6 +304,21 @@ private enum SignumFormat: String, Hashable {
                                 Spacer(minLength: 0)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5)
                         }.buttonStyle(.plain).disabled(interfaceLocked || batch.isFrozen)
+                    }
+                }
+                if !showExcludedCertificates {
+                    let filtered = CertificateVisibility(devices.certificates)
+                    if !filtered.ineligible.isEmpty { Text("\(filtered.ineligible.count) certificati non idonei nascosti.").font(.caption2) }
+                    if !filtered.indeterminate.isEmpty {
+                        DisclosureGroup("Idoneità non determinabile: \(filtered.indeterminate.count) certificati · dettagli avanzati") {
+                            ForEach(filtered.indeterminate) { group in
+                                if let route = group.routes.first {
+                                    Text(route.title).font(.caption.weight(.semibold))
+                                    Text(route.assessment.explanation).font(.caption2)
+                                }
+                            }
+                            Text("Questi certificati non possono autorizzare una firma. Attiva il filtro per consultarne tutti i dettagli.").font(.caption2)
+                        }
                     }
                 }
                 if let selected = devices.selectedRoute {
