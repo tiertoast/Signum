@@ -100,3 +100,11 @@ Picco RSS del processo Swift nella suite completa circa **930 MiB**; include
 le fixture da 100 MiB e non rappresenta il solo renderer o l'helper separato.
 La fonte Info.plist avanza a **0.4.0/build 7**, mantenendo il minimo 13.0.
 Commit design `3de3d31`; il successivo commit di implementazione è il checkpoint B.
+
+
+Checkpoint codice **`9f7684b`**. Bundle build 7 Debug e Release costruiti dopo
+quel commit, con `sourceTrackedDirty=false`, firma ad hoc verificata, hash,
+Mach-O minimo 13.0, dipendenze incorporate, smoke e 63 casi PAdES anche nei
+bundle rilocati. Percorsi `.build/04b-bundles/checkpoint-debug/Signum.app` e
+`.build/04b-bundles/checkpoint-release/Signum.app`. Log `04b-package-{debug,release}`.
+Questi bundle sono checkpoint B; la candidata finale includerà C se verificata.

@@ -352,3 +352,7 @@ medio zero. Fonte candidata **0.4.0/build 7**; build 6 preservata.
 [Architettura, evidenze, limiti e collaudi](SIGNUM_0.4_PADES_APPEARANCE.md).
 C non sviluppata prima del checkpoint B. Nessun hardware/PIN reale, push, merge,
 tag, release, PR #3, GitHub Actions o accesso ad altri repository.
+
+Checkpoint B **`9f7684b`**, seguito da bundle Debug/Release build 7 verificati
+anche dopo rilocazione; manifest senza modifiche tracciate pendenti. Disponibili
+in `.build/04b-bundles/checkpoint-{debug,release}/Signum.app`. Da qui inizia C.
