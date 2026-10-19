@@ -28,21 +28,48 @@ final class FileDropResolution: @unchecked Sendable {
         lock.unlock()
         callback?(result)
     }
-    static func resolve(_ items: [NSItemProvider]) async -> [URL] {
-        guard !items.isEmpty else { return [] }
-        return await withCheckedContinuation { continuation in
-            let result = FileDropResolution(count: items.count) { continuation.resume(returning: $0) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10) { result.finish() }
-            for (index, item) in items.enumerated() {
-                item.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, _ in
-                    let url: URL?
-                    if let file = value as? URL { url = file }
-                    else if let data = value as? Data { url = URL(dataRepresentation: data, relativeTo: nil) }
-                    else { url = nil }
-                    result.receive(index: index, url: url)
+    /// Registers cancellation before starting any provider; a callback may be
+    /// synchronous, duplicated, late, or absent. All converge on finish once.
+    private final class Cancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: FileDropResolution?
+        private var cancelled = false
+        func install(_ result: FileDropResolution) {
+            lock.lock(); self.result = result; let stop = cancelled; lock.unlock()
+            if stop { result.finish() }
+        }
+        func cancel() {
+            lock.lock(); cancelled = true; let current = result; lock.unlock()
+            current?.finish()
+        }
+    }
+    typealias Loader = (@escaping @Sendable (URL?) -> Void) -> Void
+    static func resolve(_ items: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
+        guard timeout.isFinite, timeout > 0 else { return [] }
+        let loaders: [Loader] = items.map { item in { receive in
+            item.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, _ in
+                let url = (value as? URL) ?? (value as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
+                receive(url)
+            }
+        } }
+        return await resolve(loaders: loaders, scheduleTimeout: { finish in
+            DispatchQueue.global().asyncAfter(deadline: .now() + min(30, max(0.01, timeout)), execute: finish)
+        })
+    }
+    static func resolve(loaders: [Loader], scheduleTimeout: (@escaping @Sendable () -> Void) -> Void) async -> [URL] {
+        guard !loaders.isEmpty, loaders.count <= 32, !Task.isCancelled else { return [] }
+        let cancellation = Cancellation()
+        let urls = await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                let result = FileDropResolution(count: loaders.count) { continuation.resume(returning: $0) }
+                cancellation.install(result)
+                scheduleTimeout { result.finish() }
+                for (index, load) in loaders.enumerated() where !Task.isCancelled {
+                    load { result.receive(index: index, url: $0) }
                 }
             }
-        }
+        }, onCancel: { cancellation.cancel() })
+        return Task.isCancelled ? [] : urls
     }
 }
 #endif
