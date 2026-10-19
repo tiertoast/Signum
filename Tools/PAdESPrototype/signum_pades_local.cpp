@@ -1,3 +1,4 @@
+#include "PAdESInput.h"
 #include <cmath>
 #include "process_coordination.h"
 #include "SignumCertificatePolicy.h"
@@ -157,20 +158,6 @@ struct PKCS11 {
 };
 
 // GUI mode reads the PIN only from an anonymous stdin pipe, never argv/env.
-static std::vector<uint8_t> read_stdin_pin() {
-    std::vector<uint8_t> pin;
-    char value = 0;
-    while (::read(STDIN_FILENO, &value, 1) == 1) {
-        if (value == '\n') break;
-        if (value == '\r') continue;
-        if (value == '\0' || pin.size() >= 64)
-            throw std::runtime_error("Invalid PIN input");
-        pin.push_back(static_cast<uint8_t>(value));
-    }
-    if (pin.empty()) throw std::runtime_error("PIN missing");
-    return pin;
-}
-
 // Name is only a visible descriptive label. Use conservative printable ASCII
 // for the standard Helvetica PDF font; never interpret text as PDF operators.
 static std::string read_appearance_name() {
@@ -326,7 +313,7 @@ int main(int argc, char** argv) {
         }
         std::vector<uint8_t> pin;
         if (pinFromPipe) {
-            pin = read_stdin_pin();
+            pin = signum::readPAdESPIN(STDIN_FILENO);
         } else {
             char* userPIN = ::getpass("Token PIN (not echoed): ");
             if (!userPIN || !*userPIN) throw std::runtime_error("PIN missing");

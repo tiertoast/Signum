@@ -53,7 +53,8 @@ import SignumCore
     func canSubmitPIN(_ pin: String, batch: BatchSigningCoordinator) -> Bool {
         !isRequestingApproval && !isSubmittingPIN && batch.isApproved && !batch.isRunning && !batch.isContinuingAuthenticated &&
             !batch.needsOutcomeReview && batch.nextDocument != nil &&
-            !pin.isEmpty && pin.utf8.count <= 64 && !pin.utf8.contains(0)
+            !pin.isEmpty && pin.utf8.count <= 64 && !pin.utf8.contains(0) &&
+            (batch.nextDocument?.format != .pades || PAdESInputContract.validPIN(pin))
     }
 
     /// The field is cleared synchronously, before scheduling any private work.

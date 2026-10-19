@@ -1,3 +1,4 @@
+#include "PAdESInput.h"
 #include "SignumCertificatePolicy.h"
 #include "TransactionalOutput.h"
 #include "process_coordination.h"
@@ -273,6 +274,22 @@ int main(int argc, char** argv) {
             page.GetObject().GetDictionary().AddKey("UserUnit",PdfObject(PdfString("invalid")));
             rejected = false; try { (void)signum::approvedAppearanceUserUnit(page,1); } catch (...) { rejected = true; }
             expect(rejected, "Malformed unit accepted");
+        });
+        test("PAdES line codec preserves accepted bytes and rejects invalid or incomplete frames", [&] {
+            auto decode = [](const std::string& frame) {
+                int fds[2]; expect(pipe(fds) == 0, "Codec pipe");
+                expect(write(fds[1], frame.data(), frame.size()) == static_cast<ssize_t>(frame.size()), "Codec write"); close(fds[1]);
+                try { auto result = signum::readPAdESPIN(fds[0]); close(fds[0]); return result; }
+                catch (...) { close(fds[0]); throw; }
+            };
+            for (const auto& value : {std::string("synthetic"), std::string("é漢字"), std::string(64, 'X')}) {
+                const auto decoded = decode(value + "\n");
+                expect(std::string(decoded.begin(), decoded.end()) == value, "Codec changed accepted bytes");
+            }
+            for (const auto& value : {std::string(), std::string("\n"), std::string("X"), std::string(65, 'X')+"\n", std::string("X\rY\n"), std::string("X\0Y\n", 4)}) {
+                bool rejected = false; try { (void)decode(value); } catch (...) { rejected = true; }
+                expect(rejected, "Invalid/incomplete PIN frame accepted");
+            }
         });
         test("selected certificate fingerprint binding before authentication", [&] {
             unsigned char digest[32]; unsigned int count = 0;

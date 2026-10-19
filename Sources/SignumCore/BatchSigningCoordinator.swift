@@ -268,7 +268,8 @@ public struct BatchApproval: Sendable {
     public func authorizeNext(pin: String, expectedDocumentID: UUID? = nil, execute: @escaping @Sendable (SigningJob, String, SigningOperation) throws -> Void) async throws {
         guard isApproved, !isRunning, !needsOutcomeReview, let next = nextDocument,
               expectedDocumentID == nil || next.id == expectedDocumentID,
-              !isContinuingAuthenticated, !pin.isEmpty, pin.utf8.count <= 64, !pin.utf8.contains(0) else { throw Self.failure("Autorizza il documento corrente con il PIN.") }
+              !isContinuingAuthenticated, !pin.isEmpty, pin.utf8.count <= 64, !pin.utf8.contains(0),
+              next.format != .pades || PAdESInputContract.validPIN(pin) else { throw Self.failure("Autorizza il documento corrente con il PIN.") }
         await executeNext(expectedDocumentID: expectedDocumentID) { job, operation in try execute(job, pin, operation) }
     }
 

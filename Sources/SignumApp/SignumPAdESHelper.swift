@@ -27,6 +27,7 @@ enum SignumPAdESHelper {
                      executable: URL? = nil, timeout: TimeInterval = 120, appearance: RenderedPAdESAppearance? = nil) throws {
         defer { job.snapshot.close() }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
+        guard PAdESInputContract.validPIN(pin) else { throw SignumError.module("PIN non rappresentabile nel trasporto PAdES.") }
         if let frozen = job.padesAppearance, let appearance, frozen.approvalIdentity != appearance.approvalIdentity {
             throw SignumError.module("Appearance differente da quella approvata nel job.")
         }
@@ -48,9 +49,6 @@ enum SignumPAdESHelper {
         }
         guard !FileManager.default.fileExists(atPath: output.path) else {
             throw SignumError.module("File PDF di destinazione già esistente.")
-        }
-        guard !pin.isEmpty, pin.utf8.count <= 64 else {
-            throw SignumError.module("PIN mancante o troppo lungo.")
         }
 
         var args = [
@@ -88,8 +86,7 @@ enum SignumPAdESHelper {
 
         // Supply exactly one line to the helper. This avoids getpass() in GUI
         // contexts and avoids leaking credentials through command arguments.
-        var secret = Data(pin.utf8)
-        secret.append(0x0A)
+        var secret = try PAdESInputContract.pinLine(pin)
         if field != nil, let appearance {
             guard !appearance.pdf.isEmpty else { throw SignumError.module("Appearance mancante.") }
             secret.append(contentsOf:(0..<4).reversed().map { UInt8((UInt32(appearance.pdf.count) >> ($0*8)) & 255) })
