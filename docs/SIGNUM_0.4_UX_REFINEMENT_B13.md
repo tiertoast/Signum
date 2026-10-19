@@ -70,7 +70,7 @@ Regressioni finali sul codice di questa porzione:
 | ASAN Swift mirato | **38/38** |
 | TSAN Swift mirato | **38/38** |
 
-Zero skip/fallimenti nei run finali; nessun risultato storico B12 riutilizzato. Log in .build/04stabilization-b13/evidence: final-swift.log, final-asan.log, final-tsan.log, pkcs11.log, pades-debug.log, pades-release.log e packaging-tests.log.
+Zero skip/fallimenti nei run finali; nessun risultato storico B12 riutilizzato. Log in .build/04stabilization-b13/evidence: final-swift.log, final-asan.log, final-tsan.log, pkcs11.log, pades-debug.log, pades-release.log e final-packaging-tests.log (rieseguito anche dopo il solo cambio versione).
 
 Le 22 nuove regressioni Swift comprendono 300 combinazioni geometriche (5 formati × 4 rotazioni × 3 UserUnit × 5 orientamenti), 12 confronti pixel nativi a posizione iniziale indipendente, equivalenza pixel della tipografia fisica, piccoli crop/fallback/errori, draft/zoom/drag/ripristino, errori di rendering e vincolo UserUnit del job. Le 16 nuove firme software (4 rotazioni × UserUnit 1/2/0,5/0,1, anche tavole complesse) controllano AP/N, Rect/BBox, Rotate/UserUnit, integrità con motore unificato, ByteRange/CMS con OpenSSL indipendente, originale invariato, margini e direzione asimmetrica con Poppler. Si aggiungono le 20 firme orientate B12 rieseguite nella suite completa e le regressioni CAdES/invisibili esistenti.
 
@@ -78,7 +78,9 @@ Test native GUI: timbro testuale effettivamente dipinto senza clic e senza DER, 
 
 Le prove discovery includono copertura configurata incompleta, errori/slot oscuri, unicità indipendente da ordine, duplicati/route distinte, refresh/removal/reinsert/slot/DER, manualità conservata e autoselezione invalidata, risposte obsolete e duplicate, immutabilità approvata e revoca del preflight. Audit del provider mock verifica zero Login e zero Sign nel discovery/autoselezione/rivalidazione pubblica.
 
-Versione avanzata a **0.4.0/build 13 soltanto dopo** questi run. Bundle nuovi ancora da confezionare e verificare nelle destinazioni final-debug/final-release sotto .build/04stabilization-b13; i risultati saranno registrati nella consegna finale.
+Versione avanzata a **0.4.0/build 13 soltanto dopo** questi run. Build Debug/Release e confezionamento locale completati nelle nuove directory, senza sovrascrivere bundle precedenti. Firma ad hoc deep/strict valida, architettura arm64, minimo dichiarato e misurato nei Mach-O 13.0, closure dipendenze interna/di sistema, notices e hash annidati verificati. La ricetta ha rieseguito i 65 casi nativi per configurazione, con helper impacchettato e sulla copia rilocata; avvio CLI/worker/helper e discovery pubblico esclusivamente mock riusciti. Nessun lancio automatico della GUI con discovery hardware. Log bundle-debug.log e bundle-release.log.
+
+Le integrazioni Swift con gli helper effettivamente inclusi sono **72/72 Debug e 72/72 Release**, zero skip/fallimenti, registrate in bundle-debug-integration.log e bundle-release-integration.log. I 72 includono i nuovi 22 metodi e le precedenti 50 integrazioni (batch, AP, formati, verifica e orientamento).
 
 ## File coinvolti
 
@@ -93,6 +95,34 @@ Il default non individua spazio bianco nella tavola: può coprire contenuto e va
 Commit locali implementazione:
 - 220c59b — UX-01, geometria/default visibile, conservazione draft, UserUnit nel renderer/job/helper e regressioni.
 - 0336d0b — UX-02, scan completo, provenienza auto/manuale, rivalidazione pubblica e regressioni di consenso.
-- Successivo commit versione/documentazione — fonte pulita dei bundle 13; identificativo e hash saranno registrati dopo le build.
+- **a6247ab8a04e37b58ccb36371404c5a236ea8d0c** — versione/documentazione dopo le regressioni, fonte dei bundle 13 con sourceTrackedDirty=false.
+- Successivo commit solo documentale — risultati finali e consegna; nessuna modifica al codice dei bundle.
 
 Nessuna distribuzione pubblica.
+
+### Sequenza di collaudo manuale successivo (non eseguito)
+
+1. Aprire soltanto il nuovo bundle Release e controllare 0.4.0/build 13. Con una sola route di firma localmente idonea verificare la selezione prima di scegliere documenti e l’assenza di richieste PIN; con più route verificare la scelta manuale. La sola presenza di un certificato di autenticazione non deve produrre selezione.
+2. Caricare un PDF anche senza certificato. In PAdES il timbro deve apparire subito nell’angolo superiore destro, senza switch, con il messaggio provvisorio se manca il DER. Sulla tavola reale controllare Automatico e gli orientamenti manuali, quindi zoom/scroll, drag e Option-resize.
+3. Chiudere e riaprire l’anteprima, alternare documenti/pagine e controllare il mantenimento della configurazione. PAdES→CAdES→PAdES deve eliminare la vecchia appearance e ricominciare dai default, come già concordato. Se il certificato arriva/cambia dopo la chiusura, riaprire e attendere l’anteprima aggiornata prima del consenso.
+4. Durante una ricerca non deve essere possibile usare il vecchio riepilogo. Rimuovere/reinserire un dispositivo e cercare nuovamente: nessun vecchio binding/consenso deve sopravvivere. Una route manuale valida può essere conservata; una auto con nuove alternative richiede una scelta.
+5. Eventuali firme con DigitalDNA/CNS e PIN reali richiedono una sessione successiva espressamente autorizzata. Verificare separatamente su macOS 13/14 prima di dichiarare compatibilità runtime collaudata. Nessuna di queste prove hardware è stata automatizzata qui.
+
+
+## Bundle di consegna
+
+Fonte: **a6247ab8a04e37b58ccb36371404c5a236ea8d0c**, 0.4.0/build 13, sourceTrackedDirty=false in entrambi i manifest.
+
+| Bundle | Eseguibile principale SHA-256 |
+|---|---|
+| .build/04stabilization-b13/final-release/Signum.app | c7b3a55d06b4508fff0728f020f882987519b64e50cd94e438ccd54f88391cbf |
+| .build/04stabilization-b13/final-debug/Signum.app | 0420685a45ea9cdd91a40d0639014399ff7189be653586fb0ee33e8055ba5044 |
+
+Firma ad hoc per uso locale, senza Developer ID/notarizzazione/distribuzione. Dettagli riproducibili, hash manifest e quattro codici annidati in evidence/final-bundles.json. Controllo conclusivo dopo entrambe le integrazioni: tutti i **57 file e 6 ref protetti invariati**; eseguibili/manifest/codice annidato dei nuovi bundle invariati e codesign strict nuovamente valido. Evidenza in final-verification.json.
+
+
+## Stato finale
+
+UX-01 e UX-02 implementate e verificate nel perimetro documentato. Nessuna regressione nelle suite finali. A invio di 30/120 eventi a 60 Hz, il pannello reale mantiene **zero render, zero costruzioni artwork e zero rasterizzazioni durante il drag**, con readiness solo dopo il rilascio. Nel run completo normale mediana evento→binding circa 2,5–3,3 ms e p95 circa 3,5–3,8 ms, senza promessa di frame rate o stima del consumo dell’app basata sull’RSS del processo di test.
+
+Working tree tracciato pulito dopo il commit documentale finale; restano esclusivamente i due documenti preesistenti non tracciati, con hash originali. Branch locale codex/signum-0.4-ux-refinement-b13. Nessuna modifica a main, PR #3, altre build o altri repository. Nessun push/merge/tag/release/Actions, hardware/PIN reale o documento personale. Fermo prima del collaudo hardware. I limiti sulla disponibilità della chiave privata, hotplug, fiducia/revoca e runtime 13/14 restano quelli esplicitati sopra.
