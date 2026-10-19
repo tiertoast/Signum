@@ -75,7 +75,7 @@ struct PAdESPlacementPane: View {
                 if rendering { ProgressView("Preparazione appearance…").controlSize(.small) }
                 if !issue.isEmpty { Label(issue, systemImage:"exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled) }
                 else if !rendering, let rendered {
-                    Text(rendered.configuration.visible ? (annotationReady ? "Anteprima pronta" : "Preparazione annotazione…") : "Firma invisibile: nessun timbro previsto.")
+                    Text(rendered.configuration.visible ? (annotationReady ? "Anteprima pronta" : "Preparazione anteprima…") : "Firma invisibile: nessun timbro previsto.")
                         .font(.caption)
                 }
                 if let pdfDocument {
@@ -187,6 +187,7 @@ final class AppearancePDFAnnotation: PDFAnnotation {
     override func draw(with box:PDFDisplayBox,in context:CGContext) {
         guard let page=artwork.page(at:1) else { return }
         context.saveGState()
+        // Offline thumbnail reference only; the live viewport uses SignaturePlacementOverlay.
         // PDFKit's annotation draw callback receives box drawing coordinates.
         // Match its native /AP renderer, including nonzero origin and /Rotate.
         if let original=self.page?.pageRef {
@@ -216,17 +217,25 @@ private struct AppearancePDFView:NSViewRepresentable {
         v.onInteraction = interaction
         v.onChoose = { p,point in choose(document.index(for:p),point,false) }
         v.onResize = { p,point in choose(document.index(for:p),point,true) }
-        let error = v.updateAppearance(appearance)
-        if let identity = appearance?.approvalIdentity {
+        v.signatureOverlay.displayed = { identity, error in
             let result = identity + "|" + (error ?? "ready")
             if context.coordinator.reported != result {
                 context.coordinator.reported = result
                 DispatchQueue.main.async { displayed(identity,error) }
             }
         }
+        v.updatePlacementOverlay(appearance)
     }
 }
 final class PlacementPDFView: PDFView {
+    let signatureOverlay = SignaturePlacementOverlay()
+    @discardableResult func updatePlacementOverlay(_ value: RenderedPAdESAppearance?) -> String? {
+        if signatureOverlay.superview == nil {
+            signatureOverlay.viewer = self
+            addSubview(signatureOverlay, positioned:.above, relativeTo:nil)
+        }
+        return signatureOverlay.update(value)
+    }
     var previewAnnotation: PDFAnnotation?
     var currentPreviewPlacement: PAdESPlacement?
     private var currentPreviewName: String?
@@ -237,6 +246,7 @@ final class PlacementPDFView: PDFView {
     func install(document:PDFDocument,pageIndex:Int) {
         let changed = self.document !== document
         if changed {
+            signatureOverlay.clear()
             displayMode = .singlePage; displayBox = .cropBox
             self.document = document; renderedIdentity = nil
             needsPageFit = true
@@ -248,6 +258,7 @@ final class PlacementPDFView: PDFView {
     }
     override func layout() {
         super.layout()
+        defer { signatureOverlay.updateGeometry() }
         guard needsPageFit, document != nil, bounds.width > 0, bounds.height > 0 else { return }
         let fit = scaleFactorForSizeToFit
         guard fit.isFinite, fit > 0 else { return }

@@ -94,7 +94,9 @@ import ImageIO
         let view = try XCTUnwrap(descendants(host).compactMap { $0 as? PlacementPDFView }.first)
         XCTAssertLessThanOrEqual(view.minScaleFactor, view.scaleFactorForSizeToFit)
         XCTAssertEqual(view.scaleFactor, view.scaleFactorForSizeToFit, accuracy: 0.01)
-        XCTAssertNotNil(view.previewAnnotation)
+        XCTAssertNotNil(view.signatureOverlay.approvedAppearance)
+        XCTAssertTrue(view.signatureOverlay.artworkView.hasPainted)
+        XCTAssertNil(view.previewAnnotation, "Live preview must not depend on a PDFKit annotation")
     }
     func testAnnotationConstructionFailureIsExplicitAndNotReportedAsReady() throws {
         let view = PlacementPDFView()

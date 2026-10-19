@@ -36,3 +36,13 @@ Prototipo isolato riproducibile in Tools/PlacementPrototype/: due PDFView native
 - Riferimento finale già rieseguito: PAdESStabilizationSigningTests **1/1**, quattro rotazioni, AP/Rect, integrità crittografica, confronto indipendente Poppler e originale sintetico invariato. La geometria dell’overlay deriva dalle conversioni PDFKit degli stessi tre punti del rettangolo grezzo usato da questi job.
 
 **Decisione:** gate soddisfatto per procedere all’overlay live. Conservare il renderer esistente e il binding immutabile; sostituire soltanto la presentazione nel viewport. I dati di prova/catture rimangono ignorati in .build/04stabilization-b11/. La registrazione video non è stata esaminata. L’esito sul prototipo non equivale ancora alla consegna di P1 nell’app.
+
+## M5 — Overlay live
+
+Introdotta SignaturePlacementOverlay, NSView trasparente e non intercettante sopra il viewport, ritagliata all’area di scorrimento. Il rettangolo del job resta in coordinate PDF grezze: tre conversioni PDFKit determinano la trasformazione dell’artwork, comprese rotazioni/box/origini/UserUnit. Zoom, scroll, layout e cambio pagina aggiornano solo la geometria. Nessun parser o renderer del documento aggiuntivo; nessuna annotazione temporanea nel PDF live. L’annotazione legacy rimane esclusivamente per confronti offline e regressioni preesistenti.
+
+Lo stesso PDF artwork è conservato e presentato tramite una cache dei suoi soli pixel (dimensione massima 4096 per asse). La prova iniziale ha mostrato che AppKit può ridisegnare una NSView anche per cambi di origine: il solo backing layer non bastava (201 disegni su 200 spostamenti). Aggiunta quindi cache esplicita CGImage; ora 200 spostamenti non richiamano drawPDFPage né decodificano PNG/JPEG. Zoom/resize invalidano la piccola cache, mai l’intera tavola. Bordo di selezione separato dal contenuto firmato.
+
+Readiness visibile solo dopo il disegno effettivo; callback differiti e vincolati all’identità corrente, consenso invalido durante il gesto come prima. Errori artwork espliciti, cancellazione/documento sostituito eliminano le risorse precedenti. Firma invisibile non richiede disegno.
+
+**8/8 test** pertinenti, zero skip/fallimenti: hosting GUI e cambio formato, precedenti prove offline, pixel della NSView overlay e rettangoli live per A1/A0/>A0/geometria equivalente alla tavola, quattro rotazioni, origini/box traslati, UserUnit, zoom 25/100/200, riuso della cache su 200 movimenti, notifiche scroll, errori/invisibile/reset. La prova precedente fallita è conservata nei log. Avviso PDFKit durante teardown di documenti sintetici, senza assert falliti; nessun errore ignorato di approvazione.
