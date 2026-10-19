@@ -20,6 +20,16 @@ static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static MockStats stats;
 static CK_RV faults[M_COUNT];
 static unsigned delay_us;
+static int sign_length_override, der_length_override, der_query_override;
+static CK_ULONG sign_returned_length, der_returned_length, der_query_length;
+// Scalar-only fault injection: never reads/writes beyond the provided buffer.
+void mock_return_length(int operation, unsigned long length) {
+    pthread_mutex_lock(&mutex);
+    if (operation == M_SIGN) { sign_length_override = 1; sign_returned_length = length; }
+    if (operation == M_ATTRIBUTE) { der_length_override = 1; der_returned_length = length; }
+    if (operation == -M_ATTRIBUTE) { der_query_override = 1; der_query_length = length; }
+    pthread_mutex_unlock(&mutex);
+}
 static unsigned char certificate_bytes[65536], replacement_bytes[65536];
 static size_t certificate_length, replacement_length;
 static unsigned certificate_reads, replace_after;
@@ -236,7 +246,8 @@ static CK_RV attribute(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE obj, CK_ATTRIBUTE_P
             if (attrs[i].ulValueLen < n) { attrs[i].ulValueLen = n; return end(CKR_BUFFER_TOO_SMALL); }
             memcpy(attrs[i].pValue, value, n);
         }
-        attrs[i].ulValueLen = n;
+        attrs[i].ulValueLen = attrs[i].type == CKA_VALUE && attrs[i].pValue && der_length_override ? der_returned_length :
+            (attrs[i].type == CKA_VALUE && !attrs[i].pValue && der_query_override ? der_query_length : n);
     }
     return end(CKR_OK);
 }
@@ -274,7 +285,7 @@ static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PT
     return end(rv);
 #endif
     if (*length < 32) return end(CKR_BUFFER_TOO_SMALL);
-    memset(signature, 0x53, 32); *length = 32; return end(CKR_OK);
+    memset(signature, 0x53, 32); *length = sign_length_override ? sign_returned_length : 32; return end(CKR_OK);
 }
 static CK_FUNCTION_LIST functions = {
     .version = {2,40}, .C_Initialize = initialize, .C_Finalize = finalize,

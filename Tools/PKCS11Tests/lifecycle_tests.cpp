@@ -1,6 +1,7 @@
 #include "SignumPKCS11.h"
 #include "mock_provider.h"
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -20,7 +21,7 @@ extern char** environ;
 namespace fs = std::filesystem;
 static int passed;
 static void require(bool value, const std::string& why) { if (!value) throw std::runtime_error(why); }
-static void test(const char* name, const std::function<void()>& body) { body(); ++passed; std::cout << "PASS " << name << '\n'; }
+static void test(const std::string& name, const std::function<void()>& body) { body(); ++passed; std::cout << "PASS " << name << '\n'; }
 using Context = std::unique_ptr<SGContext, decltype(&sg_close)>;
 struct Provider {
     fs::path folder, path;
@@ -56,17 +57,17 @@ struct Provider {
         require(sg_open(path.c_str(), &ctx, message, sizeof(message)) != 0 && !ctx, "Unsafe provider reopen accepted"); return message;
     }
 };
-struct SignatureResult { int status; size_t length; std::string error; };
+struct SignatureResult { int status; size_t length; std::string error; bool cleared, sentinel; };
 static SignatureResult sign(SGContext* ctx, bool encoded = false) {
     const uint8_t id = 0x53, credential = 0xA5, message[] = {0x53,0x47}; // placeholders, never a real PIN/document
-    uint8_t signature[8192]; std::memset(signature, 0xFF, sizeof(signature));
+    uint8_t signature[8193]; std::memset(signature, 0xFF, sizeof(signature));
     size_t length = 123; char error[512]{};
     int status;
     if (encoded) {
         uint8_t info[51] = {0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20};
-        status = sg_sign_encoded_digest(ctx, 7, &id, 1, &credential, 1, info, sizeof(info), signature, sizeof(signature), &length, error, sizeof(error));
-    } else status = sg_sign_test(ctx, 7, &id, 1, &credential, 1, message, sizeof(message), signature, sizeof(signature), &length, error, sizeof(error));
-    return {status, length, error};
+        status = sg_sign_encoded_digest(ctx, 7, &id, 1, &credential, 1, info, sizeof(info), signature, sizeof(signature)-1, &length, error, sizeof(error));
+    } else status = sg_sign_test(ctx, 7, &id, 1, &credential, 1, message, sizeof(message), signature, sizeof(signature)-1, &length, error, sizeof(error));
+    return {status, length, error, std::all_of(signature, signature+8192, [](uint8_t b) { return b == 0; }), signature[8192] == 0xFF};
 }
 static void tokens(SGContext* ctx) {
     SGToken rows[8]; size_t count = 0, missing = 0; char error[512]{};
@@ -261,6 +262,33 @@ int main(int argc, char** argv) {
             else { SGCertificate certificate[2]; rv = sg_certificates(a.get(), 7, certificate, 2, &count, error, sizeof(error)); }
             require(rv != 0 && std::strstr(error, "C_CloseSession"), "Read cleanup failure lost");
         });
+        for (bool encoded : {false, true}) for (CK_ULONG returned : {8193UL, 0UL, 32UL, 8192UL, CK_UNAVAILABLE_INFORMATION})
+            test("one-shot signature returned length " + std::to_string(returned), [&] {
+                Provider p(module); auto ctx = p.open();
+                p.symbol<void(*)(int, unsigned long)>("mock_return_length")(M_SIGN, returned);
+                auto result = sign(ctx.get(), encoded);
+                const bool valid = returned > 0 && returned <= 8192;
+                require((result.status == 0) == valid && result.length == (valid ? returned : 0), "Inconsistent signature length accepted");
+                require(result.sentinel && (valid || result.cleared), "Buffer boundary/error clearing failed");
+            });
+        for (CK_ULONG returned : {0UL, 5UL, 16UL, 17UL, CK_UNAVAILABLE_INFORMATION})
+            test("certificate DER returned length " + std::to_string(returned), [&] {
+                Provider p(module); auto ctx = p.open();
+                p.symbol<void(*)(int, unsigned long)>("mock_return_length")(M_ATTRIBUTE, returned);
+                const uint8_t id = 0x53; uint8_t buffer[17]; memset(buffer, 0xAA, sizeof(buffer));
+                size_t length = 123; char error[512]{};
+                auto status = sg_certificate_der(ctx.get(), 7, &id, 1, buffer, 16, &length, error, sizeof(error));
+                const bool valid = returned > 0 && returned <= 16;
+                require((status == 0) == valid && length == (valid ? returned : 0), "Inconsistent DER length accepted");
+                require(buffer[16] == 0xAA && (valid || std::all_of(buffer, buffer+16, [](uint8_t b) {return b == 0;})), "DER boundary/error clearing failed");
+            });
+        for (CK_ULONG returned : {0UL, 65537UL, CK_UNAVAILABLE_INFORMATION})
+            test("invalid DER query length " + std::to_string(returned), [&] {
+                Provider p(module); auto ctx = p.open();
+                p.symbol<void(*)(int, unsigned long)>("mock_return_length")(-M_ATTRIBUTE, returned);
+                const uint8_t id = 0x53; size_t length = 123; char error[512]{};
+                require(sg_certificate_der(ctx.get(), 7, &id, 1, nullptr, 0, &length, error, sizeof(error)) != 0 && length == 0, "Invalid DER query accepted");
+            });
         std::cout << passed << " provider cases passed; synthetic credentials only, no physical token\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL after " << passed << ": " << error.what() << '\n'; return 1; }

@@ -16,6 +16,7 @@ typedef struct {
 } MockStats;
 void mock_certificate_der(const unsigned char *bytes, size_t length);
 void mock_replace_certificate(const unsigned char *bytes, size_t length, unsigned after_reads);
+void mock_return_length(int operation, unsigned long length);
 void mock_stats(MockStats *stats);
 unsigned mock_call_count(int operation);
 unsigned mock_finalize_on_main(void);

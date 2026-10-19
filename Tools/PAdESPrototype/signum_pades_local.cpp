@@ -135,6 +135,7 @@ struct PKCS11 {
                                reinterpret_cast<uint8_t*>(der.data()), der.size(),
                                &n, error.data(), error.size()) != 0)
             throw std::runtime_error("Certificate DER: " + std::string(error.data()));
+        if (!n || n > der.size()) throw std::runtime_error("Invalid returned DER length");
         der.resize(n);
         return der;
     }
@@ -151,6 +152,7 @@ struct PKCS11 {
                                    signature.data(), signature.size(), &length,
                                    error.data(), error.size()) != 0)
             throw std::runtime_error("PKCS#11 signing: " + std::string(error.data()));
+        if (!length || length > signature.size()) throw std::runtime_error("Invalid returned signature length");
         signedHash.assign(reinterpret_cast<const char*>(signature.data()),
                           reinterpret_cast<const char*>(signature.data() + length));
         std::fill(signature.begin(), signature.end(), 0);

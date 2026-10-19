@@ -408,7 +408,7 @@ static int sg_certificate_der_impl(SGContext *ctx, unsigned long slot, const uin
         CK_ATTRIBUTE attr = {CKA_VALUE, NULL, 0};
         CK_RV rv = ctx->api->C_GetAttributeValue(session, object, &attr, 1);
         if (rv == CKR_USER_NOT_LOGGED_IN) return close_session(ctx, session, failed(error, error_size, "C_GetAttributeValue DER", rv), error, error_size);
-        if (rv != CKR_OK || attr.ulValueLen == CK_UNAVAILABLE_INFORMATION || attr.ulValueLen > 65536) {
+        if (rv != CKR_OK || !attr.ulValueLen || attr.ulValueLen == CK_UNAVAILABLE_INFORMATION || attr.ulValueLen > 65536) {
             status = invalid(error, error_size, "Cannot obtain X.509 DER size");
         } else {
             *length = attr.ulValueLen;
@@ -419,12 +419,16 @@ static int sg_certificate_der_impl(SGContext *ctx, unsigned long slot, const uin
                     attr.ulValueLen = capacity;
                     rv = ctx->api->C_GetAttributeValue(session, object, &attr, 1);
                     if (rv != CKR_OK) status = failed(error, error_size, "C_GetAttributeValue DER", rv);
+                    else if (!attr.ulValueLen || attr.ulValueLen > capacity || attr.ulValueLen > 65536)
+                        status = invalid(error, error_size, "Invalid returned DER length");
                     else *length = attr.ulValueLen;
                 }
             }
         }
     }
-    return close_session(ctx, session, status, error, error_size);
+    status = close_session(ctx, session, status, error, error_size);
+    if (status) { *length = 0; if (out && capacity) memset(out, 0, capacity); }
+    return status;
 }
 
 static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *id,
@@ -451,7 +455,9 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
                 CK_BBOOL always_auth = CK_FALSE;
                 CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
                 CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
-                if (arv == CKR_OK && always_auth == CK_TRUE) {
+                if (arv == CKR_OK && (auth.ulValueLen != sizeof(always_auth) || (always_auth != CK_TRUE && always_auth != CK_FALSE))) {
+                    status = invalid(error, error_size, "Invalid authentication attribute");
+                } else if (arv == CKR_OK && always_auth == CK_TRUE) {
                     rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
                     if (rv != CKR_OK) status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv);
                 } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID && arv != CKR_ATTRIBUTE_SENSITIVE) {
@@ -460,7 +466,8 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
                 if (!status) {
                     CK_ULONG n = signature_capacity;
                     rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)message, message_length, signature, &n);
-                    if (rv == CKR_OK) *signature_length = n;
+                    if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
+                    else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
                     else status = failed(error, error_size, "C_Sign", rv);
                 }
             }
@@ -509,7 +516,9 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                 CK_BBOOL always_auth = CK_FALSE;
                 CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
                 CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
-                if (arv == CKR_OK && always_auth == CK_TRUE) {
+                if (arv == CKR_OK && (auth.ulValueLen != sizeof(always_auth) || (always_auth != CK_TRUE && always_auth != CK_FALSE))) {
+                    status = invalid(error, error_size, "Invalid authentication attribute");
+                } else if (arv == CKR_OK && always_auth == CK_TRUE) {
                     rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC,
                                            (CK_UTF8CHAR_PTR)pin, pin_length);
                     if (rv != CKR_OK) status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv);
@@ -521,7 +530,8 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                     CK_ULONG n = signature_capacity;
                     rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)digestinfo,
                                           digestinfo_length, signature, &n);
-                    if (rv == CKR_OK) *signature_length = n;
+                    if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
+                    else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
                     else status = failed(error, error_size, "C_Sign", rv);
                 }
             }
@@ -700,7 +710,7 @@ static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t p
         if (!status) {
             CK_ULONG count = capacity;
             rv = s->ctx->api->C_Sign(s->handle, (CK_BYTE_PTR)message, message_length, signature, &count);
-            if (rv != CKR_OK || count > capacity) status = failed(error, size, "Batch C_Sign (no retry)", rv == CKR_OK ? CKR_GENERAL_ERROR : rv);
+            if (rv != CKR_OK || !count || count > capacity) status = failed(error, size, "Batch C_Sign (no retry)", rv == CKR_OK ? CKR_GENERAL_ERROR : rv);
             else *length = count;
         }
         if (first) s->reusable = known && (auth == CK_FALSE || s->temporary_pin) && s->ctx->provider->owns_initialization;
