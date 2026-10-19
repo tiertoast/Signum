@@ -29,6 +29,15 @@ final class PAdESSourcePreflightTests: XCTestCase {
             }
         }
     }
+    func testPreflightDoesNotIntroduceAnArbitraryPageLimitFromThePreviewReader() throws {
+        try fixture { root,helper in
+            let file = root.appendingPathComponent("many-pages.pdf")
+            try PAdESAppearanceTests().pdf(pages:1001).write(to:file)
+            let snapshot = try DocumentSnapshot.capture(source:file,format:.pades,privateRoot:root)
+            defer { snapshot.close() }
+            try PAdESSourcePreflight.inspect(snapshot,helper:helper).requireAccepted(for:snapshot)
+        }
+    }
     func testTypedRejectionAndCancellationWithoutOutput() throws {
         try fixture { root, helper in
             let file = root.appendingPathComponent("malformed.pdf")

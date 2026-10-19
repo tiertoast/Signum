@@ -346,7 +346,7 @@ void requireSupportedSource(const Bytes& source) {
     require(source.size() >= 5 && std::memcmp(source.data(), "%PDF-", 5) == 0, "Input is not a PDF");
     Document original(source);
     const auto count = CGPDFDocumentGetNumberOfPages(original.value);
-    require(count > 0 && count <= 1000, "Unsupported PDF page count");
+    require(count > 0, "Unsupported PDF page count");
     // Certification needs a separate DocMDP/FieldMDP policy. Even a malformed
     // Perms entry cannot be interpreted as permission to add a signature.
     CGPDFObjectRef permissions = nullptr;
