@@ -10,6 +10,10 @@ public struct PAdESAppearanceConfiguration: Equatable, Sendable {
     public enum Alignment: String, CaseIterable, Sendable { case leading, center, trailing }
     public var visible = true
     public var pageIndex = 0
+    /// Nil retains the raw-unit contract of legacy Core/API callers. The GUI
+    /// freezes the actual snapshot value and SigningJob checks it before consent.
+    public var userUnit: CGFloat? = nil
+    public var effectiveUserUnit: CGFloat { userUnit ?? 1 }
     public var orientation: PAdESAppearanceOrientation = .automatic
     public var rectangle = CGRect(x: 30, y: 30, width: 240, height: 90)
     public var showSigner = true
@@ -29,8 +33,9 @@ public struct PAdESAppearanceConfiguration: Equatable, Sendable {
         return a == b
     }
     public func validate(cropBox: CGRect, pageRotation: Int = 0) throws {
-        let r = rectangle, size = try contentSize(pageRotation:pageRotation)
-        guard pageIndex >= 0, !visible || ([r.minX,r.minY,r.width,r.height,cropBox.minX,cropBox.minY,cropBox.width,cropBox.height].allSatisfy(\.isFinite) &&
+        let r = rectangle, raw = try contentSize(pageRotation:pageRotation)
+        let unit = effectiveUserUnit, size = CGSize(width:raw.width*unit,height:raw.height*unit)
+        guard unit.isFinite, unit > 0, unit <= 75000, pageIndex >= 0, !visible || ([r.minX,r.minY,r.width,r.height,cropBox.minX,cropBox.minY,cropBox.width,cropBox.height].allSatisfy(\.isFinite) &&
             size.width >= 80 && size.height >= 40 && size.width <= 800 && size.height <= 500 && cropBox.contains(r)),
             (7...18).contains(fontSize), fontSize.isFinite, customText.utf8.count <= 1024,
             !customText.unicodeScalars.contains(where: { $0.value < 32 && $0.value != 10 }),
@@ -135,7 +140,7 @@ public struct RenderedPAdESAppearance: Equatable, Sendable {
         let c=configuration,r=c.rectangle
         let resolved=try? c.orientation.resolve(pageRotation:pageRotation ?? 0)
         self.resolvedOrientation=resolved
-        approvalIdentity=DocumentSnapshot.digest(Data("\(c.visible)|\(c.pageIndex)|\(r.minX)|\(r.minY)|\(r.width)|\(r.height)|\(c.orientation.rawValue)|\(pageRotation.map(String.init) ?? "legacy")|\(resolved?.artworkCounterclockwiseDegrees ?? -1)|\(sha256)|\(certificateSHA256)".utf8))
+        approvalIdentity=DocumentSnapshot.digest(Data("\(c.visible)|\(c.pageIndex)|\(r.minX)|\(r.minY)|\(r.width)|\(r.height)|\(c.userUnit.map { String(Double($0)) } ?? "legacy-unit")|\(c.orientation.rawValue)|\(pageRotation.map(String.init) ?? "legacy")|\(resolved?.artworkCounterclockwiseDegrees ?? -1)|\(sha256)|\(certificateSHA256)".utf8))
     }
     init(rendering configuration:PAdESAppearanceConfiguration,uprightPDF:Data,certificateSHA256:String,pageRotation:Int?) throws {
         let rotation=try configuration.orientation.resolve(pageRotation:pageRotation ?? 0)
@@ -215,6 +220,8 @@ public enum PAdESAppearanceRenderer {
         let output = NSMutableData()
         guard let sink = CGDataConsumer(data: output as CFMutableData), let context = CGContext(consumer:sink, mediaBox:&box, nil) else { throw SignumError.module("Rendering appearance non disponibile.") }
         context.beginPDFPage(nil)
+        context.scaleBy(x:1/configuration.effectiveUserUnit,y:1/configuration.effectiveUserUnit)
+        box.size = CGSize(width:box.width*configuration.effectiveUserUnit,height:box.height*configuration.effectiveUserUnit)
         context.setFillColor(CGColor(gray:1,alpha:1)); context.fill(box)
         context.setStrokeColor(CGColor(gray:0.45,alpha:1)); context.setLineWidth(0.7); context.stroke(box.insetBy(dx:0.5,dy:0.5))
         var textBox = box.insetBy(dx:7,dy:7)

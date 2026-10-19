@@ -248,6 +248,7 @@ int main(int argc, char** argv) {
     const auto expectedDocument = option("--expected-document-sha256");
     const auto snapshotID = option("--snapshot-id");
     const auto jobID = option("--job-id");
+    const auto appearanceUserUnit = option("--appearance-user-unit");
     auto uuid = [](const std::string& text) {
         if (text.size() != 36) return false;
         for (size_t i = 0; i < text.size(); ++i) {
@@ -279,7 +280,7 @@ int main(int argc, char** argv) {
     const bool pinFromPipe = afterAppearance > 1 &&
         std::strcmp(argv[afterAppearance - 1], "--pin-stdin") == 0;
     const int positionalCount = afterAppearance - (pinFromPipe ? 1 : 0);
-    if ((positionalCount != 6 && positionalCount != 11) ||
+    if ((!appearanceUserUnit.empty() && !pdfAppearanceFromPipe) || (positionalCount != 6 && positionalCount != 11) ||
         ((appearanceFromPipe || pdfAppearanceFromPipe) && (!pinFromPipe || positionalCount != 11))) {
         std::cerr << "Usage: signum-pades-local INPUT.pdf OUTPUT.pdf MODULE SLOT CERT_ID_HEX"
                   << " [PAGE_ZERO_BASED X Y WIDTH HEIGHT] [--pin-stdin] [--appearance-stdin]\n";
@@ -355,7 +356,8 @@ int main(int argc, char** argv) {
                 const double y = std::stod(argv[8]);
                 const double width = std::stod(argv[9]);
                 const double height = std::stod(argv[10]);
-                if (!(width > 0.0 && height > 0.0 && width < 1000.0 && height < 1000.0))
+                if (!(width > 0.0 && height > 0.0 && std::isfinite(width) && std::isfinite(height) &&
+                    (!appearanceUserUnit.empty() || (width < 1000.0 && height < 1000.0))))
                     throw std::runtime_error("Invalid signature rectangle");
                 rectangle = Rect(x, y, width, height);
             }
@@ -367,8 +369,16 @@ int main(int argc, char** argv) {
                 auto media = page.GetRectRaw().GetNormalized();
                 const double left = std::max(crop.X,media.X), bottom = std::max(crop.Y,media.Y);
                 const double right = std::min(crop.X+crop.Width,media.X+media.Width), top = std::min(crop.Y+crop.Height,media.Y+media.Height);
+                bool validSize = rectangle.Width >= 80 && rectangle.Width <= 800 && rectangle.Height >= 40 && rectangle.Height <= 500;
+                if (!appearanceUserUnit.empty()) {
+                    size_t consumed = 0;
+                    const double expected = std::stod(appearanceUserUnit, &consumed);
+                    if (consumed != appearanceUserUnit.size()) throw std::runtime_error("Invalid appearance UserUnit");
+                    const double unit = signum::approvedAppearanceUserUnit(page, expected);
+                    validSize = signum::physicalAppearanceSize(rectangle.Width, rectangle.Height, unit);
+                }
                 if (!std::isfinite(rectangle.X) || !std::isfinite(rectangle.Y) || !std::isfinite(rectangle.Width) || !std::isfinite(rectangle.Height) ||
-                    rectangle.Width < 80 || rectangle.Width > 800 || rectangle.Height < 40 || rectangle.Height > 500 ||
+                    !validSize ||
                     rectangle.X < left || rectangle.Y < bottom || rectangle.X+rectangle.Width > right || rectangle.Y+rectangle.Height > top)
                     throw std::runtime_error("Appearance rectangle outside visible page");
             }

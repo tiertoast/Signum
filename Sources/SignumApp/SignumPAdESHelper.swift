@@ -115,6 +115,9 @@ enum SignumPAdESHelper {
         operation?.transition(to: .waitingForAuthentication)
         operation?.transition(to: .signing)
         let fingerprint = job.certificateSHA256
+        if let appearance, appearance.configuration.visible, let unit=appearance.configuration.userUnit {
+            args += ["--appearance-user-unit",String(Double(unit))]
+        }
         args += ["--job-id", job.id.uuidString, "--snapshot-id", job.snapshotIdentity.id.uuidString,
                  "--expected-document-sha256", job.contentSHA256,
                  "--expected-cert-sha256", fingerprint, "--verified-output-v4"]

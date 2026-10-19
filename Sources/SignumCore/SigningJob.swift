@@ -47,6 +47,11 @@ public struct SigningJob: Sendable {
                       try appearance.configuration.orientation.resolve(pageRotation:Int(page.rotationAngle)).pageRotation == rotation else {
                     throw SignumError.module("Orientamento non vincolato alla pagina dello snapshot approvato.")
                 }
+                if let unit=appearance.configuration.userUnit {
+                    guard try PAdESPageGeometry(page:page).userUnit == unit else {
+                        throw SignumError.module("UserUnit non vincolato alla pagina dello snapshot approvato.")
+                    }
+                }
                 try appearance.configuration.validate(cropBox:page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox)),pageRotation:rotation)
             }
         }

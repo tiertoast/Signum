@@ -76,8 +76,8 @@ extension PAdESAppearanceConfiguration {
     }
     public func resized(toward point: CGPoint, pageRotation: Int, cropBox: CGRect) throws -> Self {
         let resolved = try orientation.resolve(pageRotation:pageRotation)
-        let minimum = resolved.footprintSize(forContent:CGSize(width:80,height:40))
-        let maximum = resolved.footprintSize(forContent:CGSize(width:800,height:500))
+        let minimum = resolved.footprintSize(forContent:CGSize(width:80/effectiveUserUnit,height:40/effectiveUserUnit))
+        let maximum = resolved.footprintSize(forContent:CGSize(width:800/effectiveUserUnit,height:500/effectiveUserUnit))
         var next = self
         next.rectangle.size = CGSize(width:min(max(minimum.width,point.x-rectangle.minX),min(maximum.width,cropBox.maxX-rectangle.minX)),
                                      height:min(max(minimum.height,point.y-rectangle.minY),min(maximum.height,cropBox.maxY-rectangle.minY)))

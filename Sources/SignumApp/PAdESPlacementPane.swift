@@ -9,6 +9,7 @@ struct PAdESPlacement: Equatable {
     let pageIndex: Int
     let rectangle: CGRect
     var appearance: RenderedPAdESAppearance? = nil
+    var draft: PAdESAppearanceConfiguration? = nil
 }
 
 struct PAdESPlacementPane: View {
@@ -27,6 +28,7 @@ struct PAdESPlacementPane: View {
     @State private var renderedDER: Data?
     @State private var isPlacing = false
     @State private var isActive = false
+    @State private var initializationIssue: String?
     @StateObject private var renderCoordinator = PAdESRenderCoordinator()
     init(snapshot:DocumentSnapshot, previewReady:@escaping (UUID,Bool)->Void, holder:String,
          certificateDER:Data? = nil, placement:Binding<PAdESPlacement?>,
@@ -41,12 +43,18 @@ struct PAdESPlacementPane: View {
         return page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox))
     }
     private func rotation(for index:Int)->Int { Int(pdfDocument?.page(at:index)?.pageRef?.rotationAngle ?? 0) }
-    private var contentSize:CGSize { (try? configuration.contentSize(pageRotation:rotation(for:configuration.pageIndex))) ?? configuration.rectangle.size }
+    private func geometry(for index:Int) throws -> PAdESPageGeometry {
+        guard let page=pdfDocument?.page(at:index)?.pageRef else {throw SignumError.module("Pagina PDF non disponibile.")}
+        return try PAdESPageGeometry(page:page)
+    }
+    private var contentSize:CGSize {
+        let raw=(try? configuration.contentSize(pageRotation:rotation(for:configuration.pageIndex))) ?? configuration.rectangle.size
+        return CGSize(width:raw.width*configuration.effectiveUserUnit,height:raw.height*configuration.effectiveUserUnit)
+    }
     var body: some View {
         GroupBox("Firma grafica PAdES") {
             VStack(alignment:.leading, spacing:8) {
                 HStack {
-                    Toggle("Mostra firma nel PDF",isOn:editing(\.visible))
                     Spacer()
                     Picker("Pagina", selection:editing(\.pageIndex)) {
                         ForEach(0..<max(1,pdfDocument?.pageCount ?? 0),id:\.self) { Text("\($0+1)").tag($0) }
@@ -80,6 +88,10 @@ struct PAdESPlacementPane: View {
                         Stepper("Altezza \(Int(contentSize.height)) pt",value:Binding(get:{contentSize.height},set:{ value in resizeContent(width:contentSize.width,height:value) }),in:40...500,step:5)
                     }.font(.caption)
                 }
+                if certificateDER == nil {
+                    Text("Anteprima senza certificato: il nome sarà aggiornato quando scegli un certificato. La firma richiede un certificato idoneo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if rendering { ProgressView("Preparazione appearance…").controlSize(.small) }
                 if !issue.isEmpty { Label(issue, systemImage:"exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled) }
                 else if !rendering, let rendered {
@@ -109,16 +121,18 @@ struct PAdESPlacementPane: View {
         .onAppear {
             isActive = true
             pdfDocument = PDFDocument(data:snapshot.approvedBytes)
-            if let saved = placement?.appearance { configuration = saved.configuration }
-            else {
-                configuration.visible = false
-                configuration.showSigner = UserDefaults.standard.object(forKey:"signum.appearance.signer") as? Bool ?? true
-                configuration.showLabel = true
-                // Default dimensions describe upright artwork, before compensating /Rotate.
-                if let initial=try? configuration.reoriented(to:configuration.orientation,fromPageRotation:0,
-                    toPageRotation:rotation(for:configuration.pageIndex),cropBox:crop) { configuration=initial }
+            if let saved = placement?.draft ?? placement?.appearance?.configuration {
+                configuration = saved
+                configuration.visible = true
+                // Migrate only metadata for an existing geometry; never reposition it.
+                if configuration.userUnit == nil { configuration.userUnit = try? geometry(for:configuration.pageIndex).userUnit }
+            } else {
+                do {
+                    configuration = try geometry(for:0).defaultAppearance()
+                    configuration.showSigner = UserDefaults.standard.object(forKey:"signum.appearance.signer") as? Bool ?? true
+                } catch { initializationIssue=error.localizedDescription }
             }
-            resetRectangleIfNeeded(); render()
+            render()
         }
         .onChange(of:configuration) { _ in render() }
         .onChange(of:certificateDER) { _ in render() }
@@ -132,12 +146,19 @@ struct PAdESPlacementPane: View {
         if next.pageIndex != configuration.pageIndex || next.orientation != configuration.orientation {
             do {
                 let source=configuration
-                var oriented=try source.reoriented(to:next.orientation,fromPageRotation:rotation(for:source.pageIndex),
-                    toPageRotation:rotation(for:next.pageIndex),cropBox:crop(for:next.pageIndex))
+                let target=try geometry(for:next.pageIndex)
+                let size=try source.contentSize(pageRotation:rotation(for:source.pageIndex))
+                var base=source; base.orientation=next.orientation; base.userUnit=target.userUnit
+                var oriented=try base.resized(contentSize:CGSize(width:size.width*source.effectiveUserUnit/target.userUnit,
+                    height:size.height*source.effectiveUserUnit/target.userUnit),pageRotation:target.rotation,cropBox:target.cropBox)
                 oriented.pageIndex=next.pageIndex
                 next=oriented
             } catch { rejectEdit(error); return }
         }
+        initializationIssue = nil
+        // Persist edits immediately, before asynchronous rendering. A late result
+        // cannot restore earlier geometry or mark this new draft ready.
+        placement = PAdESPlacement(pageIndex:next.pageIndex,rectangle:next.rectangle,draft:next)
         configuration = next
     }
     private func editing<T>(_ path:WritableKeyPath<PAdESAppearanceConfiguration,T>)->Binding<T> {
@@ -145,7 +166,7 @@ struct PAdESPlacementPane: View {
     }
     private func resizeContent(width:CGFloat,height:CGFloat) {
         do {
-            let next=try configuration.resized(contentSize:CGSize(width:width,height:height),
+            let next=try configuration.resized(contentSize:CGSize(width:width/configuration.effectiveUserUnit,height:height/configuration.effectiveUserUnit),
                 pageRotation:rotation(for:configuration.pageIndex),cropBox:crop)
             change {$0=next}
         } catch { rejectEdit(error) }
@@ -153,13 +174,6 @@ struct PAdESPlacementPane: View {
     private func rejectEdit(_ error:Error) {
         renderCoordinator.cancel();renderID=UUID();annotationReady=false;rendering=false
         previewReady(snapshot.identity.id,false);issue=error.localizedDescription
-    }
-    private func resetRectangleIfNeeded() { if !crop.contains(configuration.rectangle) { resetRectangle() } }
-    private func resetRectangle() {
-        let resolved=try? configuration.orientation.resolve(pageRotation:rotation(for:configuration.pageIndex))
-        let size=resolved?.footprintSize(forContent:CGSize(width:240,height:90)) ?? CGSize(width:240,height:90)
-        configuration.rectangle=CGRect(x:crop.minX+min(20,crop.width/10),y:crop.minY+min(20,crop.height/10),
-            width:min(size.width,crop.width-40),height:min(size.height,crop.height-40))
     }
     private func choose(_ index:Int,_ point:CGPoint,_ resize:Bool) {
         var next = configuration
@@ -175,17 +189,31 @@ struct PAdESPlacementPane: View {
     }
     private func render() {
         renderCoordinator.cancel(); renderID = UUID(); annotationReady = false
+        if let initializationIssue {
+            issue=initializationIssue; rendered=nil; rendering=false; previewReady(snapshot.identity.id,false); return
+        }
         guard let pdfDocument, !pdfDocument.isEncrypted, pdfDocument.pageCount > configuration.pageIndex, !crop.isEmpty else {
             issue="PDF non disponibile o protetto."; rendered=nil; rendering=false; previewReady(snapshot.identity.id,false); return
         }
         renderCoordinator.cancel()
         let id=UUID(); renderID=id; rendering=true; issue=""; previewReady(snapshot.identity.id,false)
-        let config=configuration, der=certificateDER ?? Data(), bounds=crop, pageRotation=rotation(for:configuration.pageIndex)
+        var config=configuration
+        // A certificate-free preview has no invented signer identity. The desired
+        // showSigner preference stays in the draft and is reapplied when DER arrives.
+        if certificateDER == nil { config.showSigner=false }
+        let der=certificateDER ?? Data(), bounds=crop, pageRotation=rotation(for:configuration.pageIndex)
+        let draft=configuration
+        placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,draft:draft)
+        do {
+            guard try geometry(for:config.pageIndex).userUnit == config.effectiveUserUnit else {
+                throw SignumError.module("UserUnit della pagina diverso dalla configurazione del timbro.")
+            }
+        } catch { issue=error.localizedDescription;rendered=nil;rendering=false;return }
         if let previous = rendered, renderedDER == der, previous.configuration.hasSameArtwork(as: config), (previous.pageRotation ?? 0) == pageRotation {
             do {
                 let value = try previous.placed(config,cropBox:bounds)
                 rendered = value; rendering = false
-                placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value)
+                placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value,draft:draft)
             } catch { issue=error.localizedDescription; rendered=nil; rendering=false }
             return
         }
@@ -194,7 +222,7 @@ struct PAdESPlacementPane: View {
         renderCoordinator.submit(config,der:der,crop:bounds,pageRotation:pageRotation,previous:rendered) { result in
             guard isActive, renderID == id else { return }; rendering=false
             switch result {
-            case .success(let value): rendered=value; renderedDER=der; issue=""; placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value)
+            case .success(let value): rendered=value; renderedDER=der; issue=""; placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value,draft:draft)
             case .failure(let error): issue=error.localizedDescription; rendered=nil; previewReady(snapshot.identity.id,false)
             }
         }

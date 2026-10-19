@@ -254,6 +254,26 @@ int main(int argc, char** argv) {
         }
         Folder folder; Identity identity, other;
         const auto source = sourcePDF(), valid = signedPDF(source, identity);
+        test("physical appearance size respects UserUnit and quarter-turn footprints", [&] {
+            for (const double unit : {.1, .5, 1., 2., 10., 75000.}) {
+                expect(signum::physicalAppearanceSize(240/unit,90/unit,unit), "Physical upright rejected");
+                expect(signum::physicalAppearanceSize(90/unit,240/unit,unit), "Physical quarter turn rejected");
+                expect(!signum::physicalAppearanceSize(39/unit,90/unit,unit), "Below minimum accepted");
+                expect(!signum::physicalAppearanceSize(801/unit,90/unit,unit), "Above maximum accepted");
+            }
+            expect(!signum::physicalAppearanceSize(240,90,0) && !signum::physicalAppearanceSize(240,90,INFINITY), "Invalid unit accepted");
+        });
+        test("appearance UserUnit binds actual page and rejects invalid or substituted metadata", [&] {
+            PdfMemDocument fixture; auto& page = fixture.GetPages().CreatePage(PoDoFo::Rect(0,0,595,842));
+            expect(signum::approvedAppearanceUserUnit(page,1) == 1, "Default unit changed");
+            page.GetObject().GetDictionary().AddKey("UserUnit",PdfObject(2.0));
+            expect(signum::approvedAppearanceUserUnit(page,2) == 2, "Explicit unit changed");
+            bool rejected = false; try { (void)signum::approvedAppearanceUserUnit(page,1); } catch (...) { rejected = true; }
+            expect(rejected, "Mismatched unit accepted");
+            page.GetObject().GetDictionary().AddKey("UserUnit",PdfObject(PdfString("invalid")));
+            rejected = false; try { (void)signum::approvedAppearanceUserUnit(page,1); } catch (...) { rejected = true; }
+            expect(rejected, "Malformed unit accepted");
+        });
         test("selected certificate fingerprint binding before authentication", [&] {
             unsigned char digest[32]; unsigned int count = 0;
             expect(EVP_Digest(identity.der.data(), identity.der.size(), digest, &count, EVP_sha256(), nullptr) == 1 && count == 32, "Fixture fingerprint failed");
