@@ -31,7 +31,7 @@ struct DeviceConfigurationView: View {
                     Button("Cerca nuovamente") { search() }.disabled(locked)
                     DisclosureGroup("Impostazioni avanzate") {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Modulo PKCS#11 manuale: viene eseguito solo premendo Carica manuale. Scegli esclusivamente software di cui ti fidi; i percorsi salvati non vengono caricati automaticamente.").font(.caption)
+                            Text("Modulo PKCS#11 manuale: viene eseguito solo premendo Carica manuale. Scegli esclusivamente software di cui ti fidi; i percorsi salvati non vengono caricati all’apertura. Cerca nuovamente ripete la ricerca dei candidati noti e dei moduli autorizzati con Carica manuale in questa finestra.").font(.caption)
                             HStack {
                                 TextField("Percorso assoluto .dylib / .so", text: $manualPath).textFieldStyle(.roundedBorder)
                                 Button("Scegli…") { browse() }

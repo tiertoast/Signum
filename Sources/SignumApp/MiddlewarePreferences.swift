@@ -16,6 +16,12 @@ struct MiddlewarePreferences {
         var seen = Set<String>()
         return Array((defaults.stringArray(forKey: pathsKey) ?? []).filter { Self.valid($0) && seen.insert($0).inserted }.prefix(8))
     }
+    // Single trigger policy consumed by the window before starting discovery.
+    func discoveryPaths(explicitPath: String? = nil, authorizedPaths: [String] = []) -> [String] {
+        var seen = Set<String>()
+        return Array(((explicitPath.map { [$0] } ?? []) + authorizedPaths)
+            .filter { Self.valid($0) && seen.insert($0).inserted }.prefix(8))
+    }
     var preferredPath: String? {
         guard let path = defaults.string(forKey: preferredKey), Self.valid(path) else { return nil }; return path
     }

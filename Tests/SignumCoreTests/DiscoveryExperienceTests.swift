@@ -20,6 +20,22 @@ final class DiscoveryExperienceTests: XCTestCase {
         XCTAssertNil(DeviceSelection().selectedRoute)
         XCTAssertEqual(Set(defaults.persistentDomain(forName: name)?.keys.map { $0 } ?? []), ["signum.discovery.manualPaths.v1"])
     }
+    func testRememberedPathsNeverAuthorizeDiscoveryAndRefreshUsesOnlySessionChoices() throws {
+        let name = "Signum.synthetic.triggers." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name)); defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = MiddlewarePreferences(defaults: defaults)
+        XCTAssertEqual(preferences.discoveryPaths(), [])
+        preferences.remember("/synthetic/a.dylib")
+        XCTAssertEqual(preferences.discoveryPaths(), [])
+        preferences.remember("/synthetic/b.dylib")
+        XCTAssertEqual(preferences.discoveryPaths(), [])
+        let authorized = preferences.discoveryPaths(explicitPath: "/synthetic/a.dylib")
+        XCTAssertEqual(authorized, ["/synthetic/a.dylib"])
+        XCTAssertEqual(preferences.discoveryPaths(authorizedPaths: authorized), authorized)
+        preferences.remove("/synthetic/a.dylib")
+        XCTAssertEqual(preferences.discoveryPaths(authorizedPaths: authorized.filter { $0 != "/synthetic/a.dylib" }), [])
+        XCTAssertEqual(MiddlewarePreferences(defaults: defaults).discoveryPaths(), [])
+    }
     func testExplicitRouteSelectionClearsOldPinAndBindsProviderSlotAndDER() throws {
         let der = try CertificateEligibilityTests.fixtures.get().der("valid")
         let first = DeviceSelectionTests().provider(der: der)

@@ -57,6 +57,7 @@ private enum SignumFormat: String, Hashable {
     @State private var showDeviceConfiguration = false
     @State private var manualPath = ""
     @State private var manualPaths: [String]
+    @State private var authorizedManualPaths: [String] = []
     @State private var work: SigningOperation?
     @State private var workPhase: SigningOperationPhase = .idle
     @State private var operation: SignumOperation = .sign
@@ -671,7 +672,9 @@ private enum SignumFormat: String, Hashable {
         }
         provider.beginDiscovery()
         batch.invalidateReview()
-        let configuredPaths = manualPaths
+        let configuredPaths = MiddlewarePreferences(defaults: preferences.defaults)
+            .discoveryPaths(explicitPath: paths.first, authorizedPaths: authorizedManualPaths)
+        authorizedManualPaths = configuredPaths
         let expectedPaths = Set(MiddlewareRegistry.known.flatMap(\.candidatePaths) + configuredPaths)
         let request = devices.beginDiscovery(), operation = beginWork()
         busy = true; status = "Ricerca dei dispositivi in corso…"
@@ -713,6 +716,7 @@ private enum SignumFormat: String, Hashable {
     private func removeManualModule(_ path: String) {
         guard !interfaceLocked, !batch.isFrozen else { return }
         MiddlewarePreferences(defaults: preferences.defaults).remove(path); manualPaths = MiddlewarePreferences(defaults: preferences.defaults).paths
+        authorizedManualPaths.removeAll { $0 == path }
         if manualPath == path { manualPath = "" }
         devices.beginDiscovery(); provider.beginDiscovery(); batch.invalidateReview()
         status = "Configurazione manuale rimossa. Cerca nuovamente per scegliere un certificato."
