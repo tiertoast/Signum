@@ -27,7 +27,7 @@ import CoreGraphics
         let batch = BatchSigningCoordinator(); defer { batch.reset() }
         try await body(root, defaults, batch, devices, provider, der)
     }
-    private func render(_ view: SignumWindow, name: String, verify: (NSHostingView<SignumWindow>) throws -> Void) throws {
+    private func render(_ view: SignumWindow, name: String, ready: (NSHostingView<SignumWindow>) -> Bool = { !$0.subviews.isEmpty }, verify: (NSHostingView<SignumWindow>) throws -> Void) async throws {
         let frame = NSRect(x: 0, y: 0, width: 1100, height: 760)
         let window = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -36,7 +36,14 @@ import CoreGraphics
         defer { window.close() }
         window.orderFront(nil)
         host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        // Yield the MainActor to the owned preview Task; a nested synchronous
+        // RunLoop keeps the current actor job occupied and cannot observe it.
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        repeat {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            host.layoutSubtreeIfNeeded()
+        } while !ready(host) && ProcessInfo.processInfo.systemUptime < deadline
+        XCTAssertTrue(ready(host), "Workspace did not reach its required observable state")
         host.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         try verify(host)
@@ -56,8 +63,8 @@ import CoreGraphics
             let approval = try await batch.prepareApproval(provider: "/synthetic/bit4id.dylib", slot: 7,
                 certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
             try batch.confirm(approval)
-            try render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
-                automaticallyDiscover: false, defaults: defaults), name: "pin-32-documents") { host in
+            try await render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                automaticallyDiscover: false, defaults: defaults), name: "pin-32-documents", ready: { self.descendants($0).contains { $0 is NSSecureTextField } }) { host in
                 let fields = descendants(host).compactMap { $0 as? NSSecureTextField }
                 XCTAssertEqual(fields.count, 1)
                 let field = try XCTUnwrap(fields.first)
@@ -90,8 +97,8 @@ import CoreGraphics
             let file = root.appendingPathComponent("synthetic-preview.pdf"); try (bytes as Data).write(to: file)
             await batch.addDocuments([file], format: .pades)
             let snapshot = try XCTUnwrap(batch.documents.first?.snapshot)
-            try render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider, selectedSnapshot: snapshot,
-                automaticallyDiscover: false, defaults: defaults), name: "pades-preview") { host in
+            try await render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider, selectedSnapshot: snapshot,
+                automaticallyDiscover: false, defaults: defaults), name: "pades-preview", ready: { self.descendants($0).compactMap { $0 as? PDFView }.first?.document?.pageCount == 1 }) { host in
                 let preview = try XCTUnwrap(descendants(host).compactMap { $0 as? PDFView }.first)
                 XCTAssertEqual(preview.document?.pageCount, 1)
                 XCTAssertNotEqual(preview.document?.documentURL?.path, file.path)
@@ -109,7 +116,7 @@ import CoreGraphics
                 certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
             try batch.confirm(plan)
             try await batch.authorizeNext(pin: "synthetic-ui") { _, _, _ in throw SignumError.module("Synthetic error details") }
-            try render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+            try await render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
                 automaticallyDiscover: false, defaults: defaults), name: "compact-error") { host in
                 XCTAssertTrue(descendants(host).contains { $0 is NSScrollView })
                 XCTAssertFalse(descendants(host).contains { $0 is NSSecureTextField })

@@ -16,7 +16,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'scripts/local-test-groups.json'
-SANITIZER_FILTER = '(' + '|'.join('BatchCleanupContractTests PostLoginCertificateTests OneShotContextTests PAdESInputContractTests SecurePINBufferTests SecureBatchNativeTests BatchAuthenticationTests BatchAuthIntegrationTests PKCS11WorkerTests PKCS11LifecycleIntegrationTests ProcessCoordinationTests SigningReviewTests VerificationDropLifecycleTests PAdESSourcePreflightTests SignumFileOutputTests SigningJobTests FileAcquisitionTests FixtureInfrastructureTests SnapshotRetirementTests PDFPreviewPreparationTests DocumentSnapshotTests PAdESRenderCoordinationTests PAdESPlacementPerformanceTests SignaturePlacementOverlayTests SupervisedProcessTests ConcurrencyOwnershipTests SigningOperationTests'.split()) + ')/'
+SANITIZER_FILTER = '(' + '|'.join('BatchCleanupContractTests PostLoginCertificateTests OneShotContextTests PAdESInputContractTests SecurePINBufferTests SecureBatchNativeTests BatchAuthenticationTests BatchAuthIntegrationTests PKCS11WorkerTests PKCS11LifecycleIntegrationTests ProcessCoordinationTests SigningReviewTests VerificationDropLifecycleTests PAdESSourcePreflightTests SignumFileOutputTests SigningJobTests FileAcquisitionTests FixtureInfrastructureTests SnapshotRetirementTests PDFPreviewPreparationTests DocumentSnapshotTests PAdESRenderCoordinationTests PAdESPlacementPerformanceTests SignaturePlacementOverlayTests SupervisedProcessTests ConcurrencyOwnershipTests SigningOperationTests SigningWorkspaceTests DynamicFormatWorkspaceTests'.split()) + ')/'
 
 
 def test_groups(root=ROOT):
@@ -43,7 +43,7 @@ def setup(args):
     selected = sum(manifest['groups'].values(), []) if full else manifest['groups'].get(args.group, [])
     helper = full or args.group in ('pades', 'sanitizers') or bool(set(selected) & set(manifest['requires']['helper']))
     poppler = full or bool(set(selected) & set(manifest['requires']['poppler']))
-    ui = full or bool(set(selected) & set(manifest['requires']['windowserver']))
+    ui = full or args.group == 'sanitizers' or bool(set(selected) & set(manifest['requires']['windowserver']))
     native = helper or args.group in ('complete', 'pkcs11', 'sanitizers')
     config = {'group': args.group, 'selected': selected, 'fullSwift': full, 'helper': helper, 'ui': ui,
               'swift': executable('/usr/bin/swift', 'Swift'), 'cc': executable('/usr/bin/cc', 'C compiler'),
