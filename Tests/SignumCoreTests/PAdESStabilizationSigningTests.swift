@@ -26,11 +26,26 @@ import ImageIO
             let artwork=try PAdESAppearanceRenderer.render(c,certificateDER:signer.der,cropBox:crop)
             c.rectangle.origin=CGPoint(x:crop.midX,y:crop.midY)
             let approved=try artwork.placed(c,cropBox:crop)
+            let viewer=PlacementPDFView(frame:CGRect(x:0,y:0,width:800,height:650))
+            let window=SignaturePlacementOverlayTests().window(viewer);defer {window.close()}
+            let preview=try XCTUnwrap(PDFDocument(data:snapshot.approvedBytes))
+            viewer.install(document:preview,pageIndex:0);viewer.layoutSubtreeIfNeeded()
+            XCTAssertNil(viewer.updatePlacementOverlay(approved))
+            viewer.signatureOverlay.artworkView.displayIfNeeded()
+            XCTAssertGreaterThan(try SignaturePlacementOverlayTests().pixels(viewer.signatureOverlay.artworkView),0)
+            let mapped=viewer.signatureOverlay.convert(viewer.signatureOverlay.artworkView.frame,to:viewer)
+            let expected=viewer.convert(approved.configuration.rectangle,from:try XCTUnwrap(preview.page(at:0)))
+            XCTAssertEqual(mapped.midX,expected.midX,accuracy:0.01)
+            XCTAssertEqual(mapped.midY,expected.midY,accuracy:0.01)
+            XCTAssertEqual(viewer.signatureOverlay.approvedAppearance?.pdf,approved.pdf)
             let plan=try await batch.prepareReview(provider:mock.path.path,slot:7,
                 certificate:.init(label:"Synthetic",identifier:Data([1])),der:signer.der,destination:.originalFolders,
                 appearances:[snapshot.identity.id:approved])
             try batch.freezeReview(plan); try batch.confirm(plan)
             c.rectangle.origin.x += 100 // mutable draft cannot affect the approved job
+            // Even a later presentation change/closure cannot replace the frozen AP.
+            viewer.updatePlacementOverlay(try approved.placed(c,cropBox:crop))
+            viewer.updatePlacementOverlay(nil)
             let frozen=try XCTUnwrap(plan.jobs[0].padesAppearance)
             XCTAssertEqual(frozen.approvalIdentity,approved.approvalIdentity)
             try await batch.authorizeNext(pin:"synthetic-fixture") { job,pin,operation in

@@ -46,3 +46,9 @@ Lo stesso PDF artwork è conservato e presentato tramite una cache dei suoi soli
 Readiness visibile solo dopo il disegno effettivo; callback differiti e vincolati all’identità corrente, consenso invalido durante il gesto come prima. Errori artwork espliciti, cancellazione/documento sostituito eliminano le risorse precedenti. Firma invisibile non richiede disegno.
 
 **8/8 test** pertinenti, zero skip/fallimenti: hosting GUI e cambio formato, precedenti prove offline, pixel della NSView overlay e rettangoli live per A1/A0/>A0/geometria equivalente alla tavola, quattro rotazioni, origini/box traslati, UserUnit, zoom 25/100/200, riuso della cache su 200 movimenti, notifiche scroll, errori/invisibile/reset. La prova precedente fallita è conservata nei log. Avviso PDFKit durante teardown di documenti sintetici, senza assert falliti; nessun errore ignorato di approvazione.
+
+## M6 — Consenso e output finale
+
+Estesa la regressione di firma effettiva alle quattro rotazioni: prima del consenso presenta lo stesso artwork nell’overlay nativo, controlla pixel rossi, rettangolo convertito e uguaglianza dei byte AP; dopo il freeze modifica/chiude la presentazione e verifica che il job e il PDF finale conservino i valori approvati. Il helper continua a ricevere i byte AP congelati, mai una posizione ricavata dalla vista durante la firma.
+
+**17/17** test pertinenti, zero skip/fallimenti, inclusi formati dinamici con firme effettive, revisioni/preflight e output PAdES. Per ciascuna rotazione: AP/N e Rect presenti, originale invariato, verifica crittografica valida e centroidi Poppler coincidenti entro 2 pixel con il riferimento che incorpora gli stessi byte in page content. Nessuna modifica alle primitive o alla pubblicazione.
