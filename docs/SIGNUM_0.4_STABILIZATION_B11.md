@@ -76,7 +76,7 @@ ASAN e TSAN mirati sul codice corrente: **17/17 ciascuno**, zero skip/fallimenti
 
 Sorgente avanzata a **0.4.0 / build 11** dopo i test: Swift completa **345/345**, PKCS#11 **40/40**, PAdES Debug/Release **63/63 ciascuna**, packaging unit **10/10**, ASAN/TSAN mirati **17/17 ciascuno**. Zero skip/fallimenti finali. Suite completa include protezioni snapshot/consenso, atomicità/no-overwrite, Secure Batch PIN, worker, discovery e verifica unificata; nessun dispositivo/PIN reale.
 
-Bundle nuovi previsti in .build/04stabilization-b11/final-debug/Signum.app e final-release/Signum.app. La consegna viene confermata soltanto dopo build, audit dipendenze/minimo OS, codesign, helper/rilocazione e integrazioni con helper impacchettati. Stato prima del packaging: tutte le modifiche applicative committate; i due documenti preesistenti non tracciati restano esclusi.
+Bundle nuovi consegnati in .build/04stabilization-b11/final-debug/Signum.app e final-release/Signum.app. Build, audit dipendenze/minimo OS, codesign strict, helper/rilocazione e integrazioni con helper impacchettati tutti completati. Stato prima del packaging: tutte le modifiche applicative committate; i due documenti preesistenti non tracciati restano esclusi.
 
 ### Commit milestone
 - M1 dd5b047 — baseline.
@@ -86,7 +86,25 @@ Bundle nuovi previsti in .build/04stabilization-b11/final-debug/Signum.app e fin
 - M5 23d23ac — overlay live.
 - M6 1b8c98c — binding/output verificato.
 - M7 f980b58 — regressioni/prestazioni.
-- M8 — commit sorgente build 11 e successivo rapporto dei bundle; hash nel manifest locale.
+- M8 3a2e1dd — sorgente build 11; successivo commit solo documentale per esiti dei bundle.
 
 ### Collaudo manuale rimanente
 Aprire la candidata Release nuova, caricare la tavola e scegliere CAdES/PAdES più volte senza riacquisizione. In PAdES attivare il timbro, cliccare/trascinare/ridimensionare con Option, provare zoom e scroll, poi altre tavole e un batch misto. Verificare nomi/destinazioni prima del consenso e firma invisibile. Il collaudo di sola anteprima non richiede PIN. Firma hardware e documenti reali richiedono istruzioni esplicite e non sono stati eseguiti qui. Runtime macOS 13/14 non disponibile: compatibilità di deployment/packaging verificabile, comportamento runtime ancora da collaudare.
+
+
+### Esito finale e bundle consegnati
+
+Sorgente dei due bundle: **3a2e1dd40702a833c14c3871fa8fea7ce4cd0351**, manifest con sourceTrackedDirty=false. Release e Debug ad hoc arm64; versione 0.4.0/build 11, minimo dichiarato e misurato in tutti i Mach-O **13.0**. Dipendenze interne, avvio CLI/worker/helper sintetici, caricamento PoDoFo, notices, firma strict e rilocazione verificati dalla ricetta locale. Nessun Developer ID/notarizzazione/distribuzione pubblica.
+
+| Bundle | SHA-256 eseguibile principale |
+|---|---|
+| final-release/Signum.app | 9ddf741b692d4db9dbc18598911222e3e590ff7c2534d4fb0b8dc9f7ada62fe4 |
+| final-debug/Signum.app | 693c2306f845febd7fdc32213a8723363e13e36022dc6242afbf1d9b1538b830 |
+
+Integrazioni con gli helper realmente impacchettati: **45/45 Debug, 45/45 Release**, zero skip/fallimenti; include i nuovi cambi formato con output effettivi e confronto Poppler. Ricetta packaging: 63 casi helper prima e dopo rilocazione per configurazione. Verificati di nuovo hash del codice annidato e codesign dopo la costruzione.
+
+Log e manifest delle prove locali: .build/04stabilization-b11/evidence/ (final-swift, final-pkcs11, final-pades-debug/release, final-packaging-tests, final-asan/tsan, bundle-debug/release, bundle-debug/release-integration, final-bundles.json, preservation.json). Non si assumono validi test storici al posto di quelli eseguiti.
+
+**Stato funzionale:** P0 implementato e verificato con GUI nativa e firme software effettive; P1 riprodotto sul PDF fornito e corretto nel percorso overlay integrato, verificato nel viewport reale e con fixture/output sintetici. Le altre tavole simili non sono state esaminate: il collaudo dell’utente rimane necessario, così come runtime macOS 13/14 e hardware eventualmente autorizzato in seguito. Nessuna firma della tavola reale, nessun PIN/token reale. La prima rasterizzazione di immagini grandi e il rendering PDFKit del documento restano costi da distinguere dalla geometria del drag; non sono stati misurati fps reali.
+
+Confronto finale con baseline.json: **zero differenze** per tutti i ref protetti e gli hash dei file/bundle censiti, inclusi build 9/10 e i due documenti non tracciati. SHA-256 della tavola invariato dopo le prove. Working tree applicativo pulito al checkpoint; rimangono soltanto i due file già non tracciati. Main, PR #3, Alpha e build precedenti preservati; nessun push/merge/tag/release/Actions o accesso a HalleyMac/altri repository. Prototipo locale chiuso al termine.
