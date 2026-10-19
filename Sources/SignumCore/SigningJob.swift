@@ -116,7 +116,7 @@ public struct SigningJob: Sendable {
         let cms = try sign(approved)
         guard cms.count <= SigningResourceLimits.maximumOutputBytes else { throw SignumError.module("La busta firmata supera la dimensione massima supportata.") }
         _ = try verifiedBytes()
-        try SignumFileOutput.writeNew(cms, to: destination, io: io) { staged in
+        try SignumFileOutput.writeNew(cms, to: destination, expectedDirectory: destinationDirectoryIdentity, io: io) { staged in
             _ = try verifiedBytes()
             try CAdESVerifier.verifyAttached(data: staged, expectedDocument: approved, isCancelled: isCancelled)
         }

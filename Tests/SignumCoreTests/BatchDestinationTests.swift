@@ -18,7 +18,7 @@ import CoreGraphics
             let file = folder.appendingPathComponent("Relazione.pdf")
             try Data("Synthetic approved \(name)".utf8).write(to: file); return file
         }
-        let batch = BatchSigningCoordinator(); defer { batch.reset() }
+        let batch = BatchSigningCoordinator(padesHelper: ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"].map { URL(fileURLWithPath:$0) }); defer { batch.reset() }
         try await body(root, files, batch, CertificateEligibilityTests.fixtures.get().der("valid"))
     }
     private func plan(_ batch: BatchSigningCoordinator, der: Data, destination: BatchOutputDestination = .originalFolders) async throws -> BatchApproval {

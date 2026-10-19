@@ -66,6 +66,26 @@ final class SigningJobTests: XCTestCase {
         let entries = try FileManager.default.contentsOfDirectory(atPath: job.destination.deletingLastPathComponent().path)
         XCTAssertFalse(entries.contains(where: { $0.hasPrefix(".signum-staging-") }), file: file, line: line)
     }
+    func testDirectoryReplacedAfterApprovalBeforeWriterCreatesNoWrongPayload() throws {
+        try withJob { old, signer, _ in
+            let root = old.destination.deletingLastPathComponent()
+            let directory = root.appendingPathComponent("approved")
+            try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+            let planned = try OutputDirectoryIdentity.inspect(directory)
+            let expected = planned.1
+            let job = try SigningJob(snapshot:old.snapshot,providerPath:old.providerPath,slot:old.slot,certificate:old.certificate,
+                certificateDER:old.certificateDER,destination:planned.0.appendingPathComponent("result.p7m"),destinationDirectoryIdentity:expected)
+            let moved = root.appendingPathComponent("moved")
+            XCTAssertThrowsError(try job.executeCAdES { bytes in
+                let cms = try signer.cms(for:bytes)
+                try FileManager.default.moveItem(at:directory,to:moved)
+                try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+                return cms
+            })
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath:directory.path),[])
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath:moved.path),[])
+        }
+    }
     func testImmutableRequestContainsAllApprovedIdentities() throws {
         try withJob { job, signer, _ in
             XCTAssertEqual(job.format, .cades); XCTAssertEqual(job.slot, 7)

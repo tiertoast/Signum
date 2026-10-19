@@ -706,6 +706,47 @@ int main(int argc, char** argv) {
                 expect(logins == 1 && signs == 1 && fileBytes(input) == source, "Helper retried PIN/sign or changed source");
             }
         });
+        for (int fault = 0; fault < 4; ++fault) test("approved native output descriptor validation " + std::to_string(fault), [&] {
+            Folder f; auto folder = fs::canonical(f.path); struct stat info{};
+            expect(stat(folder.c_str(), &info) == 0, "Cannot identify approved directory");
+            OutputDirectoryIdentity expected{int64_t(info.st_dev), uint64_t(info.st_ino)};
+            OutputOperations ops;
+            if (fault == 1) ++expected.inode;
+            if (fault == 2) ops.identifyParent = [](int, struct stat*) { errno = EIO; return -1; };
+            if (fault == 3) ops.openParent = [](const char*) { errno = EACCES; return -1; };
+            bool failed = false;
+            try { TransactionalOutput tx((folder / "result.pdf").string(), ops, expected); tx.write(valid); tx.verifyAndPublish(source, identity.der); }
+            catch (...) { failed = true; }
+            expect(failed == (fault != 0), "Wrong descriptor outcome");
+            expect(fault == 0 ? fileBytes(folder / "result.pdf") == valid : fs::is_empty(folder), "Wrong payload or leaked staging");
+        });
+        for (int point = 0; point < 3; ++point) test("native directory rename phase " + std::to_string(point), [&] {
+            Folder f; auto root = fs::canonical(f.path), folder = root / "approved", moved = root / "moved";
+            fs::create_directory(folder); struct stat info{}; expect(stat(folder.c_str(), &info) == 0, "Directory identity");
+            OutputDirectoryIdentity expected{int64_t(info.st_dev), uint64_t(info.st_ino)};
+            auto rename = [&] { fs::rename(folder, moved); fs::create_directory(folder); };
+            OutputOperations ops;
+            if (point == 1) ops.beforePublish = rename;
+            if (point == 2) ops.afterPublish = rename;
+            bool failed = false;
+            try {
+                if (point == 0) rename();
+                TransactionalOutput tx((folder / "result.pdf").string(), ops, expected);
+                tx.write(valid); tx.verifyAndPublish(source, identity.der);
+            } catch (...) { failed = true; }
+            expect(failed && fs::is_empty(folder), "Renamed directory falsely succeeded or wrote wrong payload");
+            expect(point == 2 ? fileBytes(moved / "result.pdf") == valid : fs::is_empty(moved), "Published data removed or precommit leaked");
+        });
+        test("native output plan canonical alias and symlink replacement", [&] {
+            Folder f; auto root = fs::canonical(f.path), folder = root / "approved", alias = root / "alias";
+            fs::create_directory(folder); fs::create_directory_symlink(folder, alias);
+            struct stat info{}; expect(stat(folder.c_str(), &info) == 0, "Directory identity");
+            OutputDirectoryIdentity expected{int64_t(info.st_dev), uint64_t(info.st_ino)};
+            bool failed = false; try { TransactionalOutput tx((alias / "result.pdf").string(), {}, expected); } catch (...) { failed = true; }
+            expect(failed && fs::is_empty(folder), "Unapproved alias created staging");
+            TransactionalOutput tx((fs::canonical(alias) / "result.pdf").string(), {}, expected);
+            tx.write(valid); tx.verifyAndPublish(source, identity.der);
+        });
         test("read-only source policy accepts unsigned and supported incremental signatures", [&] {
             requireSupportedSource(source); requireSupportedSource(valid);
             const auto twice = signedPDF(valid, other); requireSupportedSource(twice);

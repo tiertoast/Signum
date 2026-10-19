@@ -113,6 +113,7 @@ enum SignumPAdESHelper {
         operation?.transition(to: .signing)
         let fingerprint = job.certificateSHA256
         // A bound GUI job never falls back to the explicit legacy v4 helper contract.
+        if let identity = job.destinationDirectoryIdentity { args += ["--expected-output-directory-v1", identity.wire] }
         if let binding = job.providerContext {
             guard binding.valid, binding.padesWire.utf8.count <= 16384 else { throw SignumError.module("Contesto PAdES non valido.") }
             args += ["--provider-context-v1", binding.padesWire]

@@ -7,6 +7,7 @@ import Darwin
 public struct OutputDirectoryIdentity: Sendable, Hashable {
     let device: Int64, inode: UInt64
     init(_ value: stat) { device = Int64(value.st_dev); inode = UInt64(value.st_ino) }
+    public var wire: String { "\(device):\(inode)" }
     public func requireCurrent(at directory: URL) throws {
         let current = try Self.inspect(directory)
         guard current.1 == self, current.0.path == directory.path else {

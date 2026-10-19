@@ -243,6 +243,7 @@ int main(int argc, char** argv) {
     const auto jobID = option("--job-id");
     const auto appearanceUserUnit = option("--appearance-user-unit");
     const auto providerContextWire = option("--provider-context-v1");
+    const auto outputDirectoryWire = option("--expected-output-directory-v1");
     if (boundProtocol != !providerContextWire.empty()) return 2;
     auto uuid = [](const std::string& text) {
         if (text.size() != 36) return false;
@@ -304,7 +305,15 @@ int main(int argc, char** argv) {
         signum::requireExpectedDocument(source, expectedDocument);
         signum::requireSupportedSource(source);
         require_driver_readonly(middleware);
-        signum::TransactionalOutput transaction(output.string());
+        std::optional<signum::OutputDirectoryIdentity> outputIdentity;
+        if (!outputDirectoryWire.empty()) {
+            const auto colon = outputDirectoryWire.find(':');
+            if (colon == std::string::npos || colon == 0 || colon + 1 == outputDirectoryWire.size() ||
+                outputDirectoryWire.size() > 48 || outputDirectoryWire.find_first_not_of("0123456789:") != std::string::npos ||
+                outputDirectoryWire.find(':', colon + 1) != std::string::npos) throw std::runtime_error("Invalid output directory identity");
+            outputIdentity = signum::OutputDirectoryIdentity{std::stoll(outputDirectoryWire.substr(0, colon)), std::stoull(outputDirectoryWire.substr(colon + 1))};
+        }
+        signum::TransactionalOutput transaction(output.string(), {}, outputIdentity);
         // PoDoFo operates on the bounded source bytes, never on a public or
         // re-opened temporary pathname. The input is never opened for writing.
         charbuff pdfBytes(std::string(reinterpret_cast<const char*>(source.data()), source.size()));
