@@ -406,3 +406,13 @@ Branch `codex/signum-0.4-stabilization` dal checkpoint `13d817b`. Default format
 Swift finale **333/333**, PKCS#11 **40/40**, PAdES Debug/Release **63/63**, packaging **10/10**, ASAN/TSAN Swift mirati **34/34** ciascuno, native ASAN **63/63**. AP realmente firmate su grandi vettoriali/rotazioni/crop/UserUnit verificate crittograficamente e con Poppler. Zero skip/fallimenti finali. Candidati ad hoc **0.4.0/build 10** da `6e3c4ce`, macOS minimo dichiarato/Mach-O 13.0: `.build/04stabilization-bundles/final-release/Signum.app` e `final-debug` separata; i primi `build10-*` sono intermedi. Bundle/helper/rilocazione verificati.
 
 [Cause, test, misure, commit e limiti](SIGNUM_0.4_STABILIZATION.md). PDF specifico dell’utente non accessibile: il suo collaudo resta da ripetere. Nessun hardware/PIN reale; GUI manuale e runtime 13/14 da verificare. Build precedenti, main, branch di origine, PR #3 e file non tracciati preservati. Nessun push/merge/tag/release, GitHub Actions o accesso ad altri repository.
+
+## 19 ottobre 2026 — Stabilizzazione build 11
+
+Branch codex/signum-0.4-stabilization-b11 da 718406a. Formato modificabile per documento dopo acquisizione e prima del consenso; snapshot immutabili, destinazioni ricalcolate, batch misti, contesti obsoleti revocati. Job congelato con formato/artwork/coordinate effettivamente approvati.
+
+Riprodotto il timbro assente nel viewport reale su fixture ruotate e sulla tavola fornita successivamente dall’utente: trasformazione aggiuntiva nel callback annotazione, clip disgiunto dall’AP. Prototipo A/B prima dell’intervento, poi overlay nativo indipendente con lo stesso artwork, mapping PDFKit e cache della sola firma. Zero rigenerazioni/rasterizzazioni durante drag; mediana evento→binding circa 3 ms, nessuna promessa di fps.
+
+Swift **345/345**, PKCS#11 **40/40**, PAdES Debug/Release **63/63** ciascuna, packaging **10/10**, ASAN/TSAN mirati **17/17** ciascuno. Zero skip/fallimenti finali. Firma sintetica con output AP/Rect/ByteRange/CMS e confronto Poppler su quattro rotazioni; documento reale solo letto localmente, mai firmato o inserito in Git. Candidata **0.4.0/build 11** in preparazione in directory nuove.
+
+[Milestone, riproduzioni, misure e consegna](SIGNUM_0.4_STABILIZATION_B11.md). Video non esaminato, ulteriori tavole e hardware da collaudare esplicitamente; runtime macOS 13/14 non verificato. Main, branch precedenti, build precedenti, PR #3 e file non tracciati preservati. Nessuna operazione remota o accesso ad altri repository.

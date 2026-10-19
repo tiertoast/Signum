@@ -71,3 +71,22 @@ Nel pannello SwiftUI, input schedulato a 60 eventi/s (30 e 120 eventi), latenza 
 Runner A/B aggiornato con opzione --integrated per usare a destra il codice live effettivo, mantenendo a sinistra 718406a. Riesaminata la tavola reale localmente, senza firma: pixel del timbro presenti nel codice integrato, assenti nel percorso precedente; esercitati clic e zoom 25/100/200. Catture ignorate, nessun documento personale nel commit. I test automatici usano esclusivamente fixture sintetiche. Ulteriori tavole dell’utente non ancora disponibili restano da collaudare.
 
 ASAN e TSAN mirati sul codice corrente: **17/17 ciascuno**, zero skip/fallimenti e nessuna segnalazione sanitizer nei log. Comprendono formati, GUI, overlay, cancellazione/render/preflight e output firmato sintetico.
+
+## M8 — Candidata build 11
+
+Sorgente avanzata a **0.4.0 / build 11** dopo i test: Swift completa **345/345**, PKCS#11 **40/40**, PAdES Debug/Release **63/63 ciascuna**, packaging unit **10/10**, ASAN/TSAN mirati **17/17 ciascuno**. Zero skip/fallimenti finali. Suite completa include protezioni snapshot/consenso, atomicità/no-overwrite, Secure Batch PIN, worker, discovery e verifica unificata; nessun dispositivo/PIN reale.
+
+Bundle nuovi previsti in .build/04stabilization-b11/final-debug/Signum.app e final-release/Signum.app. La consegna viene confermata soltanto dopo build, audit dipendenze/minimo OS, codesign, helper/rilocazione e integrazioni con helper impacchettati. Stato prima del packaging: tutte le modifiche applicative committate; i due documenti preesistenti non tracciati restano esclusi.
+
+### Commit milestone
+- M1 dd5b047 — baseline.
+- M2 a094998 — configurazione formato.
+- M3 2871c67 — workflow GUI.
+- M4 b27206f — riproduzione/prototipo.
+- M5 23d23ac — overlay live.
+- M6 1b8c98c — binding/output verificato.
+- M7 f980b58 — regressioni/prestazioni.
+- M8 — commit sorgente build 11 e successivo rapporto dei bundle; hash nel manifest locale.
+
+### Collaudo manuale rimanente
+Aprire la candidata Release nuova, caricare la tavola e scegliere CAdES/PAdES più volte senza riacquisizione. In PAdES attivare il timbro, cliccare/trascinare/ridimensionare con Option, provare zoom e scroll, poi altre tavole e un batch misto. Verificare nomi/destinazioni prima del consenso e firma invisibile. Il collaudo di sola anteprima non richiede PIN. Firma hardware e documenti reali richiedono istruzioni esplicite e non sono stati eseguiti qui. Runtime macOS 13/14 non disponibile: compatibilità di deployment/packaging verificabile, comportamento runtime ancora da collaudare.
