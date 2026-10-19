@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import plistlib
 import json
+import subprocess
 
 SCRIPT = Path(__file__).resolve().parents[1] / "build-beta-app.py"
 spec = importlib.util.spec_from_file_location("beta_package", SCRIPT)
@@ -14,6 +15,46 @@ spec.loader.exec_module(package)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_legacy_script_fails_clearly_without_creating_any_bundle(self):
+        with tempfile.TemporaryDirectory() as root:
+            for args in ([], ["--help"], ["--output", "Signum.app"]):
+                result = subprocess.run(["/bin/bash", str(SCRIPT.with_name("build-app.sh")), *args], cwd=root, capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("retired", result.stderr)
+                self.assertIn("build-beta-app.py", result.stderr)
+                self.assertEqual(list(Path(root).iterdir()), [])
+
+    def test_missing_worker_or_helper_prevents_complete_product_set(self):
+        with tempfile.TemporaryDirectory() as root:
+            bins = Path(root) / "bins"; native = Path(root) / "native"
+            bins.mkdir(); native.mkdir()
+            products = [bins / "SignumApp", bins / "SignumCLI", bins / "SignumPKCS11Worker", native / "signum-pades-local"]
+            for product in products:
+                product.write_bytes(b"synthetic executable"); product.chmod(0o700)
+            self.assertEqual(len(package.required_products(bins, native)), 4)
+            for missing in products:
+                missing.chmod(0o600)
+                with self.assertRaisesRegex(ValueError, "mandatory executable"):
+                    package.required_products(bins, native)
+                missing.chmod(0o700)
+                data = missing.read_bytes(); missing.unlink()
+                with self.assertRaisesRegex(ValueError, "mandatory executable"):
+                    package.required_products(bins, native)
+                missing.write_bytes(data); missing.chmod(0o700)
+
+    def test_missing_dependency_is_refused_without_external_fallback(self):
+        with tempfile.TemporaryDirectory() as root:
+            prefix = Path(root).resolve(); (prefix / "lib").mkdir()
+            with self.assertRaisesRegex(ValueError, "Missing mandatory native dependency"):
+                package.private_dependency("@rpath/libmissing.dylib", prefix)
+            dependency = prefix / "lib/liblocal.dylib"; dependency.write_bytes(b"fixture")
+            self.assertEqual(package.private_dependency("@rpath/liblocal.dylib", prefix), dependency)
+            with self.assertRaisesRegex(ValueError, "Unsupported dependency"):
+                package.private_dependency("@loader_path/outside.dylib", prefix)
+            dependency.unlink(); dependency.symlink_to(SCRIPT)
+            with self.assertRaisesRegex(ValueError, "outside the private"):
+                package.private_dependency("@rpath/liblocal.dylib", prefix)
+
     def test_macho_parsing_handles_spaces_and_system_libraries(self):
         self.assertEqual(package.dependencies("image:\n\t@loader_path/../Frameworks/A B.dylib (compatibility version 1.0.0, current version 1.0.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n"),
                          ["@loader_path/../Frameworks/A B.dylib", "/usr/lib/libSystem.B.dylib"])

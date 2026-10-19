@@ -53,6 +53,8 @@ ASAN usa `detect_leaks=0`: sono controllati gli accessi alla memoria; questa ese
 
 ## Packaging
 
+`scripts/build-app.sh` è ritirato: esce sempre con codice 2 prima di costruire o modificare file. Non esiste più un packager minimale alternativo. L'unico percorso supportato è `scripts/build-beta-app.py`, che richiede app, CLI, worker e helper eseguibili, include/audita la closure nativa, firma ad hoc e prova la rilocazione prima della pubblicazione esclusiva. Una dipendenza o un worker mancanti impediscono il successo.
+
 Le unit test Python non producono un'app distribuibile. Per integrare bundle nuovi usare `scripts/build-beta-app.py --help`, con output in una directory nuova, configurazioni Debug e Release e lo stesso prefix locale. Non installare l'app o sostituire bundle precedenti. Controllare manifest, firma ad hoc, closure delle librerie, minimo macOS e protocolli worker v2/helper v5. I collaudi con dispositivi reali, macOS 13 reale, accessibilità e interazione manuale rimangono separati e non sono impliciti nei risultati sintetici.
 
 Per un bundle appena creato, il controllo riproducibile delle integrazioni è:
