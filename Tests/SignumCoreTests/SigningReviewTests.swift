@@ -16,6 +16,78 @@ import XCTest
             destination: .originalFolders, routeID: "synthetic-route", discoveryID: UUID())
         try await body(root, batch, context)
     }
+    func testNewContextCancelsAnOwnedPublicSubprocessInsteadOfWaitingItsDeadline() async throws {
+        try await fixture { root,batch,context in
+            let engine = root.appendingPathComponent("slow-public")
+            try Data("#!/bin/sh\nexec /bin/sleep 4\n".utf8).write(to:engine)
+            XCTAssertEqual(chmod(engine.path,0o700),0)
+            let entered = expectation(description:"public work entered"), advanced = expectation(description:"new context advanced")
+            let review = SigningReview()
+            let old = Task { await review.prepare(context,batch:batch,validate:{
+                entered.fulfill()
+                var bytes = Data()
+                _ = try SupervisedProcess.run(executable:engine,input:&bytes,timeout:3,isCancelled:{Task.isCancelled})
+            }) }
+            await fulfillment(of:[entered],timeout:2)
+            let newest = Task { await review.prepare(context,batch:batch,validate:{advanced.fulfill()}) }
+            await fulfillment(of:[advanced],timeout:1)
+            await old.value; await newest.value
+            XCTAssertNotNil(review.approval);XCTAssertFalse(review.isPreparing)
+        }
+    }
+    func testRapidContextsCoalesceAndCloseCancelsWithoutPublishingOldApproval() async throws {
+        try await fixture { _,batch,context in
+            let review = SigningReview(), entered = expectation(description:"first entered"), release = DispatchSemaphore(value:0)
+            let first = Task { await review.prepare(context,batch:batch,validateCancellable:{ control in
+                entered.fulfill()
+                let deadline = ProcessInfo.processInfo.systemUptime+3
+                while !control.isCancellationRequested, ProcessInfo.processInfo.systemUptime < deadline {
+                    guard release.wait(timeout:.now()+0.01) == .timedOut else { return }
+                }
+                throw SupervisedProcess.Failure.cancelled
+            }) }
+            await fulfillment(of:[entered],timeout:2)
+            let second = Task { await review.prepare(context,batch:batch,validate:{XCTFail("Intermediate request must coalesce")}) }
+            let third = Task { await review.prepare(context,batch:batch,validate:{}) }
+            await first.value;await second.value;await third.value
+            XCTAssertEqual(review.preflightsStarted,2);XCTAssertNotNil(review.approval)
+            review.cancel();XCTAssertNil(review.approval);XCTAssertNil(review.context);XCTAssertFalse(review.isPreparing)
+        }
+    }
+    func testCancellationReachesSupervisedPublicScanAndDERAndPreservesAvailabilityMeaning() async throws {
+        try await fixture { _,_,_ in
+            let der = try CertificateEligibilityTests.fixtures.get().der("valid")
+            let worker = Bundle(for:Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker")
+            for phase in [2,14] {
+                let mock = try MockModule(certificate:der,workerPhase:phase,workerEffect:2,audit:true)
+                let inspection = try MiddlewareFileSecurity.inspect(mock.path.path,automatic:false)
+                // Build the observed route from the fixture's real public scan;
+                // phase 12 only blocks DER, so discovery metadata stays truthful.
+                let scanMock = try MockModule(certificate:der)
+                let client = IsolatedPKCS11Client(executable:worker)
+                let observed = try client.scan(provider:scanMock.path.path).tokens[0]
+                let definition = MiddlewareDefinition(id:"synthetic",name:"Synthetic",manufacturer:"Tests",candidatePaths:[mock.path.path])
+                let provider = DiscoveredMiddleware(id:"synthetic",definition:definition,origin:.manual,candidatePath:mock.path.path,inspection:inspection,status:.ready,
+                    tokens:[.init(token:observed,certificates:[.init(certificate:.init(label:"Synthetic",identifier:Data([1])),der:der)],certificateState:.readable)],version:nil,unavailableSlots:0)
+                let route = try XCTUnwrap(DeviceCertificate.collect([provider]).first?.routes.first)
+                let operation = SigningOperation(), entered = expectation(description:"blocked public operation \(phase)")
+                let work = Task.detached { Result { try route.requireCurrentCredential(client:client,isCancelled:{operation.isCancellationRequested}) } }
+                let deadline = ProcessInfo.processInfo.systemUptime+3
+                while ProcessInfo.processInfo.systemUptime < deadline {
+                    let audit = (try? String(contentsOf:mock.folder.appendingPathComponent("operations"))) ?? ""
+                    if audit.split(separator:"\n").contains(String(phase)[...]) { entered.fulfill(); break }
+                    try await Task.sleep(nanoseconds:1_000_000)
+                }
+                await fulfillment(of:[entered],timeout:0.1)
+                operation.requestCancellation()
+                let result = await work.value
+                if case .failure(let error) = result { XCTAssertEqual(error as? SupervisedProcess.Failure,.cancelled) }
+                else { XCTFail("Blocked public operation must cancel") }
+                let audit = try String(contentsOf:mock.folder.appendingPathComponent("operations"))
+                XCTAssertFalse(audit.split(separator:"\n").contains("8"));XCTAssertFalse(audit.split(separator:"\n").contains("16"))
+            }
+        }
+    }
     func testPrincipalClickApprovesDisplayedPlanWithoutModalOrPrivateOperation() async throws {
         try await fixture { root, batch, context in
             let review = SigningReview(), interaction = SigningInteraction()

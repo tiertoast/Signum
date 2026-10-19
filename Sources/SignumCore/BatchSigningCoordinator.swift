@@ -107,23 +107,27 @@ public struct BatchApproval: Sendable {
         invalidateReview()
         let request = reviewRequest, version = revision, selected = documents.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
-        let result = try await Task.detached(priority: .userInitiated) {
-            if isCancelled() { throw CancellationError() }
+        let control = SigningOperation()
+        let cancelled: @Sendable () -> Bool = { control.isCancellationRequested || isCancelled() }
+        let work = Task.detached(priority: .userInitiated) {
+            if cancelled() { throw CancellationError() }
             try CertificateEligibility.requireEligible(certificateDER: der)
             for snapshot in selected {
-                if isCancelled() { throw CancellationError() }
+                if cancelled() { throw CancellationError() }
                 _ = try snapshot.verifiedBytes()
             }
-            if isCancelled() { throw CancellationError() }
+            if cancelled() { throw CancellationError() }
             let outputs = try destination.plan(selected,formats:formats)
             let jobs = try zip(selected, outputs).map { snapshot, output in
                 try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot, certificate: certificate,
                     certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity,
-                    padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper, isCancelled: isCancelled) : nil,
+                    padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper, isCancelled: cancelled) : nil,
                     padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext)
             }
             return BatchApproval(id: UUID(), jobs: jobs)
-        }.value
+        }
+        let result = try await withTaskCancellationHandler(operation: { try await work.value },
+            onCancel: { control.requestCancellation(); work.cancel() })
         guard !Task.isCancelled, !isCancelled(), reviewRequest == request, revision == version, !isFrozen, !isPreparing else {
             throw Self.failure("Il riepilogo è cambiato. Controlla la nuova lista prima di firmare.")
         }
@@ -154,7 +158,7 @@ public struct BatchApproval: Sendable {
         invalidateReview(); revision = UUID(); isPreparing = true
         let ticket = UUID(); acquisitionID = ticket
         return Task { @MainActor in
-            guard acquisitionID == ticket, !Task.isCancelled else { isPreparing = false; return }
+            guard acquisitionID == ticket, !Task.isCancelled else { if acquisitionID == ticket { isPreparing = false }; return }
             isPreparing = false
             await addDocuments(urls, format: format)
         }
@@ -168,17 +172,19 @@ public struct BatchApproval: Sendable {
         let request = UUID(); acquisitionID = request
         let operation = SigningOperation(), capture = captureDocument
         acquisitionOperation = operation
-        defer { isPreparing = false; acquisitionOperation = nil }
+        defer { if acquisitionID == request { isPreparing = false; acquisitionOperation = nil } }
         for url in urls.prefix(Self.maximumDocuments) {
-            guard acquisitionID == request else { break }
+            guard acquisitionID == request, !Task.isCancelled else { operation.requestCancellation(); break }
             guard documents.count < Self.maximumDocuments else {
                 selectionIssues.append("Massimo \(Self.maximumDocuments) documenti per sessione."); break
             }
             if documents.contains(where: { $0.snapshot.originalURL.standardizedFileURL == url.standardizedFileURL }) {
                 selectionIssues.append("\(url.lastPathComponent): documento già selezionato."); continue
             }
-            let captured = await Task.detached(priority: .userInitiated) { Result { try capture(url, format, operation) } }.value
-            guard acquisitionID == request else { if case .success(let snapshot) = captured { snapshot.close() }; break }
+            let captureTask = Task.detached(priority: .userInitiated) { Result { try capture(url, format, operation) } }
+            let captured = await withTaskCancellationHandler(operation: { await captureTask.value },
+                onCancel: { operation.requestCancellation(); captureTask.cancel() })
+            guard acquisitionID == request, !Task.isCancelled else { if case .success(let snapshot) = captured { snapshot.close() }; break }
             switch captured {
             case .failure(let error):
                 selectionIssues.append("\(url.lastPathComponent): \(error.localizedDescription)")
@@ -262,7 +268,7 @@ public struct BatchApproval: Sendable {
     public func cancelPending() {
         invalidateReview(); revision = UUID()
         acquisitionOperation?.requestCancellation()
-        acquisitionID = UUID()
+        acquisitionID = UUID(); isPreparing = false; acquisitionOperation = nil
         for id in documents.map(\.id) { cancelDocument(id) }
     }
     public func cancelDocument(_ id: UUID) {

@@ -221,7 +221,7 @@ private enum SignumFormat: String, Hashable {
         }
         .task(id: batch.isFrozen ? nil : reviewContext) {
             let context = reviewContext, route = devices.selectedRoute
-            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validate: { try route?.requireCurrentCredential() })
+            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validateCancellable: { control in try route?.requireCurrentCredential(isCancelled: { control.isCancellationRequested }) })
             if review.credentialUnavailable, review.context == context, !batch.isFrozen {
                 devices.select(routeID:nil); provider.beginDiscovery(); batch.invalidateReview()
                 status = DeviceCertificateRoute.AvailabilityFailure.unavailable.localizedDescription
@@ -240,6 +240,7 @@ private enum SignumFormat: String, Hashable {
         }
         .onChange(of: saveAlongsideOriginal) { _ in if !batch.isFrozen { provider.pin = "" } }
         .onDisappear {
+            review.cancel()
             authenticationSession?.requestStop()
             work?.requestCancellation()
             batch.cancelAll()

@@ -33,12 +33,21 @@ struct SigningReviewContext: Equatable {
     private var activeID = UUID()
     private(set) var preflightsStarted = 0
     private(set) var preparationsDiscarded = 0
+    func cancel() {
+        request = UUID(); activeCancellation?.requestCancellation(); activePreparation?.cancel()
+        context = nil; approval = nil; isPreparing = false; issue = ""; credentialUnavailable = false
+    }
     func prepare(_ context: SigningReviewContext?, batch: BatchSigningCoordinator,
                  appearances: [UUID: RenderedPAdESAppearance] = [:],
                  validate: @escaping @Sendable () throws -> Void) async {
+        await prepare(context, batch: batch, appearances: appearances, validateCancellable: { _ in try validate() })
+    }
+    func prepare(_ context: SigningReviewContext?, batch: BatchSigningCoordinator,
+                 appearances: [UUID: RenderedPAdESAppearance] = [:],
+                 validateCancellable: @escaping @Sendable (SigningOperation) throws -> Void) async {
         guard !batch.isFrozen else { return }
         let id = UUID(); request = id
-        activeCancellation?.requestCancellation()
+        activeCancellation?.requestCancellation(); activePreparation?.cancel()
         self.context = context; approval = nil; issue = ""; credentialUnavailable = false; isPreparing = context != nil
         batch.invalidateReview()
         guard let context else { return }
@@ -47,16 +56,21 @@ struct SigningReviewContext: Equatable {
             guard context.appearanceHashes == appearances.mapValues({ $0.approvalIdentity }) else {
                 throw SignumError.module("L’appearance è cambiata. Attendi la nuova anteprima prima di approvare.")
             }
+            // Retire the owned public operation before starting another. Its
+            // cancellation reaches the supervised child (bounded TERM/KILL),
+            // and generation checks coalesce all intervening requests to newest.
             if let previous = activePreparation { _ = try? await previous.value }
             guard request == id, !Task.isCancelled, context.revision == batch.revision else { preparationsDiscarded += 1; return }
             let cancellation = SigningOperation(), workID = UUID()
             preflightsStarted += 1
             let task = Task { @MainActor in
-                try await Task.detached(priority: .userInitiated) {
+                let validation = Task.detached(priority: .userInitiated) {
                     if cancellation.isCancellationRequested { throw CancellationError() }
-                    try validate()
-                }.value
-                if cancellation.isCancellationRequested || context.revision != batch.revision { throw CancellationError() }
+                    try validateCancellable(cancellation)
+                }
+                try await withTaskCancellationHandler(operation: { try await validation.value },
+                    onCancel: { cancellation.requestCancellation(); validation.cancel() })
+                if Task.isCancelled || cancellation.isCancellationRequested || context.revision != batch.revision { throw CancellationError() }
                 return try await batch.prepareReview(provider: context.provider, slot: context.slot,
                     certificate: context.certificate, der: context.der, destination: context.destination,
                     providerContext: context.providerContext, appearances: appearances, isCancelled: { cancellation.isCancellationRequested })
@@ -64,11 +78,11 @@ struct SigningReviewContext: Equatable {
             activePreparation = task; activeCancellation = cancellation; activeID = workID
             defer { if activeID == workID { activePreparation = nil; activeCancellation = nil } }
             let plan = try await withTaskCancellationHandler(operation: { try await task.value },
-                onCancel: { cancellation.requestCancellation() })
+                onCancel: { cancellation.requestCancellation(); task.cancel() })
             guard request == id, !Task.isCancelled else { preparationsDiscarded += 1; return }
             approval = plan
         } catch {
-            if request == id, !Task.isCancelled {
+            if request == id, !Task.isCancelled, !(error is CancellationError), error as? SupervisedProcess.Failure != .cancelled {
                 issue = error.localizedDescription
                 credentialUnavailable = error is DeviceCertificateRoute.AvailabilityFailure
             }
