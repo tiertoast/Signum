@@ -23,13 +23,24 @@ public enum SupervisedProcess {
             }
         }
     }
-    private static let lock = NSLock()
-    private static var active = 0
-    static func acquire() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard active < 8 else { return false }; active += 1; return true
+    /// The process slot lives until observed reaping, including deferred reaping.
+    /// The only mutable field is private and every access holds lock. No callbacks
+    /// or process waits run under it; static storage retains only this owner.
+    private final class Capacity: @unchecked Sendable {
+        private let lock = NSLock()
+        private var active = 0
+        func acquire() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard active < 8 else { return false }; active += 1; return true
+        }
+        func release() {
+            lock.lock(); defer { lock.unlock() }
+            precondition(active > 0); active -= 1
+        }
     }
-    static func release() { lock.lock(); active -= 1; lock.unlock() }
+    private static let capacity = Capacity()
+    static func acquire() -> Bool { capacity.acquire() }
+    static func release() { capacity.release() }
 
     public static func run(executable: URL, arguments: [String] = [], input: inout Data,
                            maximumInput: Int = 131072, maximumOutput: Int = 2 * 1024 * 1024,

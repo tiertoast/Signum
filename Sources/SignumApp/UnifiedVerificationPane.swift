@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 import SignumCore
 
 enum VerificationDropLoader {
-    static func urls(from providers: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
+    @MainActor static func urls(from providers: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
         guard providers.count <= 32 else { return [] }
         return await FileDropResolution.resolve(providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }, timeout: timeout)
     }
@@ -38,7 +38,7 @@ enum VerificationDropLoader {
         for index in rows.indices where rows[index].report == nil { rows[index].issue = "Verifica annullata." }
     }
     func reset() { cancel(); rows = []; issue = "" }
-    @discardableResult func acquire(using load: @escaping () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
+    @discardableResult func acquire(using load: @escaping @MainActor () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
         cancel(); let id = request
         busy = true; acquiring = true; issue = ""; rows = []
         let task = Task { @MainActor in

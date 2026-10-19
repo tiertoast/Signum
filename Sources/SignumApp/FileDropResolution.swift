@@ -2,15 +2,17 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// Bounded collection: late/duplicate callbacks cannot reorder the user's list
+/// All mutable collector fields are lock-protected; completion is Sendable and
+/// invoked once outside the lock. Provider registration remains on MainActor;
+/// no NSItemProvider crosses an executor. Bounded collection: late/duplicate callbacks cannot reorder the user's list
 /// or resume a continuation twice. A broken external drag source cannot keep
 /// the interface waiting indefinitely.
 final class FileDropResolution: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [URL?]
     private var received = Set<Int>()
-    private var completion: (([URL]) -> Void)?
-    init(count: Int, completion: @escaping ([URL]) -> Void) {
+    private var completion: (@Sendable ([URL]) -> Void)?
+    init(count: Int, completion: @escaping @Sendable ([URL]) -> Void) {
         values = Array(repeating: nil, count: count); self.completion = completion
     }
     func receive(index: Int, url: URL?) {
@@ -43,8 +45,8 @@ final class FileDropResolution: @unchecked Sendable {
             current?.finish()
         }
     }
-    typealias Loader = (@escaping @Sendable (URL?) -> Void) -> Void
-    static func resolve(_ items: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
+    typealias Loader = @MainActor (@escaping @Sendable (URL?) -> Void) -> Void
+    @MainActor static func resolve(_ items: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
         guard timeout.isFinite, timeout > 0 else { return [] }
         let loaders: [Loader] = items.map { item in { receive in
             item.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, _ in
@@ -56,7 +58,7 @@ final class FileDropResolution: @unchecked Sendable {
             DispatchQueue.global().asyncAfter(deadline: .now() + min(30, max(0.01, timeout)), execute: finish)
         })
     }
-    static func resolve(loaders: [Loader], scheduleTimeout: (@escaping @Sendable () -> Void) -> Void) async -> [URL] {
+    @MainActor static func resolve(loaders: [Loader], scheduleTimeout: (@escaping @Sendable () -> Void) -> Void) async -> [URL] {
         guard !loaders.isEmpty, loaders.count <= 32, !Task.isCancelled else { return [] }
         let cancellation = Cancellation()
         let urls = await withTaskCancellationHandler(operation: {

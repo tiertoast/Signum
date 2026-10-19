@@ -25,12 +25,12 @@ final class SigningOperationTests: XCTestCase {
     }
     func testIsolatedJobPublishesOnlyApprovedBytesAndCompletesOnce() throws {
         try withJob { job, mock, _ in
-            var states: [SigningOperationPhase] = []
-            let operation = SigningOperation { states.append($0) }
+            let states = FixtureLocked<[SigningOperationPhase]>([])
+            let operation = SigningOperation { phase in states.withValue { $0.append(phase) } }
             try Data("Changed original".utf8).write(to: job.snapshot.originalURL)
             try job.signCAdES(using: worker, pin: "synthetic-fixture", operation: operation)
             XCTAssertEqual(try CAdESVerifier.verify(file: job.destination).originalDocument, Data("Approved synthetic bytes".utf8))
-            XCTAssertEqual(states, [.preparing, .waitingForAuthentication, .signing, .verifying, .completed])
+            XCTAssertEqual(states.withValue { $0 }, [.preparing, .waitingForAuthentication, .signing, .verifying, .completed])
             XCTAssertEqual(operation.state, .completed); XCTAssertFalse(operation.requestCancellation())
             XCTAssertFalse(FileManager.default.fileExists(atPath: job.snapshot.fileURL.path))
             XCTAssertThrowsError(try job.signCAdES(using: worker, pin: "synthetic-fixture", operation: operation))
@@ -51,8 +51,9 @@ final class SigningOperationTests: XCTestCase {
     }
     func testCancellationAfterSignatureBeforeCommitLeavesNoOutput() throws {
         try withJob { job, _, _ in
-            var operation: SigningOperation!
-            operation = SigningOperation { phase in if phase == .verifying { operation.requestCancellation() } }
+            let reference = FixtureLocked<SigningOperation?>(nil)
+            let operation = SigningOperation { phase in if phase == .verifying { reference.withValue { $0 }?.requestCancellation() } }
+            reference.withValue { $0 = operation }; defer { reference.withValue { $0 = nil } }
             XCTAssertThrowsError(try job.signCAdES(using: worker, pin: "synthetic-fixture", operation: operation))
             XCTAssertEqual(operation.state, .cancelled)
             XCTAssertFalse(FileManager.default.fileExists(atPath: job.destination.path))
@@ -73,8 +74,9 @@ final class SigningOperationTests: XCTestCase {
         }
     }
     func testStateCallbacksReentrantAndCommitBarrierRejectsLateCancel() throws {
-        var operation: SigningOperation!
-        operation = SigningOperation { phase in XCTAssertEqual(operation.state, phase) }
+        let reference = FixtureLocked<SigningOperation?>(nil)
+        let operation = SigningOperation { phase in XCTAssertEqual(reference.withValue { $0 }?.state, phase) }
+        reference.withValue { $0 = operation }; defer { reference.withValue { $0 = nil } }
         XCTAssertFalse(operation.transition(to: .signing))
         XCTAssertTrue(operation.transition(to: .preparing)); XCTAssertTrue(operation.transition(to: .verifying))
         XCTAssertTrue(operation.beginPublication()); XCTAssertFalse(operation.requestCancellation())

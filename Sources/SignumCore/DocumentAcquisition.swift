@@ -3,7 +3,7 @@ import Foundation
 import Darwin
 
 public struct DocumentAcquisitionFailure: Error, LocalizedError {
-    public enum Kind: String { case changed, unavailable, read, tooLarge, space, timeout, cancelled, unsupported }
+    public enum Kind: String, Sendable { case changed, unavailable, read, tooLarge, space, timeout, cancelled, unsupported }
     public let kind: Kind
     public let technicalDetails: String
     init(_ kind: Kind, _ operation: String, code: Int32? = nil) {

@@ -4,7 +4,7 @@ import Security
 
 /// App-internal client for the bundled worker, not a public integration protocol.
 /// Calls are synchronous off-main and bounded. No installed provider is loaded here.
-public final class IsolatedPKCS11Client: @unchecked Sendable {
+public final class IsolatedPKCS11Client: Sendable {
     public enum Failure: Error, LocalizedError {
         case busy
         case authenticationRequired

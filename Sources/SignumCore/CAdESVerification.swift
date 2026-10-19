@@ -3,13 +3,13 @@ import Foundation
 import Darwin
 #endif
 
-public struct CAdESVerificationLevel: Identifiable {
+public struct CAdESVerificationLevel: Identifiable, Sendable {
     public let level: Int
     public let signers: [String]
     public var id: Int { level }
 }
 
-public struct CAdESVerificationResult {
+public struct CAdESVerificationResult: Sendable {
     public let levels: [CAdESVerificationLevel] // outside -> inside
     public let originalDocument: Data
     public let suggestedFilename: String

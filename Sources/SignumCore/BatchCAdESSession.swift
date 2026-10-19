@@ -8,10 +8,30 @@ public final class BatchCAdESSession: @unchecked Sendable {
     public let approvalID: UUID
     private let jobs: [SigningJob], serial: String, identity: MiddlewareFileIdentity, automatic: Bool, executable: URL
     private let temporaryPIN: Bool
-    private let ioLock = NSLock(), state = NSLock()
-    private var connection: BatchSigningConnection?
+    // connection/began/factory are accessed only under ioLock. stopped/reusable/
+    // cleanupFailed use state. No caller holds state while waiting for ioLock.
+    // The narrow connection owner survives session deinit, so off-main retirement
+    // uses the SAME lock instead of sending an unprotected existential.
+    private final class ConnectionOwner: @unchecked Sendable {
+        let lock = NSLock()
+        var value: BatchSigningConnection? // only while lock is held
+        func retire() {
+            lock.lock(); defer { lock.unlock() }
+            try? value?.finish(); value?.abort(); value = nil
+        }
+    }
+    private let owner = ConnectionOwner(), state = NSLock()
+    private var ioLock: NSLock { owner.lock }
+    private var connection: BatchSigningConnection? {
+        get { owner.value }
+        set { owner.value = newValue }
+    }
     // Internal test seam for the session lifecycle, without launching a worker.
-    var makeConnection: (BatchWorkerStart, URL) -> BatchSigningConnection = { BatchSignatureConnection(manifest: $0, executable: $1) }
+    private var connectionFactory: (BatchWorkerStart, URL) -> BatchSigningConnection = { BatchSignatureConnection(manifest: $0, executable: $1) }
+    var makeConnection: (BatchWorkerStart, URL) -> BatchSigningConnection {
+        get { ioLock.lock(); defer { ioLock.unlock() }; return connectionFactory }
+        set { ioLock.lock(); defer { ioLock.unlock() }; precondition(!began); connectionFactory = newValue }
+    }
     private var stopped = false, reusable = false, began = false, cleanupFailed = false
     public var cleanupUncertain: Bool { state.lock(); defer { state.unlock() }; return cleanupFailed }
     public var canContinue: Bool { state.lock(); defer { state.unlock() }; return reusable && !stopped }
@@ -61,9 +81,8 @@ public final class BatchCAdESSession: @unchecked Sendable {
         await Task.detached(priority: .utility) { self.retire() }.value
     }
     deinit {
-        if let remaining = connection {
-            DispatchQueue.global(qos: .utility).async { try? remaining.finish(); remaining.abort() }
-        }
+        let retiring = owner
+        DispatchQueue.global(qos: .utility).async { retiring.retire() }
     }
     public func signCAdES(job: SigningJob, pin: String?, operation: SigningOperation, timeout: TimeInterval = 120) throws {
         guard ioLock.try() else { throw IsolatedPKCS11Client.Failure.busy }
@@ -96,7 +115,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
                     certificate: WorkerCertificate(job.certificate, der: job.certificateDER), automatic: automatic,
                     moduleIdentity: identity, jobs: manifestJobs, pin: nil)
                 if temporaryPIN { manifest.temporaryPIN = true }
-                connection = makeConnection(manifest, executable)
+                connection = connectionFactory(manifest, executable)
                 began = true
             }
             guard let connection, pin == nil || connection.next == 0 else { throw SupervisedProcess.Failure.protocolViolation }

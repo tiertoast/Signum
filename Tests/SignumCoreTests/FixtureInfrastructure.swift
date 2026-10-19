@@ -39,3 +39,14 @@ enum FixtureRequirements {
     }
 }
 #endif
+
+/// Mutable observations from Sendable fixture callbacks use the same real lock
+/// for reads and writes. The value never escapes while it is being mutated.
+final class FixtureLocked<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+    init(_ value: Value) { storage = value }
+    func withValue<Result>(_ body: (inout Value) throws -> Result) rethrows -> Result {
+        lock.lock(); defer { lock.unlock() }; return try body(&storage)
+    }
+}

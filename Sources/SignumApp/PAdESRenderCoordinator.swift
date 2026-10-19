@@ -46,16 +46,20 @@ import SignumCore
         started += 1
         let cancellation = SigningOperation(), renderer = self.renderer
         self.cancellation = cancellation
+        // Keep the UI callback in the MainActor request. Only immutable artwork
+        // values and the lock-protected cancellation token enter the worker.
+        let configuration=request.configuration, der=request.der, crop=request.crop
+        let rotation=request.pageRotation, previous=request.previous
         active = Task { @MainActor [weak self] in
             let result = await Task.detached(priority:.userInitiated) {
                 Result {
-                    if let previous=request.previous,let rotation=request.pageRotation,
-                       previous.certificateSHA256 == SHA256.hash(data:request.der).map({ String(format:"%02x",$0) }).joined(),
-                       previous.canReorient(to:request.configuration,pageRotation:rotation) {
-                        return try previous.reoriented(request.configuration,cropBox:request.crop,pageRotation:rotation,
+                    if let previous,let rotation,
+                       previous.certificateSHA256 == SHA256.hash(data:der).map({ String(format:"%02x",$0) }).joined(),
+                       previous.canReorient(to:configuration,pageRotation:rotation) {
+                        return try previous.reoriented(configuration,cropBox:crop,pageRotation:rotation,
                                                        isCancelled:{cancellation.isCancellationRequested})
                     }
-                    return try renderer(request.configuration,request.der,request.crop,request.pageRotation,{ cancellation.isCancellationRequested })
+                    return try renderer(configuration,der,crop,rotation,{ cancellation.isCancellationRequested })
                 }
             }.value
             guard let self else { return }

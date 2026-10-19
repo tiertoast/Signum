@@ -83,8 +83,10 @@ public struct SignumTokenScan {
 /// per canonical module and serialize complete session transactions. Retain the
 /// object during a call. Higher-level multi-call jobs still need their own state.
 /// The driver executes in-process: use trusted modules and call off the UI thread.
-public final class PKCS11Module: @unchecked Sendable {
-    // Immutable Swift state; each C entry point serializes the shared provider.
+public final class PKCS11Module {
+    // Single-owner Swift resource: batchSession/closedInWorker are worker-only.
+    // Do not transfer the module across executors. Public C transactions still
+    // serialize provider access; that does not make Swift lifecycle state Sendable.
     private let context: OpaquePointer
     private var batchSession: OpaquePointer?
     private var closedInWorker = false // Used only by the single-owner worker entry point.
@@ -105,6 +107,8 @@ public final class PKCS11Module: @unchecked Sendable {
         modulePath = sg_canonical_path(pointer).map { String(cString: $0) } ?? path
     }
 
+    // Exclusive transfer of the last context to releaseQueue. No caller remains,
+    // pointer is immutable, and the sole scheduled closure invokes sg_close once.
     private final class RetiredContext: @unchecked Sendable {
         let pointer: OpaquePointer
         init(_ pointer: OpaquePointer) { self.pointer = pointer }

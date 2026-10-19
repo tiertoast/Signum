@@ -16,7 +16,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'scripts/local-test-groups.json'
-SANITIZER_FILTER = '(' + '|'.join('BatchCleanupContractTests PostLoginCertificateTests OneShotContextTests PAdESInputContractTests SecurePINBufferTests SecureBatchNativeTests BatchAuthenticationTests BatchAuthIntegrationTests PKCS11WorkerTests PKCS11LifecycleIntegrationTests ProcessCoordinationTests SigningReviewTests VerificationDropLifecycleTests PAdESSourcePreflightTests SignumFileOutputTests SigningJobTests FileAcquisitionTests FixtureInfrastructureTests SnapshotRetirementTests PDFPreviewPreparationTests DocumentSnapshotTests PAdESRenderCoordinationTests PAdESPlacementPerformanceTests SignaturePlacementOverlayTests SupervisedProcessTests'.split()) + ')/'
+SANITIZER_FILTER = '(' + '|'.join('BatchCleanupContractTests PostLoginCertificateTests OneShotContextTests PAdESInputContractTests SecurePINBufferTests SecureBatchNativeTests BatchAuthenticationTests BatchAuthIntegrationTests PKCS11WorkerTests PKCS11LifecycleIntegrationTests ProcessCoordinationTests SigningReviewTests VerificationDropLifecycleTests PAdESSourcePreflightTests SignumFileOutputTests SigningJobTests FileAcquisitionTests FixtureInfrastructureTests SnapshotRetirementTests PDFPreviewPreparationTests DocumentSnapshotTests PAdESRenderCoordinationTests PAdESPlacementPerformanceTests SignaturePlacementOverlayTests SupervisedProcessTests ConcurrencyOwnershipTests SigningOperationTests'.split()) + ')/'
 
 
 def test_groups(root=ROOT):

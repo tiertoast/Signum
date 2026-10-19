@@ -64,6 +64,11 @@ import CoreGraphics
             XCTAssertEqual(batch.selectionIssues.count, 2)
             let removed = batch.documents[1].snapshot
             batch.remove(removed.identity.id)
+            XCTAssertTrue(removed.isRetired)
+            XCTAssertFalse(batch.documents.contains { $0.id == removed.identity.id })
+            // Logical revocation is immediate; physical cleanup is intentionally off-main.
+            let cleaned = expectation(for: NSPredicate { _, _ in !FileManager.default.fileExists(atPath: removed.fileURL.path) }, evaluatedWith: nil)
+            await fulfillment(of: [cleaned], timeout: 5)
             XCTAssertFalse(FileManager.default.fileExists(atPath: removed.fileURL.path))
             let existing = root.appendingPathComponent(paths[0].lastPathComponent + ".p7m")
             try Data("PRESERVE".utf8).write(to: existing)
@@ -228,13 +233,13 @@ import CoreGraphics
         }
     }
     func testDropCallbacksKeepOrderAndIgnoreLateOrDuplicateReplies() {
-        var collected: [[URL]] = []
-        let state = FileDropResolution(count: 3) { collected.append($0) }
+        let collected = FixtureLocked<[[URL]]>([])
+        let state = FileDropResolution(count: 3) { urls in collected.withValue { $0.append(urls) } }
         let a = URL(fileURLWithPath: "/synthetic/a"), b = URL(fileURLWithPath: "/synthetic/b")
         state.receive(index: 1, url: b); state.receive(index: 0, url: a)
         state.receive(index: 0, url: URL(fileURLWithPath: "/ignored")); state.finish()
         state.receive(index: 2, url: URL(fileURLWithPath: "/late")); state.finish()
-        XCTAssertEqual(collected, [[a, b]])
+        XCTAssertEqual(collected.withValue { $0 }, [[a, b]])
     }
     func testSelectionBoundAndDeclinedApprovalRemainEditableWithoutAuthentication() async throws {
         try await fixture { root, signer, mock, batch, _ in
