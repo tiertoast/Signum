@@ -45,3 +45,13 @@ Prototipo locale facoltativo in Tools/OrientationProbe/ (solo anteprima, nessun 
 
 
 Aggiunta anche una regressione dedicata alla navigazione fra pagine miste: da 0°/A0 a 270° con MediaBox nonzero e UserUnit 10. L’artwork della vecchia pagina scompare, il nuovo conserva il contenuto upright e cambia identità approvata, si limita al crop e segue lo scroll effettivo a zoom 200%. Resize al bordo non può uscire dal CropBox; lo stesso resize all’interno cambia correttamente le dimensioni logiche. La suite finale include questo caso aggiuntivo.
+
+## Verifiche finali prima del packaging
+
+Sorgente applicativa verificata: **356/356 Swift**, **40/40 PKCS#11**, **63/63 PAdES Debug e 63/63 Release**, **10/10 packaging unit**, **22/22 ASAN e 22/22 TSAN** mirati. Zero skip/fallimenti finali, nessuna segnalazione dei sanitizer. La prima suite completa era 355/355; dopo l’aggiunta della regressione pagine miste rieseguita interamente con 356 test, oltre ai due sanitizer.
+
+I test includono CAdES/PAdES singoli e batch, formati dinamici/misti, Secure Batch PIN sintetico, discovery simulata, SG-01/14/02/03/04/05/06, timeout/cancel, snapshot e no-overwrite. Nessuna modifica alle primitive, ai protocolli credenziali, al lifecycle PKCS#11 o al helper PoDoFo. Il probe --smoke ha avviato l’anteprima sintetica, pubblicato la readiness e terminato normalmente con cleanup; non sostituisce il collaudo interattivo del menu.
+
+Soltanto dopo queste verifiche la fonte viene avanzata a **0.4.0 / build 12**. Destinazioni nuove: .build/04stabilization-b12/final-debug/Signum.app e final-release/Signum.app. La consegna dei bundle sarà confermata dopo audit, codesign strict, rilocazione e integrazioni con helper effettivamente inclusi.
+
+Log: .build/04stabilization-b12/evidence/final-complete-swift.log, final-complete-asan.log, final-complete-tsan.log, final-pkcs11.log, final-pades-debug.log, final-pades-release.log, final-packaging-tests.log. I run preliminari sono conservati separatamente e non sostituiscono questi esiti.
