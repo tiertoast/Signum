@@ -431,11 +431,31 @@ static int sg_certificate_der_impl(SGContext *ctx, unsigned long slot, const uin
     return status;
 }
 
+/* No active sign operation exists here. Find/DER/policy are evaluated in
+ * the same authenticated session, before key selection and SignInit. Never
+ * insert object searches after the CONTEXT_SPECIFIC authorization. */
+static int check_authenticated_certificate(SGContext *ctx, CK_SESSION_HANDLE session,
+    const uint8_t *id, size_t id_length, const uint8_t *expected, size_t expected_length,
+    char *error, size_t size) {
+    CK_OBJECT_HANDLE certificate;
+    int status = find_one(ctx, session, CKO_CERTIFICATE, id, id_length, &certificate, error, size);
+    if (status) return status;
+    uint8_t actual[65536];
+    CK_ATTRIBUTE attr = { CKA_VALUE, actual, sizeof(actual) };
+    CK_RV rv = ctx->api->C_GetAttributeValue(session, certificate, &attr, 1);
+    if (rv != CKR_OK) return failed(error, size, "Authenticated certificate DER", rv);
+    if (!attr.ulValueLen || attr.ulValueLen > sizeof(actual) || attr.ulValueLen != expected_length ||
+        memcmp(actual, expected, expected_length))
+        return invalid(error, size, "Certificate changed after USER login");
+    SGCertificateAssessment assessment = sg_certificate_assess(actual, attr.ulValueLen, sg_certificate_now());
+    return assessment.status == SG_CERT_ELIGIBLE ? 0 : invalid(error, size, "Certificate no longer locally eligible");
+}
+
 static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *id,
                  size_t id_length, const uint8_t *pin, size_t pin_length,
                  const uint8_t *message, size_t message_length,
                  uint8_t *signature, size_t signature_capacity,
-                 size_t *signature_length, char *error, size_t error_size) {
+                 size_t *signature_length, const uint8_t *expected, size_t expected_length, char *error, size_t error_size) {
     if (!ctx || !id || !id_length || !pin || !pin_length || !message || !signature ||
         !signature_length || message_length > 1024 * 1024 || signature_capacity < 8192)
         return invalid(error, error_size, "Invalid signing arguments");
@@ -444,6 +464,7 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
     if (open_session(ctx, slot, &session, error, error_size)) return -1;
     CK_RV rv;
     int status = login_user(ctx, session, pin, pin_length, error, error_size);
+    if (!status && expected) status = check_authenticated_certificate(ctx, session, id, id_length, expected, expected_length, error, error_size);
     if (!status) {
         CK_OBJECT_HANDLE key;
         status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length, &key, error, error_size);
@@ -487,7 +508,7 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                            const uint8_t *pin, size_t pin_length,
                            const uint8_t *digestinfo, size_t digestinfo_length,
                            uint8_t *signature, size_t signature_capacity,
-                           size_t *signature_length, char *error, size_t error_size) {
+                           size_t *signature_length, const uint8_t *expected, size_t expected_length, char *error, size_t error_size) {
     // SHA-256 DigestInfo is exactly 51 bytes:
     // SEQUENCE AlgorithmIdentifier SHA256 + OCTET STRING 32.
     static const uint8_t prefix[] = {
@@ -504,6 +525,7 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
     if (open_session(ctx, slot, &session, error, error_size)) return -1;
     CK_RV rv;
     int status = login_user(ctx, session, pin, pin_length, error, error_size);
+    if (!status && expected) status = check_authenticated_certificate(ctx, session, id, id_length, expected, expected_length, error, error_size);
     if (!status) {
         CK_OBJECT_HANDLE key;
         status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length,
@@ -570,7 +592,7 @@ int sg_certificate_der(SGContext *ctx, unsigned long slot, const uint8_t *id, si
 int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length, uint8_t *signature, size_t signature_capacity, size_t *signature_length, char *error, size_t error_size) {
     if (signature_length) *signature_length = 0;
     if (enter(ctx, error, error_size)) return -1;
-    int status = sg_sign_test_impl(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, signature_capacity, signature_length, error, error_size);
+    int status = sg_sign_test_impl(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, signature_capacity, signature_length, NULL, 0, error, error_size);
     pthread_mutex_unlock(&ctx->provider->operations);
     return status;
 }
@@ -578,7 +600,7 @@ int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t i
 int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, const uint8_t *pin, size_t pin_length, const uint8_t *digestinfo, size_t digestinfo_length, uint8_t *signature, size_t signature_capacity, size_t *signature_length, char *error, size_t error_size) {
     if (signature_length) *signature_length = 0;
     if (enter(ctx, error, error_size)) return -1;
-    int status = sg_sign_encoded_digest_impl(ctx, slot, id, id_length, pin, pin_length, digestinfo, digestinfo_length, signature, signature_capacity, signature_length, error, error_size);
+    int status = sg_sign_encoded_digest_impl(ctx, slot, id, id_length, pin, pin_length, digestinfo, digestinfo_length, signature, signature_capacity, signature_length, NULL, 0, error, error_size);
     pthread_mutex_unlock(&ctx->provider->operations);
     return status;
 }
@@ -611,7 +633,7 @@ int name(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length
     if (length) *length = 0; \
     if (enter(ctx, error, error_size)) return -1; \
     int status = check_signing_certificate(ctx, slot, id, id_length, expected, expected_length, error, error_size); \
-    if (!status) status = implementation(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, capacity, length, error, error_size); \
+    if (!status) status = implementation(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, capacity, length, expected, expected_length, error, error_size); \
     if (status && signature && capacity) memset(signature, 0, capacity); \
     pthread_mutex_unlock(&ctx->provider->operations); \
     return status; \

@@ -33,6 +33,8 @@ void mock_return_length(int operation, unsigned long length) {
 static unsigned char certificate_bytes[65536], replacement_bytes[65536];
 static size_t certificate_length, replacement_length;
 static unsigned certificate_reads, replace_after;
+static int after_user_action, certificate_absent;
+void mock_after_user_login(int action) { pthread_mutex_lock(&mutex); after_user_action = action; pthread_mutex_unlock(&mutex); }
 void mock_certificate_der(const unsigned char *bytes, size_t length) {
     pthread_mutex_lock(&mutex);
     if (bytes && length && length <= sizeof(certificate_bytes)) {
@@ -202,17 +204,27 @@ static CK_RV login(CK_SESSION_HANDLE h, CK_USER_TYPE user, CK_UTF8CHAR_PTR value
     if (user == CKU_USER) {
         if (stats.logged_in) return end(CKR_USER_ALREADY_LOGGED_IN);
         stats.logged_in = 1;
+        if (after_user_action == 1 && replacement_length) {
+            memcpy(certificate_bytes, replacement_bytes, replacement_length);
+            certificate_length = replacement_length; replacement_length = 0;
+        }
+        if (after_user_action == 2) certificate_absent = 1;
+        if (after_user_action == 3) { sessions[h].active = 0; --stats.sessions; }
     }
     return end(CKR_OK);
 }
 static CK_RV logout(CK_SESSION_HANDLE h) { BEGIN(M_LOGOUT); VALID(h); stats.logged_in = 0; return end(CKR_OK); }
 static CK_RV find_init(CK_SESSION_HANDLE h, CK_ATTRIBUTE_PTR attrs, CK_ULONG n) {
-    BEGIN(M_FIND_INIT); VALID(h); sessions[h].delivered = 0;
+    BEGIN(M_FIND_INIT); VALID(h);
+#if SIGNUM_MOCK_STRICT_CONTEXT
+    if (sessions[h].sign_active) return end(CKR_OPERATION_ACTIVE);
+#endif
+    sessions[h].delivered = 0;
     for (CK_ULONG i = 0; i < n; ++i) if (attrs[i].type == CKA_CLASS) sessions[h].kind = *(CK_OBJECT_CLASS*)attrs[i].pValue;
     return end(CKR_OK);
 }
 static CK_RV find_objects(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE_PTR out, CK_ULONG max, CK_ULONG_PTR count) {
-    (void)max; BEGIN(M_FIND); VALID(h); *count = sessions[h].delivered ? 0 : 1;
+    (void)max; BEGIN(M_FIND); VALID(h); *count = sessions[h].delivered || (certificate_absent && sessions[h].kind == CKO_CERTIFICATE) ? 0 : 1;
     if (*count) *out = sessions[h].kind == CKO_CERTIFICATE ? 1 : private_key_handle;
     sessions[h].delivered = 1; return end(CKR_OK);
 }
