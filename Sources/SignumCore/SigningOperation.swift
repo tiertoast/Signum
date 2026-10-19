@@ -109,6 +109,10 @@ extension SigningJob {
             }
             operation.transition(to: .completed)
         } catch {
+            if case SignumError.outputUncertain = error {
+                operation.transition(to: .outcomeUncertain)
+                throw error
+            }
             if submitted && !receivedVerifiedSignature && !(error is IsolatedPKCS11Client.Failure) &&
                 (error as? SupervisedProcess.Failure) != .launch && (error as? SupervisedProcess.Failure) != .capacity {
                 operation.transition(to: .outcomeUncertain)
