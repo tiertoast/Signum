@@ -54,7 +54,7 @@ struct SigningReviewContext: Equatable {
                     if cancellation.isCancellationRequested { throw CancellationError() }
                     try validate()
                 }.value
-                if cancellation.isCancellationRequested { throw CancellationError() }
+                if cancellation.isCancellationRequested || context.revision != batch.revision { throw CancellationError() }
                 return try await batch.prepareReview(provider: context.provider, slot: context.slot,
                     certificate: context.certificate, der: context.der, destination: context.destination,
                     appearances: appearances, isCancelled: { cancellation.isCancellationRequested })

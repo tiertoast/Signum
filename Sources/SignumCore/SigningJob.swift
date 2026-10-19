@@ -19,18 +19,20 @@ public struct SigningJob: Sendable {
     public let destinationDirectoryIdentity: OutputDirectoryIdentity?
     public let padesAppearance: RenderedPAdESAppearance?
 
-    public init(snapshot: DocumentSnapshot, providerPath: String, slot: UInt,
+    public init(snapshot: DocumentSnapshot, format: SigningFormat? = nil, providerPath: String, slot: UInt,
                 certificate: SignumCertificate, certificateDER: Data, destination: URL,
                 destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
                 padesAppearance: RenderedPAdESAppearance? = nil) throws {
+        let effectiveFormat = format ?? snapshot.format
+        if effectiveFormat == .pades, format != nil { try DocumentSigningConfiguration.requirePDF(snapshot) }
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
               destination.standardizedFileURL != snapshot.fileURL,
-              destination.pathExtension.lowercased() == (snapshot.format == .cades ? "p7m" : "pdf"),
+              destination.pathExtension.lowercased() == (effectiveFormat == .cades ? "p7m" : "pdf"),
               providerPath.hasPrefix("/"), !certificateDER.isEmpty, certificateDER.count <= 65536 else {
             throw SignumError.module("Richiesta di firma incompleta o destinazione non valida.")
         }
         if let appearance = padesAppearance {
-            guard snapshot.format == .pades,
+            guard effectiveFormat == .pades,
                   appearance.certificateSHA256 == DocumentSnapshot.digest(certificateDER),
                   appearance.pdf.count <= PAdESAppearanceRenderer.maximumPDFBytes,
                   !appearance.configuration.visible || !appearance.pdf.isEmpty else {
@@ -38,7 +40,7 @@ public struct SigningJob: Sendable {
             }
         }
         self.padesAppearance = padesAppearance
-        self.id = UUID(); self.format = snapshot.format; self.snapshot = snapshot
+        self.id = UUID(); self.format = effectiveFormat; self.snapshot = snapshot
         self.snapshotIdentity = snapshot.identity; self.contentSHA256 = snapshot.identity.sha256
         self.providerPath = providerPath; self.slot = slot; self.certificate = certificate
         self.certificateDER = certificateDER; self.certificateSHA256 = DocumentSnapshot.digest(certificateDER)

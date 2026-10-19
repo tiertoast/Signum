@@ -48,13 +48,13 @@ public enum BatchOutputDestination: Sendable, Equatable {
         }
     }
     /// Nominal path only. Collision checks happen off-main before confirmation.
-    public func proposedURL(for snapshot: DocumentSnapshot) -> URL {
-        directory(for: snapshot).appendingPathComponent(Self.filename(for: snapshot, number: 1))
+    public func proposedURL(for snapshot: DocumentSnapshot, format: SigningFormat? = nil) -> URL {
+        directory(for: snapshot).appendingPathComponent(Self.filename(for: snapshot, number: 1, format: format))
     }
-    static func filename(for snapshot: DocumentSnapshot, number: Int) -> String {
+    static func filename(for snapshot: DocumentSnapshot, number: Int, format: SigningFormat? = nil) -> String {
         let original = snapshot.originalURL
         let suffix = number == 1 ? "" : " (\(number))"
-        if snapshot.format == .pades {
+        if (format ?? snapshot.format) == .pades {
             return original.deletingPathExtension().lastPathComponent + "-firmato" + suffix + ".pdf"
         }
         if number == 1 { return original.lastPathComponent + ".p7m" }
@@ -63,7 +63,7 @@ public enum BatchOutputDestination: Sendable, Equatable {
     }
     struct Planned: Sendable { let url: URL; let directoryIdentity: OutputDirectoryIdentity }
     private struct Reservation: Hashable { let directory: OutputDirectoryIdentity; let name: String }
-    func plan(_ snapshots: [DocumentSnapshot]) throws -> [Planned] {
+    func plan(_ snapshots: [DocumentSnapshot], formats: [UUID:SigningFormat] = [:]) throws -> [Planned] {
         var directories: [String: (URL, OutputDirectoryIdentity)] = [:]
         var reserved = Set<Reservation>(), result: [Planned] = []
         for snapshot in snapshots {
@@ -73,7 +73,7 @@ public enum BatchOutputDestination: Sendable, Equatable {
             else { directory = try OutputDirectoryIdentity.inspect(input); directories[input.path] = directory }
             var number = 1
             while true {
-                let name = Self.filename(for: snapshot, number: number)
+                let name = Self.filename(for: snapshot, number: number, format: formats[snapshot.identity.id])
                 let destination = directory.0.appendingPathComponent(name)
                 let key = Reservation(directory: directory.1, name: name.precomposedStringWithCanonicalMapping.lowercased())
                 var info = stat()

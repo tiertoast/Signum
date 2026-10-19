@@ -24,6 +24,12 @@ public enum BatchDocumentState: String, Sendable {
 public struct BatchDocument: Identifiable, Sendable {
     public var id: UUID { snapshot.identity.id }
     public let snapshot: DocumentSnapshot
+    public fileprivate(set) var configuration: DocumentSigningConfiguration
+    public var format: SigningFormat { configuration.format }
+    init(snapshot: DocumentSnapshot) {
+        self.snapshot = snapshot
+        configuration = .init(snapshotID:snapshot.identity.id,format:snapshot.format)
+    }
     public fileprivate(set) var destination: URL?
     public fileprivate(set) var state: BatchDocumentState = .pending
     public fileprivate(set) var result: String = ""
@@ -73,6 +79,22 @@ public struct BatchApproval: Sendable {
         reviewRequest = UUID(); review = nil
     }
 
+    /// Synchronous invalidation precedes any asynchronous preflight/render. No
+    /// source reread, clone, output or private operation is performed here.
+    public func setFormat(_ format: SigningFormat, for id: UUID) throws {
+        guard !isFrozen, !isApproved, !isPreparing, !isRunning, !isContinuingAuthenticated,
+              let index=documents.firstIndex(where:{$0.id == id}), !documents[index].state.isTerminal else {
+            throw Self.failure("Il formato è bloccato dopo l’approvazione. Prepara una nuova sessione.")
+        }
+        guard documents[index].format != format else { return }
+        if format == .pades, !DocumentSigningConfiguration.canSelectPAdES(for:documents[index].snapshot) {
+            throw Self.failure("Questo documento non è un PDF. Per questo file scegli CAdES.")
+        }
+        invalidateReview(); revision = UUID()
+        documents[index].configuration = .init(snapshotID:id,format:format)
+        documents[index].destination = nil
+    }
+
     /// Read-only preflight for the main-screen summary. Does not freeze/approve,
     /// create output or ask for a PIN; edits invalidate the plan by revision.
     public func prepareReview(provider: String, slot: UInt, certificate: SignumCertificate,
@@ -82,6 +104,7 @@ public struct BatchApproval: Sendable {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
         invalidateReview()
         let request = reviewRequest, version = revision, selected = documents.map(\.snapshot)
+        let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
         let result = try await Task.detached(priority: .userInitiated) {
             if isCancelled() { throw CancellationError() }
             try CertificateEligibility.requireEligible(certificateDER: der)
@@ -90,9 +113,9 @@ public struct BatchApproval: Sendable {
                 _ = try snapshot.verifiedBytes()
             }
             if isCancelled() { throw CancellationError() }
-            let outputs = try destination.plan(selected)
+            let outputs = try destination.plan(selected,formats:formats)
             let jobs = try zip(selected, outputs).map { snapshot, output in
-                try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot, certificate: certificate,
+                try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot, certificate: certificate,
                     certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity,
                     padesAppearance: appearances[snapshot.identity.id])
             }
@@ -109,6 +132,7 @@ public struct BatchApproval: Sendable {
     public func freezeReview(_ value: BatchApproval) throws {
         guard !isFrozen, !isPreparing, !isApproved, review?.id == value.id,
               value.jobs.map(\.snapshotIdentity.id) == documents.map(\.id),
+              value.jobs.map(\.format) == documents.map(\.format),
               documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Riepilogo non più valido. Controlla la lista aggiornata.") }
         approval = value; isFrozen = true
         for i in documents.indices { documents[i].destination = value.jobs[i].destination }
@@ -117,7 +141,7 @@ public struct BatchApproval: Sendable {
     public var nextDocument: BatchDocument? { documents.first { !$0.state.isTerminal } }
     public var finishedCount: Int { documents.filter { $0.state.isTerminal }.count }
     public var sessionReport: String {
-        documents.map { "\($0.snapshot.originalURL.lastPathComponent) · \($0.snapshot.format.rawValue.uppercased()) · \($0.state.message)\n\($0.destination?.path ?? "Destinazione da scegliere")\n\($0.result)" }.joined(separator: "\n\n")
+        documents.map { "\($0.snapshot.originalURL.lastPathComponent) · \($0.format.rawValue.uppercased()) · \($0.state.message)\n\($0.destination?.path ?? "Destinazione da scegliere")\n\($0.result)" }.joined(separator: "\n\n")
     }
 
     /// Reserve the UI selection synchronously, before scheduling a Task. A click
@@ -157,7 +181,7 @@ public struct BatchApproval: Sendable {
                 selectionIssues.append("\(url.lastPathComponent): \(error.localizedDescription)")
                 if let failure = error as? DocumentAcquisitionFailure { selectionTechnicalDetails.append("\(url.lastPathComponent): \(failure.kind.rawValue) · \(failure.technicalDetails)") }
             case .success(let snapshot):
-                if documents.contains(where: { $0.snapshot.identity.sha256 == snapshot.identity.sha256 && $0.snapshot.format == format }) {
+                if documents.contains(where: { $0.snapshot.identity.sha256 == snapshot.identity.sha256 && $0.format == format }) {
                     snapshot.close(); selectionIssues.append("\(url.lastPathComponent): contenuto duplicato nello stesso formato.")
                 } else if documents.reduce(0, { $0 + $1.snapshot.identity.byteCount }) + snapshot.identity.byteCount > Self.maximumTotalBytes {
                     snapshot.close(); selectionIssues.append("Dimensione totale massima: 128 MiB.")
@@ -191,13 +215,14 @@ public struct BatchApproval: Sendable {
         isFrozen = true; isPreparing = true
         let request = UUID(); acquisitionID = request
         let selected = documents.map(\.snapshot)
+        let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
         do {
             let prepared = try await Task.detached(priority: .userInitiated) {
                 try CertificateEligibility.requireEligible(certificateDER: der)
                 for snapshot in selected { _ = try snapshot.verifiedBytes() }
-                let outputs = try destination.plan(selected)
+                let outputs = try destination.plan(selected,formats:formats)
                 let jobs = try zip(selected, outputs).map { snapshot, output in
-                    try SigningJob(snapshot: snapshot, providerPath: provider, slot: slot,
+                    try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot,
                         certificate: certificate, certificateDER: der, destination: output.url,
                         destinationDirectoryIdentity: output.directoryIdentity)
                 }
@@ -213,7 +238,8 @@ public struct BatchApproval: Sendable {
 
     public func confirm(_ value: BatchApproval) throws {
         guard !isApproved, let approval, value.id == approval.id, isFrozen, !isPreparing,
-              value.jobs.map(\.snapshotIdentity.id) == documents.map(\.id) else { throw Self.failure("Riepilogo non più valido.") }
+              value.jobs.map(\.snapshotIdentity.id) == documents.map(\.id),
+              value.jobs.map(\.format) == documents.map(\.format) else { throw Self.failure("Riepilogo non più valido.") }
         isApproved = true
         if !documents.isEmpty { documents[0].state = .waitingForAuthorization }
     }

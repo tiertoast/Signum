@@ -11,3 +11,9 @@ Branch `codex/signum-0.4-stabilization-b11` dall’HEAD effettivo `718406a` dell
 Ricerca locale nei nomi degli allegati Codex e nel mirror di progetto: PDF/video citati non accessibili; l’allegato corrente contiene soltanto le istruzioni. Nessuna analisi dichiarata del video o del documento reale, nessuna ricerca Internet o copia in Git. Fixture sintetiche per tutte le nuove prove; eventuale corrispondenza alla tavola reale resta un limite esplicito.
 
 Baseline locale mirata: `SigningFormatStabilizationTests|PAdESGeometryStabilizationTests|PAdESPlacementPerformanceTests` **9/9**, zero skip/fallimenti. I 333 test storici non sono assunti validi dopo le modifiche: saranno rieseguiti sul codice finale.
+
+## M2 — Configurazione dinamica
+
+Aggiunta `DocumentSigningConfiguration` per documento, distinta dallo snapshot immutabile. `setFormat` modifica soltanto la preparazione, invalida sincronicamente revisione/preflight e ricalcola i nomi con la convenzione esistente; i job copiano il formato esplicito e lo congelano. `DocumentSnapshot.format` resta un hint immutabile di acquisizione/limiti per i chiamanti legacy, non è più la sorgente del formato del batch. Nessuna nuova copia/lettura dell’originale per cambiare formato. PDF non strutturalmente leggibili/protetti sono rifiutati prima del consenso PAdES.
+
+Riprodotto inoltre un caso asincrono: se la revisione cambiava durante la validazione provider, un vecchio `SigningReviewContext` poteva avviare una preparazione con configurazioni nuove. Aggiunto il controllo di revisione anche dopo quella attesa. Test iniziale con due assert falliti, poi **27/27** pertinenti, zero skip/fallimenti. Inclusi cambi ripetuti, batch misto, collisioni, revisione durante preflight, blocco dopo approvazione/conclusione, snapshot invariato e firme CAdES/PAdES effettive con formato diverso dall’hint di acquisizione. Verificati CMS/PDF reali sintetici e assenza dell’output del vecchio formato.

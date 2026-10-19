@@ -19,6 +19,7 @@ public final class DocumentSnapshot: @unchecked Sendable {
     }
     public let identity: Identity
     public let originalURL: URL // Display/destination suggestion only, never a signing input.
+    /// Immutable acquisition hint for legacy callers/limits, not the pending signing choice.
     public let format: SigningFormat
     public let fileURL: URL // Private helper input; the helper must verify identity.sha256.
     public var approvedBytes: Data { bytes } // Value semantics, no mapped mutable file.
