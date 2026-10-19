@@ -73,6 +73,11 @@ final class ProbeAction:NSObject {
   fresh.addSubview(overlay,positioned:.above,relativeTo:nil)
   for v in [old,fresh] {v.install(document:PDFDocument(data:bytes)!,pageIndex:0)}
   old.updateAppearance(art);overlay.update(art)
+  let place:(PDFPage,CGPoint)->Void = { _,point in
+   config.rectangle.origin=CGPoint(x:min(max(point.x-120,crop.minX),crop.maxX-240),y:min(max(point.y-50,crop.minY),crop.maxY-100))
+   if let moved=try? art.placed(config,cropBox:crop) {old.updateAppearance(moved);overlay.update(moved)}
+  }
+  old.onChoose=place;fresh.onChoose=place
   var actions:[ProbeAction]=[]
   for (i,zoom) in [0.25,1.0,2.0].enumerated() {
    let action=ProbeAction {

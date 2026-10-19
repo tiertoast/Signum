@@ -88,7 +88,7 @@ import Darwin
             for _ in 0..<100 { host.layoutSubtreeIfNeeded(); if state.ready>0 && coordinator.isIdle { break }; try await Task.sleep(nanoseconds:10_000_000) }
             let view=try XCTUnwrap(PAdESGeometryStabilizationTests().descendants(host).compactMap { $0 as? PlacementPDFView }.first)
             let page=try XCTUnwrap(view.document?.page(at:0))
-            let builds=view.appearanceBuildCount, renders=coordinator.started
+            let builds=view.signatureOverlay.artworkBuildCount, rasters=view.signatureOverlay.artworkView.drawCount, renders=coordinator.started
             let payloadHash=state.placement?.appearance?.sha256
             XCTAssertGreaterThan(state.ready,0)
             @MainActor func event(_ type:NSEvent.EventType, _ raw:CGPoint)->NSEvent {
@@ -112,14 +112,15 @@ import Darwin
                 }
                 state.eventTime=0
                 view.mouseUp(with:event(.leftMouseUp,last)); try await Task.sleep(nanoseconds:50_000_000)
-                XCTAssertEqual(coordinator.started,renders); XCTAssertEqual(view.appearanceBuildCount,builds)
+                XCTAssertEqual(coordinator.started,renders); XCTAssertEqual(view.signatureOverlay.artworkBuildCount,builds)
+                XCTAssertEqual(view.signatureOverlay.artworkView.drawCount,rasters)
                 XCTAssertGreaterThanOrEqual(state.commits,count-1); XCTAssertEqual(state.ready,1)
                 XCTAssertEqual(state.placement?.appearance?.sha256,payloadHash)
                 let values=state.latencies.sorted()
                 XCTAssertFalse(values.isEmpty)
                 if !values.isEmpty {
                     var usage=rusage(); _=getrusage(RUSAGE_SELF,&usage)
-                    print("STABILIZATION real_pane pixels=\(pixels) events=\(count) commits=\(state.commits) renders_during_drag=\(coordinator.started-renders) annotation_builds_during_drag=\(view.appearanceBuildCount-builds) median_ms=\(values[values.count/2]) p95_ms=\(values[min(values.count-1,Int(Double(values.count)*0.95))]) elapsed_ms=\((ProcessInfo.processInfo.systemUptime-begin)*1000) ready_after_release=\(state.ready) process_peak_rss_bytes=\(usage.ru_maxrss)")
+                    print("STABILIZATION real_pane pixels=\(pixels) events=\(count) commits=\(state.commits) renders_during_drag=\(coordinator.started-renders) overlay_builds_during_drag=\(view.signatureOverlay.artworkBuildCount-builds) rasterizations_during_drag=\(view.signatureOverlay.artworkView.drawCount-rasters) median_ms=\(values[values.count/2]) p95_ms=\(values[min(values.count-1,Int(Double(values.count)*0.95))]) elapsed_ms=\((ProcessInfo.processInfo.systemUptime-begin)*1000) ready_after_release=\(state.ready) process_peak_rss_bytes=\(usage.ru_maxrss)")
                 }
                 // A no-op click must restore readiness on release.
                 state.ready=0; view.mouseDown(with:event(.leftMouseDown,last)); view.mouseUp(with:event(.leftMouseUp,last))

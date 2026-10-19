@@ -52,3 +52,22 @@ Readiness visibile solo dopo il disegno effettivo; callback differiti e vincolat
 Estesa la regressione di firma effettiva alle quattro rotazioni: prima del consenso presenta lo stesso artwork nell’overlay nativo, controlla pixel rossi, rettangolo convertito e uguaglianza dei byte AP; dopo il freeze modifica/chiude la presentazione e verifica che il job e il PDF finale conservino i valori approvati. Il helper continua a ricevere i byte AP congelati, mai una posizione ricavata dalla vista durante la firma.
 
 **17/17** test pertinenti, zero skip/fallimenti, inclusi formati dinamici con firme effettive, revisioni/preflight e output PAdES. Per ciascuna rotazione: AP/N e Rect presenti, originale invariato, verifica crittografica valida e centroidi Poppler coincidenti entro 2 pixel con il riferimento che incorpora gli stessi byte in page content. Nessuna modifica alle primitive o alla pubblicazione.
+
+## M7 — Regressioni grafiche e prestazioni
+
+**13/13** mirati, zero skip/fallimenti. Rafforzata la prova del pannello SwiftUI reale: ora misura i contatori overlay/raster effettivi (non quelli dell’annotazione dismessa). Aggiunti 40 immagini sintetiche nel documento, gesti nativi click/drag/Option-resize con round-trip coordinate, pagine miste, cambio pagina, rigenerazione al resize, notifiche zoom/scroll. Errori allocazione espliciti e invalidazione cache su cambio backing scale.
+
+Misure Debug non sanitizzate sul Mac corrente; tre esecuzioni con immagini assenti/1024/2800, 120 movimenti:
+| Misura (ms) | Testo | PNG 1024 | PNG 2800 |
+|---|---:|---:|---:|
+| Generazione artwork (renderer esistente) | 0,69 | 9,30 | 65,89 |
+| Prima presentazione/cache nativa | 0,73 | 2,93 | 17,35 |
+| Movimento overlay p95, incluso display | 0,088 | 0,070 | 0,091 |
+| Resize incluso renderer | 1,34 | 12,66 | 84,71 |
+| Zoom/raster della sola AP | 1,52 | 3,95 | 17,84 |
+
+Nel pannello SwiftUI, input schedulato a 60 eventi/s (30 e 120 eventi), latenza evento→binding mediana 2,99–3,20 ms, p95 3,41–3,99 ms, **zero render/nuovi artwork/rasterizzazioni durante drag**, readiness soltanto al rilascio. Non è una misura dei frame presentati: nessuna dichiarazione di 60 fps. RSS di picco dell’intero processo test 182–257 MB; non attribuibile alla sola cache (include fixture, PNG, PDFKit, test precedenti). La prima presentazione/zoom PNG grande resta circa 17–18 ms sincrona sul MainActor; il render/resize viene eseguito dal coordinatore asincrono nell’app. Cache massima 4096²×4 byte per artwork; limite della sola rappresentazione a schermo, AP finale vettoriale invariata.
+
+Runner A/B aggiornato con opzione --integrated per usare a destra il codice live effettivo, mantenendo a sinistra 718406a. Riesaminata la tavola reale localmente, senza firma: pixel del timbro presenti nel codice integrato, assenti nel percorso precedente; esercitati clic e zoom 25/100/200. Catture ignorate, nessun documento personale nel commit. I test automatici usano esclusivamente fixture sintetiche. Ulteriori tavole dell’utente non ancora disponibili restano da collaudare.
+
+ASAN e TSAN mirati sul codice corrente: **17/17 ciascuno**, zero skip/fallimenti e nessuna segnalazione sanitizer nei log. Comprendono formati, GUI, overlay, cancellazione/render/preflight e output firmato sintetico.

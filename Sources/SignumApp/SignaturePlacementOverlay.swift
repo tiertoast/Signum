@@ -20,6 +20,11 @@ final class SignaturePlacementOverlay: NSView {
         wantsLayer = true; layer?.masksToBounds = true
         addSubview(artworkView)
         artworkView.didDraw = { [weak self] in self?.reportIfPainted() }
+        artworkView.didFail = { [weak self] in
+            guard let self, let value = self.approvedAppearance else { return }
+            self.error = "Memoria insufficiente per visualizzare il timbro. Riduci lo zoom o l’immagine."
+            self.isHidden = true; self.displayed?(value.approvalIdentity,self.error)
+        }
         for name in [Notification.Name.PDFViewScaleChanged, .PDFViewPageChanged,
                      NSView.boundsDidChangeNotification, NSView.frameDidChangeNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(viewportChanged(_:)), name: name, object: nil)
@@ -102,6 +107,7 @@ final class SignaturePlacementOverlay: NSView {
 final class SignatureArtworkView: NSView {
     var document: CGPDFDocument?
     var didDraw: (() -> Void)?
+    var didFail: (() -> Void)?
     private var cachedPixels: CGImage?
     private(set) var hasPainted = false
     private(set) var drawCount = 0
@@ -112,6 +118,10 @@ final class SignatureArtworkView: NSView {
         layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
     required init?(coder: NSCoder) { nil }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        cachedPixels = nil; hasPainted = false; needsDisplay = true
+    }
     override var isOpaque: Bool { false }
     override func hitTest(_ point:NSPoint)->NSView? { nil }
     func reset() {
@@ -135,7 +145,9 @@ final class SignatureArtworkView: NSView {
             let scale = min(requested, 4096 / max(bounds.width,bounds.height))
             let width = max(1,Int(ceil(bounds.width*scale))), height = max(1,Int(ceil(bounds.height*scale)))
             guard let bitmap = CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,
-                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                DispatchQueue.main.async { [weak self] in self?.didFail?() }; return
+            }
             bitmap.scaleBy(x:CGFloat(width)/bounds.width,y:CGFloat(height)/bounds.height)
             bitmap.concatenate(transform); bitmap.drawPDFPage(page)
             cachedPixels = bitmap.makeImage(); drawCount += 1
