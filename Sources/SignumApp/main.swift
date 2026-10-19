@@ -64,6 +64,7 @@ private enum SignumFormat: String, Hashable {
     @State private var pdfPlacement: PAdESPlacement?
     @StateObject private var workspace: SigningWorkspaceSelection
     private var documentSnapshot: DocumentSnapshot? { workspace.snapshot }
+    private var selectedDocument: BatchDocument? { batch.documents.first { $0.id == documentSnapshot?.identity.id } }
     @State private var previewSnapshotID: UUID?
     @State private var selectionRequestID = UUID()
     @State private var inputFile: URL?
@@ -79,7 +80,8 @@ private enum SignumFormat: String, Hashable {
     // environment override or automatic loading of user-owned test modules.
     init(batch: BatchSigningCoordinator? = nil, initialDevices: DeviceSelection = .init(),
          initialProvider: ProviderSelection = .init(), selectedSnapshot: DocumentSnapshot? = nil,
-         automaticallyDiscover: Bool = true, defaults: UserDefaults = .standard) {
+         automaticallyDiscover: Bool = true, defaults: UserDefaults = .standard,
+         workspace: SigningWorkspaceSelection? = nil) {
         self.automaticallyDiscover = automaticallyDiscover
         preferences = SigningExperiencePreferences(defaults: defaults)
         _batch = StateObject(wrappedValue: batch ?? BatchSigningCoordinator())
@@ -90,7 +92,7 @@ private enum SignumFormat: String, Hashable {
         _additionalConfirmation = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.additionalConfirmation, store: defaults)
         _showExcludedCertificates = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.showExcluded, store: defaults)
         _saveAlongsideOriginal = AppStorage(wrappedValue: true, SigningExperiencePreferences.Keys.alongsideOriginal, store: defaults)
-        _workspace = StateObject(wrappedValue: SigningWorkspaceSelection(snapshot: selectedSnapshot))
+        _workspace = StateObject(wrappedValue: workspace ?? SigningWorkspaceSelection(snapshot:selectedSnapshot,format:batch?.documents.first { $0.id == selectedSnapshot?.identity.id }?.format))
         _inputFile = State(initialValue: selectedSnapshot?.originalURL)
         _status = State(initialValue: initialDevices.providers.isEmpty ? "Ricerca dei dispositivi di firma…" : initialDevices.message)
     }
@@ -98,7 +100,7 @@ private enum SignumFormat: String, Hashable {
     private var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning || batch.isContinuingAuthenticated || (authenticationSession?.canContinue ?? false) || interaction.isRequestingApproval || interaction.isSubmittingPIN }
     private var authenticationMode: BatchAuthenticationMode { BatchAuthenticationMode(rawValue: authenticationModeRaw) ?? .perSignature }
     private var authenticationExplanation: String {
-        BatchAuthenticationPolicy.explanation(formats: batch.documents.map { $0.snapshot.format },
+        BatchAuthenticationPolicy.explanation(formats: batch.documents.map(\.format),
             serial: devices.selectedRoute?.token.serial ?? "", mode: batch.isApproved ? approvedAuthenticationMode : authenticationMode)
     }
     private var destinationPolicy: BatchOutputDestination? {
@@ -110,7 +112,7 @@ private enum SignumFormat: String, Hashable {
               let id = provider.selectedCertificateID, let route = devices.selectedRoute,
               let certificate = provider.certificates.first(where: { $0.id == id }),
               let der = provider.certificateDERs[id], provider.certificateAssessments[id]?.permitsSigning == true,
-              batch.documents.allSatisfy({ !$0.state.isTerminal && ($0.snapshot.format != .pades ||
+              batch.documents.allSatisfy({ !$0.state.isTerminal && ($0.format != .pades ||
                 (readyPreviews.contains($0.id) && placements[$0.id]?.appearance?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
         return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
                      der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity })
@@ -226,6 +228,10 @@ private enum SignumFormat: String, Hashable {
             status = "Il certificato escluso è stato nascosto. Scegli un certificato localmente idoneo."
         }
         .onChange(of: format) { _ in provider.pin = "" }
+        .onChange(of: batch.revision) { _ in
+            if let entry = selectedDocument { workspace.updateFormat(entry.format) }
+            else if documentSnapshot != nil { showDocument(batch.documents.first?.id) }
+        }
         .onChange(of: saveAlongsideOriginal) { _ in if !batch.isFrozen { provider.pin = "" } }
         .onDisappear {
             authenticationSession?.requestStop()
@@ -237,33 +243,51 @@ private enum SignumFormat: String, Hashable {
         }
     }
 
+    private var formatBinding: Binding<SignumFormat> {
+        Binding(get: { selectedDocument.flatMap { SignumFormat(rawValue:$0.format.rawValue) } ?? format },
+                set: { value in
+                    guard let kind=SigningFormat(rawValue:value.rawValue) else { return }
+                    if let current=selectedDocument { setDocumentFormat(kind,for:current.id) }
+                    else { format=value }
+                })
+    }
+    private func setDocumentFormat(_ kind:SigningFormat,for id:UUID) {
+        guard !interfaceLocked, !batch.isFrozen,
+              let entry=batch.documents.first(where:{$0.id == id}), entry.format != kind else { return }
+        do {
+            try batch.setFormat(kind,for:id)
+            placements[id]=nil; readyPreviews.remove(id); provider.pin=""
+            if documentSnapshot?.identity.id == id { pdfPlacement=nil; workspace.updateFormat(kind) }
+            status="Formato aggiornato a \(kind.rawValue.uppercased()). Controlla la nuova destinazione prima di approvare."
+        } catch { status=error.localizedDescription }
+    }
     private var formatPicker: some View {
-        GroupBox("Formato per nuovi documenti") {
-            VStack(alignment: .leading, spacing: 6) {
-            Picker("Formato", selection: $format) {
-                Text("CAdES — documento .p7m").tag(SignumFormat.cades)
-                Text("PAdES — PDF firmato").tag(SignumFormat.pades)
-                Text("XAdES — prossimamente").tag(SignumFormat.xades).disabled(true)
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(interfaceLocked || batch.isFrozen)
-            .padding(5)
-            Text("Questa scelta vale solo per i documenti aggiunti da ora. I documenti già acquisiti mantengono il formato indicato accanto al nome. Per cambiarlo, rimuovili e aggiungili nuovamente.")
-                .font(.caption).foregroundStyle(.secondary)
-            if let snapshot = documentSnapshot {
-                Text("Documento corrente: \(snapshot.originalURL.lastPathComponent)")
-                    .font(.caption).lineLimit(2)
-                Text(snapshot.format == .pades ? "Formato effettivo: PAdES — PDF firmato" : "Formato effettivo: CAdES — documento .p7m")
-                    .font(.callout.bold())
-            }
+        GroupBox(selectedDocument == nil ? "Formato nuovi documenti" : "Formato firma") {
+            VStack(alignment:.leading,spacing:6) {
+                Picker("Formato firma",selection:formatBinding) {
+                    Text("CAdES — documento .p7m").tag(SignumFormat.cades)
+                    Text("PAdES — PDF firmato").tag(SignumFormat.pades)
+                        .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectPAdES(for:$0.snapshot) } ?? false)
+                }.pickerStyle(.menu).labelsHidden().accessibilityIdentifier("signum.current-format")
+                    .disabled(interfaceLocked || batch.isFrozen)
+                if let entry=selectedDocument {
+                    Text("Documento corrente: " + entry.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
+                    Text(entry.format == .pades ? "PAdES — PDF firmato" : "CAdES — documento .p7m").font(.callout.bold())
+                    if !batch.isFrozen {
+                        Text("Puoi cambiare formato fino all’approvazione. Gli altri documenti mantengono la propria scelta.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Picker("Per i prossimi documenti",selection:$format) {
+                            Text("CAdES").tag(SignumFormat.cades)
+                            Text("PAdES").tag(SignumFormat.pades)
+                        }.pickerStyle(.menu).font(.caption).disabled(interfaceLocked)
+                    }
+                }
             }.padding(5)
         }
     }
 
     @ViewBuilder private var sessionWorkspace: some View {
-        if documentSnapshot?.format == .pades {
+        if selectedDocument?.format == .pades {
             VStack(spacing: 0) {
                 Text("PAdES · " + (documentSnapshot?.originalURL.lastPathComponent ?? ""))
                     .font(.callout.bold()).lineLimit(1).padding(.top, 8)
@@ -362,7 +386,13 @@ private enum SignumFormat: String, Hashable {
                     Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
                         .buttonStyle(.plain).lineLimit(1).truncationMode(.middle)
                         .help(entry.snapshot.originalURL.lastPathComponent).disabled(batch.isRunning || interaction.isSubmittingPIN)
-                    Text(entry.snapshot.format == .pades ? "PAdES · PDF" : "CAdES · .p7m").font(.caption.bold())
+                    if !batch.isFrozen {
+                        Menu(entry.format == .pades ? "PAdES · PDF" : "CAdES · .p7m") {
+                            Button("CAdES — documento .p7m") { setDocumentFormat(.cades,for:entry.id) }
+                            Button("PAdES — PDF firmato") { setDocumentFormat(.pades,for:entry.id) }
+                                .disabled(!DocumentSigningConfiguration.canSelectPAdES(for:entry.snapshot))
+                        }.font(.caption.bold()).disabled(interfaceLocked)
+                    } else { Text(entry.format == .pades ? "PAdES · PDF" : "CAdES · .p7m").font(.caption.bold()) }
                     Spacer(minLength: 8)
                     Text(rowStatus).font(.caption).lineLimit(1)
                 }.padding(.vertical, 3)
@@ -371,7 +401,10 @@ private enum SignumFormat: String, Hashable {
                 if let destination {
                     Text("Destinazione: " + BatchDisplay.destinationLabel(destination, among: review.approval?.jobs.map(\.destination) ?? []))
                         .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(destination.path)
-                } else { Text("Destinazione in preparazione").font(.caption2).foregroundStyle(.secondary) }
+                } else if let policy=destinationPolicy {
+                    Text("Nome previsto: " + policy.proposedURL(for:entry.snapshot,format:entry.format).lastPathComponent + " · collisioni controllate prima dell’approvazione")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
             }
             Divider()
         }.padding(.vertical, 2)
@@ -574,7 +607,7 @@ private enum SignumFormat: String, Hashable {
     @ViewBuilder
     private var pdfWorkspace: some View {
         let generation = workspace.generation
-        if let snapshot = documentSnapshot, snapshot.format == .pades {
+        if let snapshot = documentSnapshot, selectedDocument?.format == .pades {
             PAdESPlacementPane(
                 snapshot: snapshot,
                 previewReady: { id, ready in
@@ -712,7 +745,8 @@ private enum SignumFormat: String, Hashable {
 
     private func showDocument(_ id: UUID?) {
         if let old = documentSnapshot, batch.documents.contains(where: { $0.id == old.identity.id }) { placements[old.identity.id] = pdfPlacement }
-        workspace.select(batch.documents.first(where: { $0.id == id })?.snapshot)
+        let entry = batch.documents.first(where: { $0.id == id })
+        workspace.select(entry?.snapshot,format:entry?.format)
         inputFile = documentSnapshot?.originalURL
         pdfPlacement = id.flatMap { placements[$0] }
         previewSnapshotID = nil
