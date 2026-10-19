@@ -52,6 +52,45 @@ Sorgente applicativa verificata: **356/356 Swift**, **40/40 PKCS#11**, **63/63 P
 
 I test includono CAdES/PAdES singoli e batch, formati dinamici/misti, Secure Batch PIN sintetico, discovery simulata, SG-01/14/02/03/04/05/06, timeout/cancel, snapshot e no-overwrite. Nessuna modifica alle primitive, ai protocolli credenziali, al lifecycle PKCS#11 o al helper PoDoFo. Il probe --smoke ha avviato l’anteprima sintetica, pubblicato la readiness e terminato normalmente con cleanup; non sostituisce il collaudo interattivo del menu.
 
-Soltanto dopo queste verifiche la fonte viene avanzata a **0.4.0 / build 12**. Destinazioni nuove: .build/04stabilization-b12/final-debug/Signum.app e final-release/Signum.app. La consegna dei bundle sarà confermata dopo audit, codesign strict, rilocazione e integrazioni con helper effettivamente inclusi.
+Soltanto dopo queste verifiche la fonte viene avanzata a **0.4.0 / build 12**. Destinazioni nuove: .build/04stabilization-b12/final-debug/Signum.app e final-release/Signum.app. Consegna confermata dopo audit, codesign strict, rilocazione e integrazioni con helper effettivamente inclusi (esiti sotto).
 
 Log: .build/04stabilization-b12/evidence/final-complete-swift.log, final-complete-asan.log, final-complete-tsan.log, final-pkcs11.log, final-pades-debug.log, final-pades-release.log, final-packaging-tests.log. I run preliminari sono conservati separatamente e non sostituiscono questi esiti.
+
+## File e collaudo
+
+File principali: SignumCore/PAdESAppearanceOrientation.swift (policy e geometria pura), PAdESAppearance.swift (upright e AP orientata, metadata immutabili), SigningJob.swift (vincolo alla pagina dello snapshot); SignumApp/PAdESPlacementPane.swift (Picker, dimensioni logiche e invalidazione), PAdESRenderCoordinator.swift (riuso asincrono), SignaturePlacementOverlay.swift (solo contatore byte cache aggiunto, mapping B11 invariato). Quattro nuovi file PAdESOrientation*Tests, undici metodi di regressione; Tools/OrientationProbe è separato dall’app.
+
+Collaudo manuale necessario:
+1. Aprire il nuovo bundle Release e controllare 0.4.0/build 12.
+2. Caricare la tavola reale in PAdES, attivare il timbro e lasciare Automatico: lettura orizzontale. 0 deve dare lo stesso aspetto; 90 deve ruotare in senso orario rispetto a quel risultato, 180 capovolgere e 270 ruotare nel senso opposto.
+3. Provare clic, drag, Option-resize, zoom e scroll; cambiare orientamento vicino ai bordi verificando centro e clamp. Alternare pagine/documenti con rotazioni diverse e verificare la scelta per documento prima del consenso.
+4. Chiudere/riaprire l’anteprima e cambiare formato durante un render. Il formato CAdES continua a revocare/eliminare l’appearance PAdES come nella B11; una nuova preparazione PAdES riparte dai relativi default. Nessun protocollo pubblico o persistenza globale di orientamenti.
+5. Il collaudo dell’anteprima non richiede firma. Token/PIN reali e firma di documenti personali non sono stati utilizzati; eventuale test hardware è una sessione successiva esplicitamente richiesta.
+
+Limiti: quattro rotazioni ortogonali supportate, niente inferenza dall’orientamento del contenuto scansionato/disegnato dentro una pagina con /Rotate differente. Automatico segue la geometria PDF del visualizzatore, non analizza il testo della tavola. API legacy senza rotazione mantengono il comportamento raw/0 precedente: per il nuovo automatismo i chiamanti Core devono fornire pageRotation e geometria corretta. Target/audit macOS 13 non equivalgono a collaudo runtime 13/14. Nessun trust engine, giudizio di qualificazione/fiducia CA, modifica crittografica o nuova distribuzione.
+
+
+## Consegna build 12
+
+Sorgente dei bundle **4b00b2c2f596792bc984d954da8fd688d5ea9565**, manifest sourceTrackedDirty=false. **0.4.0/build 12**, arm64, minimo dichiarato e misurato nei Mach-O 13.0. Build Debug/Release riuscite, dipendenze solo interne/di sistema, firma ad hoc deep/strict, hash codice principale/annidato, notices, avvio CLI/helper/worker sintetici e rilocazione tutti verificati. Nessun Developer ID/notarizzazione o pubblicazione.
+
+- Release: .build/04stabilization-b12/final-release/Signum.app
+- Debug: .build/04stabilization-b12/final-debug/Signum.app
+
+| Eseguibile principale | SHA-256 |
+|---|---|
+| Release | 3bbdb4e744e5d8b4ad083b837da092a956591a2e47ae8c5b22cb1b1966354eca |
+| Debug | e6a92bba75387d2af631ae7b9857df5bd684dc2a8355523b7f300f3bb97fc2b6 |
+
+Dopo packaging: **50/50 integrazioni con worker/helper Debug e 50/50 Release**, zero skip/fallimenti. Incluse le nuove venti firme orientate con confronto asimmetrico Poppler/OpenSSL, batch misto, vincoli del job e ripristino del pannello. La ricetta ha inoltre rieseguito i 63 casi helper per configurazione e sulle copie rilocate. Ricontrollati dopo le integrazioni i codici firmati e tutti gli hash annidati. Log bundle-debug/release.log e bundle-debug/release-integration.log; manifest esiti in final-bundles.json, preservazione in preservation.json, nella directory evidence B12.
+
+Commit locali:
+- 197e769 — baseline, semantica e architettura.
+- 2d64f71 — implementazione e regressioni orientamento.
+- 2320e6a — pagina mista, scroll e resize limitato.
+- 4b00b2c — versione 12 dopo suite complete, sorgente dei bundle.
+- Successivo commit soltanto documentale — esiti bundle e consegna finale.
+
+**Stato:** implementazione verificata su fixture supportate, orientamento automatico e manuale coerente fra grafica nativa e PDF firmati. Costi del drag conservati; costo di orientamento spostato nel coordinatore asincrono, cache rigenerata soltanto quando necessario. Nessuna regressione nelle suite finali. Restano i collaudi manuali elencati, in particolare menu interattivo/tavola reale B12 e runtime macOS 13/14: non si presentano come eseguiti.
+
+Verifica finale baseline: zero differenze nei ref protetti e nei file/bundle censiti (inclusa B11). Working tree applicativo pulito; soltanto i due documenti già non tracciati rimangono non tracciati e con impronte originali. Main, Alpha/build precedenti e PR #3 preservati. Nessun push, merge, tag, release, GitHub Actions, PIN/token reale, firma personale o intervento su HalleyMac/altri repository.
