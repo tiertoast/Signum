@@ -122,5 +122,45 @@ import ImageIO
             }
         }
     }
+    func testMixedPageChangeReorientsSameArtworkAndTracksScrolledTarget() throws {
+        let first=CGRect(x:20,y:30,width:2384,height:3370),target=CGRect(x:50,y:-200,width:842,height:1191)
+        let doc=try XCTUnwrap(PDFDocument(data:PAdESGeometryStabilizationTests.pdf(media:first,rotation:0)))
+        let other=try XCTUnwrap(PDFDocument(data:PAdESGeometryStabilizationTests.pdf(media:target,rotation:270,unit:10)))
+        doc.insert(try XCTUnwrap(other.page(at:0)),at:1)
+        let viewer=PlacementPDFView(frame:CGRect(x:0,y:0,width:800,height:650)),window=SignaturePlacementOverlayTests().window(viewer)
+        defer {window.close()}
+        viewer.install(document:doc,pageIndex:0);viewer.layoutSubtreeIfNeeded()
+        let c=try Self.config(crop:first,rotation:0,orientation:.automatic)
+        let art=try PAdESAppearanceRenderer.render(c,certificateDER:Data(),cropBox:first,pageRotation:0)
+        viewer.updatePlacementOverlay(art)
+        viewer.go(to:try XCTUnwrap(doc.page(at:1)));viewer.signatureOverlay.updateGeometry()
+        XCTAssertTrue(viewer.signatureOverlay.isHidden,"Previous page artwork must be hidden")
+        var next=try c.reoriented(to:.automatic,fromPageRotation:0,toPageRotation:270,cropBox:target);next.pageIndex=1
+        let rotated=try art.reoriented(next,cropBox:target,pageRotation:270)
+        XCTAssertEqual(rotated.contentArtworkID,art.contentArtworkID)
+        XCTAssertNotEqual(rotated.approvalIdentity,art.approvalIdentity)
+        XCTAssertEqual(try next.contentSize(pageRotation:270),CGSize(width:240,height:100))
+        XCTAssertTrue(target.contains(next.rectangle))
+        viewer.install(document:doc,pageIndex:1);viewer.layoutSubtreeIfNeeded()
+        viewer.updatePlacementOverlay(rotated);viewer.scaleFactor=2
+        let clip=try XCTUnwrap(SignaturePlacementOverlayTests().descendants(viewer).compactMap{$0 as? NSClipView}.first)
+        clip.postsBoundsChangedNotifications=true;clip.scroll(to:CGPoint(x:200,y:300))
+        (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
+        viewer.signatureOverlay.updateGeometry()
+        let actual=viewer.signatureOverlay.convert(viewer.signatureOverlay.artworkView.frame,to:viewer)
+        let expected=viewer.convert(next.rectangle,from:try XCTUnwrap(doc.page(at:1)))
+        XCTAssertEqual(actual.midX,expected.midX,accuracy:0.01);XCTAssertEqual(actual.midY,expected.midY,accuracy:0.01)
+        let artwork=viewer.signatureOverlay.artworkView
+        let bitmap=try XCTUnwrap(artwork.bitmapImageRepForCachingDisplay(in:artwork.bounds));artwork.cacheDisplay(in:artwork.bounds,to:bitmap)
+        let colors=try PAdESOrientationOutputTests().imageCenters(try XCTUnwrap(bitmap.cgImage))
+        XCTAssertGreaterThan(colors[1].x-colors[0].x,2);XCTAssertEqual(colors[1].y,colors[0].y,accuracy:1.5)
+        let resized=try next.resized(toward:CGPoint(x:next.rectangle.minX+120,y:next.rectangle.minY+300),pageRotation:270,cropBox:target)
+        XCTAssertEqual(resized.rectangle,next.rectangle,"At the crop edge resizing cannot grow outside the target page")
+        var interior=next;interior.rectangle.origin=CGPoint(x:target.minX+100,y:target.minY+100)
+        let grown=try interior.resized(toward:CGPoint(x:interior.rectangle.minX+120,y:interior.rectangle.minY+300),pageRotation:270,cropBox:target)
+        XCTAssertEqual(try grown.contentSize(pageRotation:270),CGSize(width:300,height:120))
+        withExtendedLifetime(other) {}
+    }
+
 }
 #endif
