@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import CoreGraphics
 
 /// Internal application operation, not an inter-application protocol. No PIN or
 /// mutable UI state is retained. Approval must refer to this exact value.
@@ -37,6 +38,16 @@ public struct SigningJob: Sendable {
                   appearance.pdf.count <= PAdESAppearanceRenderer.maximumPDFBytes,
                   !appearance.configuration.visible || !appearance.pdf.isEmpty else {
                 throw SignumError.module("Appearance non vincolata al documento e certificato approvati.")
+            }
+            if let rotation=appearance.pageRotation {
+                guard let provider=CGDataProvider(data:snapshot.approvedBytes as CFData),
+                      let doc=CGPDFDocument(provider),
+                      appearance.configuration.pageIndex >= 0,appearance.configuration.pageIndex < doc.numberOfPages,
+                      let page=doc.page(at:appearance.configuration.pageIndex+1),
+                      try appearance.configuration.orientation.resolve(pageRotation:Int(page.rotationAngle)).pageRotation == rotation else {
+                    throw SignumError.module("Orientamento non vincolato alla pagina dello snapshot approvato.")
+                }
+                try appearance.configuration.validate(cropBox:page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox)),pageRotation:rotation)
             }
         }
         self.padesAppearance = padesAppearance

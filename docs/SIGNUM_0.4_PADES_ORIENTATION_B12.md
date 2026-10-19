@@ -19,3 +19,26 @@ Il renderer esistente genera una sola versione upright vettoriale, conservata im
 API precedenti conservate: chiamanti che passano soltanto CropBox continuano con rotazione pagina implicita 0 e metadata legacy nil; la GUI B12 passa sempre la rotazione effettiva. Il job verifica, per la nuova API, che la rotazione sia quella della pagina dello snapshot e che l’ingombro sia valido prima dell’approvazione/autenticazione.
 
 Cambio orientamento invalida subito readiness, genera nuova approvalIdentity (scelta e angolo risolto inclusi), cancella callback obsolete tramite generation. Configurazione, rotazione pagina, AP e geometria sono valori immutabili nel job. Il drag condivide byte/hash/artworkID, non ricrea PDF o cache; orientare conserva contentArtworkID e riusa l’artwork upright nel worker asincrono.
+
+## Prove mirate e prestazioni
+
+Quattro test Core/grafici: risolutore, trasformazioni esatte, geometria/centro/clamp/limiti, riuso upright e identità del consenso; viewport nativo A4/A3/A1/A0, 4 rotazioni pagina × 5 orientamenti × zoom 25/100/200. Verificati pixel e direzione dell’indicatore asimmetrico nel vero contenuto disegnato della NSView, non soltanto il rettangolo. Trenta spostamenti per combinazione mantengono gli stessi contatori artwork/raster.
+
+Output: **20 vere firme sintetiche** (4×5). /AP/N, /Rect e /BBox verificati; /Matrix identità quando esplicita, altrimenti default PDF identità. /Rotate originale conservato, ByteRange completo e CMS verificato dalla verifica unificata e **indipendentemente da /usr/bin/openssl cms -verify -binary -noverify** (sola integrità, nessuna fiducia CA). Poppler confronta i centroidi R/G/B con un riferimento upright senza /Rotate, ruotato soltanto dell’angolo manuale richiesto: tolleranza 2 pixel. Segni dell’asse R→G: destra, basso, sinistra, alto per 0/90/180/270; Automatico orizzontale su tutte le pagine. Il testo READ 123 e i quattro colori asimmetrici impediscono di mascherare errori di orientamento con un timbro simmetrico.
+
+Quattro test workflow: due PAdES con orientamenti distinti più CAdES realmente firmati nello stesso batch; revoca Automatico→0 anche con byte identici, job congelati, orientamento pagina incompatibile rifiutato prima della firma, override AP del helper rifiutato; rendering superato e chiusura; ripristino per documento dopo teardown/remount del pannello. I test formato B11 coprono inoltre cambio CAdES/PAdES e generazioni revocate.
+
+Prestazioni Debug isolate, 120 movimenti per orientamento su tavola 10.000 vettori, zoom fit della finestra 800×650:
+| Misura | Testo | PNG 1024² | PNG 2800² |
+|---|---:|---:|---:|
+| Generazione iniziale, ms | 2,13 | 13,19 | 96,87 |
+| Cambio orientamento da upright, ms | 0,05–0,85 | 0,06–5,18 | 0,22–35,28 |
+| Aggiornamento overlay/cache, ms | circa 0,5 | 2,55–3,18 | 15,28–16,65 |
+| Drag p95, ms | circa 0,06 | 0,047–0,061 | 0,050–0,077 |
+| Resize completo orientato, ms | 1,46 | 16,38 | 108,12 |
+
+Zero rigenerazioni PDF/raster e hash payload durante il drag; invariati artworkID/sha256. Cache misurata in questo fit: 13020 byte. Resta il limite B11 di 4096 per asse, massimo teorico 64 MiB per cache RGBA; upright e PDF finale sono al più 8 MiB ciascuno (Data condivise nei job, nessuna copia per movimento). Orientare/rigenerare avviene nel worker asincrono. La prima pittura/cache rimane sincrona sul MainActor, circa 16 ms nel caso grande; non sono stati misurati fps, energia o memoria isolata dell’intero processo. I costi PDFKit della tavola rimangono distinti.
+
+Limite del collaudo interattivo: il collegamento desktop ha restituito due volte “Sky Computer Use native pipe closed before response”. Nessuna interazione manuale del menu dichiarata. Un primo test presumeva erroneamente che il Picker SwiftUI fosse un NSPopUpButton; un secondo condivideva il coordinatore fra due pannelli artificialmente rimontati. Corrette queste assunzioni del test, preservando i controlli di readiness/centro/ripristino. Nessuna modifica all’implementazione standard del Picker per adattarla al test. I test nativi di pixel/direzione passano; menu interattivo, tavola reale B12 e runtime macOS 13/14 restano da collaudare. La tavola personale non è stata firmata né riesaminata interattivamente in B12.
+
+Prototipo locale facoltativo in Tools/OrientationProbe/ (solo anteprima, nessun provider/discovery/autenticazione/firma). --smoke usa esclusivamente una fixture sintetica e termina con cleanup; l’argomento PDF facoltativo è locale e in lettura. Le prove automatiche non aprono il documento reale.

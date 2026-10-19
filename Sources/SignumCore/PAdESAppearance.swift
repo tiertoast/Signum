@@ -10,6 +10,7 @@ public struct PAdESAppearanceConfiguration: Equatable, Sendable {
     public enum Alignment: String, CaseIterable, Sendable { case leading, center, trailing }
     public var visible = true
     public var pageIndex = 0
+    public var orientation: PAdESAppearanceOrientation = .automatic
     public var rectangle = CGRect(x: 30, y: 30, width: 240, height: 90)
     public var showSigner = true
     public var showLabel = true
@@ -27,10 +28,10 @@ public struct PAdESAppearanceConfiguration: Equatable, Sendable {
         a.rectangle.origin = .zero; b.rectangle.origin = .zero
         return a == b
     }
-    public func validate(cropBox: CGRect) throws {
-        let r = rectangle
+    public func validate(cropBox: CGRect, pageRotation: Int = 0) throws {
+        let r = rectangle, size = try contentSize(pageRotation:pageRotation)
         guard pageIndex >= 0, !visible || ([r.minX,r.minY,r.width,r.height,cropBox.minX,cropBox.minY,cropBox.width,cropBox.height].allSatisfy(\.isFinite) &&
-            r.width >= 80 && r.height >= 40 && r.width <= 800 && r.height <= 500 && cropBox.contains(r)),
+            size.width >= 80 && size.height >= 40 && size.width <= 800 && size.height <= 500 && cropBox.contains(r)),
             (7...18).contains(fontSize), fontSize.isFinite, customText.utf8.count <= 1024,
             !customText.unicodeScalars.contains(where: { $0.value < 32 && $0.value != 10 }),
             localDate.map({ $0.timeIntervalSince1970.isFinite }) ?? true else {
@@ -109,42 +110,98 @@ public struct PAdESAppearanceImage: Equatable, Sendable {
 
 public struct RenderedPAdESAppearance: Equatable, Sendable {
     public let configuration: PAdESAppearanceConfiguration
+    /// Final, already oriented vector PDF. Shared unchanged by preview and helper.
     public let pdf: Data
     public let certificateSHA256: String
     public let artworkID: UUID
+    public let contentArtworkID: UUID
     public let sha256: String
     public let approvalIdentity: String
+    /// Nil preserves legacy callers that supply only a CropBox and raw artwork.
+    /// The GUI always supplies and freezes the actual snapshot page rotation.
+    public let pageRotation: Int?
+    public let resolvedOrientation: PAdESAppearanceResolution?
+    private let uprightPDF: Data?
 
     public init(configuration: PAdESAppearanceConfiguration, pdf: Data, certificateSHA256: String) {
-        self.init(configuration: configuration, pdf: pdf, certificateSHA256: certificateSHA256,
-                  artworkID: UUID(), sha256: DocumentSnapshot.digest(pdf))
+        self.init(configuration:configuration,pdf:pdf,certificateSHA256:certificateSHA256,
+                  artworkID:UUID(),contentArtworkID:UUID(),sha256:DocumentSnapshot.digest(pdf),pageRotation:nil,uprightPDF:nil)
     }
     private init(configuration: PAdESAppearanceConfiguration, pdf: Data, certificateSHA256: String,
-                 artworkID: UUID, sha256: String) {
-        self.configuration = configuration; self.pdf = pdf; self.certificateSHA256 = certificateSHA256
-        self.artworkID = artworkID; self.sha256 = sha256
-        let c = configuration, r = c.rectangle
-        approvalIdentity = DocumentSnapshot.digest(Data("\(c.visible)|\(c.pageIndex)|\(r.minX)|\(r.minY)|\(r.width)|\(r.height)|\(sha256)|\(certificateSHA256)".utf8))
+                 artworkID: UUID, contentArtworkID: UUID, sha256: String, pageRotation: Int?, uprightPDF: Data?) {
+        self.configuration=configuration; self.pdf=pdf; self.certificateSHA256=certificateSHA256
+        self.artworkID=artworkID; self.contentArtworkID=contentArtworkID; self.sha256=sha256
+        self.pageRotation=pageRotation; self.uprightPDF=uprightPDF
+        let c=configuration,r=c.rectangle
+        let resolved=try? c.orientation.resolve(pageRotation:pageRotation ?? 0)
+        self.resolvedOrientation=resolved
+        approvalIdentity=DocumentSnapshot.digest(Data("\(c.visible)|\(c.pageIndex)|\(r.minX)|\(r.minY)|\(r.width)|\(r.height)|\(c.orientation.rawValue)|\(pageRotation.map(String.init) ?? "legacy")|\(resolved?.artworkCounterclockwiseDegrees ?? -1)|\(sha256)|\(certificateSHA256)".utf8))
     }
-    /// Rebind geometry to the exact immutable bytes already displayed. Never
-    /// re-decode, lay out text, create a PDF or hash the PDF payload here.
-    public func placed(_ configuration: PAdESAppearanceConfiguration, cropBox: CGRect) throws -> Self {
-        guard self.configuration.hasSameArtwork(as: configuration) else {
+    init(rendering configuration:PAdESAppearanceConfiguration,uprightPDF:Data,certificateSHA256:String,pageRotation:Int?) throws {
+        let rotation=try configuration.orientation.resolve(pageRotation:pageRotation ?? 0)
+        let final=try Self.orientedPDF(uprightPDF,configuration:configuration,resolution:rotation)
+        self.init(configuration:configuration,pdf:final,certificateSHA256:certificateSHA256,artworkID:UUID(),
+                  contentArtworkID:UUID(),sha256:DocumentSnapshot.digest(final),pageRotation:pageRotation.map{_ in rotation.pageRotation},uprightPDF:uprightPDF)
+    }
+    public func placed(_ configuration:PAdESAppearanceConfiguration,cropBox:CGRect) throws -> Self {
+        guard self.configuration.hasSameArtwork(as:configuration) else {
             throw SignumError.module("Il contenuto grafico è cambiato: prepara una nuova appearance.")
         }
-        try configuration.validate(cropBox: cropBox)
-        return Self(configuration: configuration, pdf: pdf, certificateSHA256: certificateSHA256,
-                    artworkID: artworkID, sha256: sha256)
+        try configuration.validate(cropBox:cropBox,pageRotation:pageRotation ?? 0)
+        return Self(configuration:configuration,pdf:pdf,certificateSHA256:certificateSHA256,artworkID:artworkID,
+                    contentArtworkID:contentArtworkID,sha256:sha256,pageRotation:pageRotation,uprightPDF:uprightPDF)
+    }
+    public func canReorient(to next:PAdESAppearanceConfiguration,pageRotation:Int) -> Bool {
+        guard uprightPDF != nil,
+              let oldSize=try? configuration.contentSize(pageRotation:self.pageRotation ?? 0),
+              let newSize=try? next.contentSize(pageRotation:pageRotation) else {return false}
+        var a=configuration,b=next
+        a.pageIndex=0;b.pageIndex=0;a.orientation = .automatic;b.orientation = .automatic
+        a.rectangle=CGRect(origin:.zero,size:oldSize);b.rectangle=CGRect(origin:.zero,size:newSize)
+        return a == b
+    }
+    public func reoriented(_ next:PAdESAppearanceConfiguration,cropBox:CGRect,pageRotation:Int,
+                           isCancelled:()->Bool = {false}) throws -> Self {
+        guard canReorient(to:next,pageRotation:pageRotation),let uprightPDF else {
+            throw SignumError.module("Il contenuto grafico è cambiato: prepara una nuova appearance.")
+        }
+        try next.validate(cropBox:cropBox,pageRotation:pageRotation)
+        let resolution=try next.orientation.resolve(pageRotation:pageRotation)
+        if isCancelled() {throw CancellationError()}
+        let old=try configuration.orientation.resolve(pageRotation:self.pageRotation ?? 0)
+        let same=old.artworkCounterclockwiseDegrees == resolution.artworkCounterclockwiseDegrees
+        let final=try same ? pdf : Self.orientedPDF(uprightPDF,configuration:next,resolution:resolution)
+        if isCancelled() {throw CancellationError()}
+        return Self(configuration:next,pdf:final,certificateSHA256:certificateSHA256,
+                    artworkID:same ? artworkID:UUID(),contentArtworkID:contentArtworkID,
+                    sha256:same ? sha256:DocumentSnapshot.digest(final),pageRotation:resolution.pageRotation,uprightPDF:uprightPDF)
+    }
+    private static func orientedPDF(_ base:Data,configuration:PAdESAppearanceConfiguration,
+                                    resolution:PAdESAppearanceResolution) throws -> Data {
+        guard configuration.visible,resolution.artworkCounterclockwiseDegrees != 0 else {return base}
+        guard let source=CGDataProvider(data:base as CFData),let doc=CGPDFDocument(source),let page=doc.page(at:1) else {
+            throw SignumError.module("Artwork non disponibile per l’orientamento.")
+        }
+        var box=CGRect(origin:.zero,size:configuration.rectangle.size)
+        let output=NSMutableData()
+        guard let consumer=CGDataConsumer(data:output),let c=CGContext(consumer:consumer,mediaBox:&box,nil) else {
+            throw SignumError.module("Orientamento artwork non disponibile.")
+        }
+        c.beginPDFPage(nil)
+        c.concatenate(resolution.transform(contentSize:page.getBoxRect(.mediaBox).size))
+        c.drawPDFPage(page);c.endPDFPage();c.closePDF()
+        guard output.length <= PAdESAppearanceRenderer.maximumPDFBytes else {throw SignumError.module("Appearance superiore a 8 MiB.")}
+        return output as Data
     }
 }
 
 public enum PAdESAppearanceRenderer {
     public static let maximumPDFBytes = 8 * 1024 * 1024
-    public static func render(_ configuration: PAdESAppearanceConfiguration, certificateDER: Data, cropBox: CGRect, isCancelled: () -> Bool = { false }) throws -> RenderedPAdESAppearance {
+    public static func render(_ configuration: PAdESAppearanceConfiguration, certificateDER: Data, cropBox: CGRect, pageRotation: Int? = nil, isCancelled: () -> Bool = { false }) throws -> RenderedPAdESAppearance {
         if isCancelled() { throw CancellationError() }
-        try configuration.validate(cropBox: cropBox)
+        try configuration.validate(cropBox: cropBox,pageRotation:pageRotation ?? 0)
         let fingerprint = SHA256.hash(data: certificateDER).map { String(format:"%02x", $0) }.joined()
-        guard configuration.visible else { return .init(configuration: configuration, pdf: Data(), certificateSHA256: fingerprint) }
+        guard configuration.visible else { return try .init(rendering:configuration,uprightPDF:Data(),certificateSHA256:fingerprint,pageRotation:pageRotation) }
         var lines: [String] = []
         if configuration.showLabel { lines.append("Firmato digitalmente") }
         if configuration.showSigner { lines.append(try SignumCertificateIdentity(certificateDER: certificateDER).fullName) }
@@ -154,7 +211,7 @@ public enum PAdESAppearanceRenderer {
         }
         if !configuration.customText.isEmpty { lines.append(configuration.customText) }
         guard !lines.isEmpty || configuration.image != nil else { throw SignumError.module("La firma visibile richiede testo o immagine.") }
-        var box = CGRect(origin:.zero, size: configuration.rectangle.size)
+        var box = CGRect(origin:.zero, size: try configuration.contentSize(pageRotation:pageRotation ?? 0))
         let output = NSMutableData()
         guard let sink = CGDataConsumer(data: output as CFMutableData), let context = CGContext(consumer:sink, mediaBox:&box, nil) else { throw SignumError.module("Rendering appearance non disponibile.") }
         context.beginPDFPage(nil)
@@ -188,7 +245,7 @@ public enum PAdESAppearanceRenderer {
         context.endPDFPage(); context.closePDF()
         guard output.length <= maximumPDFBytes else { throw SignumError.module("Appearance superiore a 8 MiB.") }
         if isCancelled() { throw CancellationError() }
-        return .init(configuration:configuration,pdf:output as Data,certificateSHA256:fingerprint)
+        return try .init(rendering:configuration,uprightPDF:output as Data,certificateSHA256:fingerprint,pageRotation:pageRotation)
     }
 }
 #endif

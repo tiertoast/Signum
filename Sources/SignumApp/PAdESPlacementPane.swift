@@ -40,6 +40,8 @@ struct PAdESPlacementPane: View {
         guard let page = pdfDocument?.page(at:index)?.pageRef else { return .zero }
         return page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox))
     }
+    private func rotation(for index:Int)->Int { Int(pdfDocument?.page(at:index)?.pageRef?.rotationAngle ?? 0) }
+    private var contentSize:CGSize { (try? configuration.contentSize(pageRotation:rotation(for:configuration.pageIndex))) ?? configuration.rectangle.size }
     var body: some View {
         GroupBox("Firma grafica PAdES") {
             VStack(alignment:.leading, spacing:8) {
@@ -51,6 +53,12 @@ struct PAdESPlacementPane: View {
                     }.frame(width:150)
                 }
                 if configuration.visible {
+                    HStack {
+                        Picker("Orientamento",selection:editing(\.orientation)) {
+                            ForEach(PAdESAppearanceOrientation.allCases,id:\.self) { Text($0.title).tag($0) }
+                        }.frame(width:240)
+                        Text("Angoli in senso orario rispetto alla lettura sullo schermo.").font(.caption).foregroundStyle(.secondary)
+                    }
                     HStack {
                         Toggle("Nome dal certificato",isOn:editing(\.showSigner))
                         Toggle("Firmato digitalmente",isOn:editing(\.showLabel))
@@ -68,8 +76,8 @@ struct PAdESPlacementPane: View {
                         Stepper("Testo \(Int(configuration.fontSize)) pt",value:editing(\.fontSize),in:7...18)
                     }
                     HStack {
-                        Stepper("Larghezza \(Int(configuration.rectangle.width)) pt",value:Binding(get:{configuration.rectangle.width},set:{ value in change { $0.rectangle.size.width=value } }),in:80...800,step:5)
-                        Stepper("Altezza \(Int(configuration.rectangle.height)) pt",value:Binding(get:{configuration.rectangle.height},set:{ value in change { $0.rectangle.size.height=value } }),in:40...500,step:5)
+                        Stepper("Larghezza \(Int(contentSize.width)) pt",value:Binding(get:{contentSize.width},set:{ value in resizeContent(width:value,height:contentSize.height) }),in:80...800,step:5)
+                        Stepper("Altezza \(Int(contentSize.height)) pt",value:Binding(get:{contentSize.height},set:{ value in resizeContent(width:contentSize.width,height:value) }),in:40...500,step:5)
                     }.font(.caption)
                 }
                 if rendering { ProgressView("Preparazione appearance…").controlSize(.small) }
@@ -106,6 +114,9 @@ struct PAdESPlacementPane: View {
                 configuration.visible = false
                 configuration.showSigner = UserDefaults.standard.object(forKey:"signum.appearance.signer") as? Bool ?? true
                 configuration.showLabel = true
+                // Default dimensions describe upright artwork, before compensating /Rotate.
+                if let initial=try? configuration.reoriented(to:configuration.orientation,fromPageRotation:0,
+                    toPageRotation:rotation(for:configuration.pageIndex),cropBox:crop) { configuration=initial }
             }
             resetRectangleIfNeeded(); render()
         }
@@ -116,27 +127,47 @@ struct PAdESPlacementPane: View {
     private func change(_ mutation:(inout PAdESAppearanceConfiguration)->Void) {
         var next = configuration; mutation(&next)
         guard next != configuration else { return }
-        if next.pageIndex != configuration.pageIndex {
-            let box = crop(for:next.pageIndex)
-            if !box.contains(next.rectangle) { next.rectangle.origin = CGPoint(x:box.minX+10,y:box.minY+10) }
-        }
         renderCoordinator.cancel(); renderID = UUID(); annotationReady = false
         previewReady(snapshot.identity.id,false)
+        if next.pageIndex != configuration.pageIndex || next.orientation != configuration.orientation {
+            do {
+                let source=configuration
+                var oriented=try source.reoriented(to:next.orientation,fromPageRotation:rotation(for:source.pageIndex),
+                    toPageRotation:rotation(for:next.pageIndex),cropBox:crop(for:next.pageIndex))
+                oriented.pageIndex=next.pageIndex
+                next=oriented
+            } catch { rejectEdit(error); return }
+        }
         configuration = next
     }
     private func editing<T>(_ path:WritableKeyPath<PAdESAppearanceConfiguration,T>)->Binding<T> {
         Binding(get:{configuration[keyPath:path]},set:{ value in change { $0[keyPath:path] = value } })
     }
+    private func resizeContent(width:CGFloat,height:CGFloat) {
+        do {
+            let next=try configuration.resized(contentSize:CGSize(width:width,height:height),
+                pageRotation:rotation(for:configuration.pageIndex),cropBox:crop)
+            change {$0=next}
+        } catch { rejectEdit(error) }
+    }
+    private func rejectEdit(_ error:Error) {
+        renderCoordinator.cancel();renderID=UUID();annotationReady=false;rendering=false
+        previewReady(snapshot.identity.id,false);issue=error.localizedDescription
+    }
     private func resetRectangleIfNeeded() { if !crop.contains(configuration.rectangle) { resetRectangle() } }
     private func resetRectangle() {
-        configuration.rectangle = CGRect(x:crop.minX+min(20,crop.width/10),y:crop.minY+min(20,crop.height/10),width:min(240,crop.width-40),height:min(100,crop.height-40))
+        let resolved=try? configuration.orientation.resolve(pageRotation:rotation(for:configuration.pageIndex))
+        let size=resolved?.footprintSize(forContent:CGSize(width:240,height:90)) ?? CGSize(width:240,height:90)
+        configuration.rectangle=CGRect(x:crop.minX+min(20,crop.width/10),y:crop.minY+min(20,crop.height/10),
+            width:min(size.width,crop.width-40),height:min(size.height,crop.height-40))
     }
     private func choose(_ index:Int,_ point:CGPoint,_ resize:Bool) {
         var next = configuration
         next.pageIndex = index
         let r = next.rectangle, crop = crop(for:index)
         if resize {
-            next.rectangle.size = CGSize(width:min(max(80,point.x-r.minX),min(800,crop.maxX-r.minX)),height:min(max(40,point.y-r.minY),min(500,crop.maxY-r.minY)))
+            do { next=try next.resized(toward:point,pageRotation:rotation(for:index),cropBox:crop) }
+            catch { rejectEdit(error);return }
         } else {
             next.rectangle.origin = CGPoint(x:min(max(point.x-r.width/2,crop.minX),crop.maxX-r.width),y:min(max(point.y-r.height/2,crop.minY),crop.maxY-r.height))
         }
@@ -149,8 +180,8 @@ struct PAdESPlacementPane: View {
         }
         renderCoordinator.cancel()
         let id=UUID(); renderID=id; rendering=true; issue=""; previewReady(snapshot.identity.id,false)
-        let config=configuration, der=certificateDER ?? Data(), bounds=crop
-        if let previous = rendered, renderedDER == der, previous.configuration.hasSameArtwork(as: config) {
+        let config=configuration, der=certificateDER ?? Data(), bounds=crop, pageRotation=rotation(for:configuration.pageIndex)
+        if let previous = rendered, renderedDER == der, previous.configuration.hasSameArtwork(as: config), (previous.pageRotation ?? 0) == pageRotation {
             do {
                 let value = try previous.placed(config,cropBox:bounds)
                 rendered = value; rendering = false
@@ -158,9 +189,9 @@ struct PAdESPlacementPane: View {
             } catch { issue=error.localizedDescription; rendered=nil; rendering=false }
             return
         }
-        do { try config.validate(cropBox:bounds) }
+        do { try config.validate(cropBox:bounds,pageRotation:pageRotation) }
         catch { issue="Posizionamento non valido: " + error.localizedDescription; rendered=nil; rendering=false; return }
-        renderCoordinator.submit(config,der:der,crop:bounds) { result in
+        renderCoordinator.submit(config,der:der,crop:bounds,pageRotation:pageRotation,previous:rendered) { result in
             guard isActive, renderID == id else { return }; rendering=false
             switch result {
             case .success(let value): rendered=value; renderedDER=der; issue=""; placement = PAdESPlacement(pageIndex:config.pageIndex,rectangle:config.rectangle,appearance:value)

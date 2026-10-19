@@ -109,6 +109,7 @@ final class SignatureArtworkView: NSView {
     var didDraw: (() -> Void)?
     var didFail: (() -> Void)?
     private var cachedPixels: CGImage?
+    var cachedPixelBytes: Int { cachedPixels.map { $0.bytesPerRow * $0.height } ?? 0 }
     private(set) var hasPainted = false
     private(set) var drawCount = 0
     private(set) var transform = CGAffineTransform.identity
