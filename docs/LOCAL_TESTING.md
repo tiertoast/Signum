@@ -62,3 +62,5 @@ python3 scripts/test-packaged-bindings.py --bundle /nuova/directory/Signum-diagn
 ```
 
 Esegue 10 controlli: worker v2 e firma RSA verificata indipendentemente, rifiuto contesto cambiato e v2 incompleto, helper v5 e verifica PAdES, no-overwrite, contesto PAdES cambiato, preflight read-only anche su firma incrementale supportata, directory errata prima dell'autenticazione, checkpoint post-login nel worker e nel helper. I provider sono copie sintetiche locali; le fixture vengono eliminate. Il bundle resta invariato.
+
+I test SigningJob con un modulo raw sincrono possiedono anche il teardown checked: lo completano prima di rilasciare l'handle loader della fixture. Questo evita due `dlclose` concorrenti nel runtime TSAN dell'host. Non sono disabilitati unload, controlli o diagnostiche sanitizer; le prove di deinit asincrono restano in `PKCS11LifecycleIntegrationTests`, e il teardown nativo è verificato anche con TSAN.

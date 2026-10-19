@@ -163,6 +163,10 @@ final class SigningJobTests: XCTestCase {
     func testCertificateChangedDuringJobBlocksBeforeLogin() throws {
         try withJob { old, _, _ in
             let mock = try MockModule(), module = try PKCS11Module(path: mock.path.path)
+            // This test owns one synchronous raw module. Complete checked
+            // disposal before releasing its fixture loader handle. Async deinit
+            // remains exercised separately by PKCS11LifecycleIntegrationTests.
+            defer { XCTAssertNoThrow(try module.closeInWorker()) }
             let job = try SigningJob(snapshot: old.snapshot, providerPath: module.modulePath, slot: old.slot,
                                     certificate: old.certificate, certificateDER: old.certificateDER, destination: old.destination)
             let replacement = try CertificateEligibilityTests.fixtures.get().der("replaced")
@@ -175,6 +179,10 @@ final class SigningJobTests: XCTestCase {
     func testWrongProviderIsRejectedBeforeLogin() throws {
         try withJob { job, _, _ in
             let mock = try MockModule(), module = try PKCS11Module(path: mock.path.path)
+            // This test owns one synchronous raw module. Complete checked
+            // disposal before releasing its fixture loader handle. Async deinit
+            // remains exercised separately by PKCS11LifecycleIntegrationTests.
+            defer { XCTAssertNoThrow(try module.closeInWorker()) }
             XCTAssertThrowsError(try job.signCAdES(using: module, pin: "synthetic-value"))
             XCTAssertEqual(mock.count(8), 0); try assertCleanFailure(job)
         }

@@ -27,7 +27,7 @@ class LocalRunnerTests(unittest.TestCase):
             runner.setup(args)
 
     def test_sanitizer_selection_preserves_14a_and_covers_14b(self):
-        for name in ['OneShotContextTests','PostLoginCertificateTests','SigningReviewTests','VerificationDropLifecycleTests','PAdESSourcePreflightTests','SignumFileOutputTests']:
+        for name in ['OneShotContextTests','PostLoginCertificateTests','SigningReviewTests','VerificationDropLifecycleTests','PAdESSourcePreflightTests','SignumFileOutputTests','FileAcquisitionTests']:
             self.assertIn(name, runner.SANITIZER_FILTER)
 
 
