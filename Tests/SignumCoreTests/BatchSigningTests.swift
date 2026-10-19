@@ -195,7 +195,7 @@ import CoreGraphics
                 MiddlewareDiscovery(client: .init(executable: worker)).discover(registry: [], manualPaths: [modulePath])
             }.value
             var selection = DeviceSelection(); let request = selection.beginDiscovery()
-            XCTAssertTrue(selection.accept(providers, request: request)); XCTAssertNil(selection.selectedRoute)
+            XCTAssertTrue(selection.accept(providers, request: request, expectedPaths:[modulePath])); XCTAssertEqual(selection.selectionOrigin,.automatic)
             XCTAssertTrue(selection.select(routeID: selection.certificates.first?.routes.first?.id))
             let route = try XCTUnwrap(selection.selectedRoute)
             let plan = try await batch.prepareApproval(provider: route.providerPath, slot: route.token.slot,

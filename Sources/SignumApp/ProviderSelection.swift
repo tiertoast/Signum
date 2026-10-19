@@ -50,7 +50,8 @@ struct ProviderSelection {
     mutating func applyCertificates(_ loaded: LoadedCertificates) {
         certificates = loaded.certificates; certificateIdentities = loaded.identities
         certificateDERs = loaded.derByID; certificateAssessments = loaded.assessments
-        selectedCertificateID = loaded.certificates.first(where: { loaded.assessments[$0.id]?.permitsSigning == true })?.id
+        let eligible = loaded.certificates.filter { loaded.assessments[$0.id]?.permitsSigning == true }
+        selectedCertificateID = eligible.count == 1 ? eligible[0].id : nil
     }
     mutating func beginCertificateLoad() -> UUID {
         applyCertificates(LoadedCertificates()); pin = ""; requestID = UUID()

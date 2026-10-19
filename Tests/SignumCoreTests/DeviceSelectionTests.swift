@@ -26,30 +26,31 @@ final class DeviceSelectionTests: XCTestCase {
         XCTAssertEqual(groups[0].routes[0].title, groups[1].routes[0].title)
         XCTAssertNotEqual(groups[0].id, groups[1].id)
     }
-    func testEligibleAuthenticationExpiredAmbiguousRemainDistinctAndNeverPreselected() throws {
+    func testOnlyEligibleRouteAutomaticallySelectedUsingExistingPolicy() throws {
         let fixture = try CertificateEligibilityTests.fixtures.get()
         let names = ["valid", "authentication", "expired", "wrongKU", "missingKU"]
         let providers = names.enumerated().map { provider("test\($0.offset)", der: fixture.der($0.element)) }
         var state = DeviceSelection(); let request = state.beginDiscovery()
-        XCTAssertTrue(state.accept(providers, request: request)); XCTAssertNil(state.selectedRoute)
+        XCTAssertTrue(state.acceptCompleteFixture(providers, request: request)); XCTAssertEqual(state.selectionOrigin,.automatic)
         let routes = state.certificates.flatMap(\.routes)
         XCTAssertEqual(routes.filter { $0.assessment.permitsSigning }.count, 1)
         XCTAssertTrue(routes.contains { $0.purpose.contains("autenticazione") })
         XCTAssertTrue(routes.contains { $0.assessment.status == .indeterminate })
         XCTAssertTrue(state.select(routeID: routes.first?.id)); XCTAssertNotNil(state.selectedRoute)
     }
-    func testRemovalReinsertChangedSlotAndProviderNeverRestoreOldSelection() throws {
+    func testRemovalReinsertChangedSlotAndProviderNeverReuseOldBinding() throws {
         let der = try CertificateEligibilityTests.fixtures.get().der("valid")
         var selection = DeviceSelection(); let first = selection.beginDiscovery()
-        selection.accept([provider(der: der)], request: first)
+        selection.acceptCompleteFixture([provider(der: der)], request: first)
         let old = try XCTUnwrap(selection.certificates.first?.routes.first?.id)
         selection.select(routeID: old); XCTAssertNotNil(selection.selectedRoute)
         let removed = selection.beginDiscovery(); XCTAssertNil(selection.selectedRoute)
-        selection.accept([], request: removed); XCTAssertTrue(selection.certificates.isEmpty)
+        selection.acceptCompleteFixture([], request: removed); XCTAssertTrue(selection.certificates.isEmpty)
         let reinsert = selection.beginDiscovery()
-        XCTAssertFalse(selection.accept([provider(der: der)], request: first))
-        selection.accept([provider("opensc", der: der, slot: 99)], request: reinsert)
-        XCTAssertNil(selection.selectedRoute); XCTAssertFalse(selection.select(routeID: old))
+        XCTAssertFalse(selection.acceptCompleteFixture([provider(der: der)], request: first))
+        selection.acceptCompleteFixture([provider("opensc", der: der, slot: 99)], request: reinsert)
+        XCTAssertNotEqual(selection.selectedRoute?.id,old); XCTAssertEqual(selection.selectionOrigin,.automatic)
+        XCTAssertFalse(selection.select(routeID: old))
         XCTAssertTrue(selection.select(routeID: selection.certificates[0].routes[0].id))
         XCTAssertEqual(selection.selectedRoute?.providerPath, "/synthetic/opensc.dylib")
         XCTAssertEqual(selection.selectedRoute?.token.slot, 99)
@@ -80,7 +81,7 @@ final class DeviceSelectionTests: XCTestCase {
         XCTAssertTrue(selection.isSearching)
         selection.cancelDiscovery()
         XCTAssertFalse(selection.isSearching); XCTAssertTrue(selection.message.contains("annullata"))
-        XCTAssertFalse(selection.accept([provider(der: der)], request: request))
+        XCTAssertFalse(selection.acceptCompleteFixture([provider(der: der)], request: request))
         XCTAssertTrue(selection.certificates.isEmpty); XCTAssertNil(selection.selectedRoute)
     }
     @MainActor func testPreparedCertificatesApplyOnMainWithoutProviderOrFilesystemAccess() async throws {

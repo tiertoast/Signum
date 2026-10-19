@@ -25,6 +25,7 @@ struct SigningReviewContext: Equatable {
     @Published private(set) var approval: BatchApproval?
     @Published private(set) var isPreparing = false
     @Published private(set) var issue = ""
+    @Published private(set) var credentialUnavailable = false
     private var request = UUID()
     private var activePreparation: Task<BatchApproval,Error>?
     private var activeCancellation: SigningOperation?
@@ -37,7 +38,7 @@ struct SigningReviewContext: Equatable {
         guard !batch.isFrozen else { return }
         let id = UUID(); request = id
         activeCancellation?.requestCancellation()
-        self.context = context; approval = nil; issue = ""; isPreparing = context != nil
+        self.context = context; approval = nil; issue = ""; credentialUnavailable = false; isPreparing = context != nil
         batch.invalidateReview()
         guard let context else { return }
         defer { if request == id { isPreparing = false } }
@@ -66,7 +67,10 @@ struct SigningReviewContext: Equatable {
             guard request == id, !Task.isCancelled else { preparationsDiscarded += 1; return }
             approval = plan
         } catch {
-            if request == id, !Task.isCancelled { issue = error.localizedDescription }
+            if request == id, !Task.isCancelled {
+                issue = error.localizedDescription
+                credentialUnavailable = error is DeviceCertificateRoute.AvailabilityFailure
+            }
             else { preparationsDiscarded += 1 }
         }
     }

@@ -4,7 +4,7 @@ import XCTest
 @testable import SignumCore
 
 final class DiscoveryExperienceTests: XCTestCase {
-    func testRememberedManualPathsRemainBoundedValidatedAndRequireExplicitLoad() throws {
+    func testRememberedManualPathsRemainBoundedValidatedAndCannotSelectWithoutScan() throws {
         let name = "Signum.synthetic.discovery." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name)); defer { defaults.removePersistentDomain(forName: name) }
         let preferences = MiddlewarePreferences(defaults: defaults)

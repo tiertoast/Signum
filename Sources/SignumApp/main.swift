@@ -219,7 +219,11 @@ private enum SignumFormat: String, Hashable {
         }
         .task(id: batch.isFrozen ? nil : reviewContext) {
             let context = reviewContext, route = devices.selectedRoute
-            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validate: { try route?.requireCurrentModule() })
+            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validate: { try route?.requireCurrentCredential() })
+            if review.credentialUnavailable, review.context == context, !batch.isFrozen {
+                devices.select(routeID:nil); provider.beginDiscovery(); batch.invalidateReview()
+                status = DeviceCertificateRoute.AvailabilityFailure.unavailable.localizedDescription
+            }
         }
         .onChange(of: showExcludedCertificates) { show in
             guard !batch.isFrozen, let route = devices.selectedRoute,
@@ -477,6 +481,9 @@ private enum SignumFormat: String, Hashable {
     private var certificateControls: some View {
         GroupBox("Scegli il certificato") {
             VStack(alignment: .leading, spacing: 8) {
+                if devices.selectionOrigin == .automatic, let route=devices.selectedRoute {
+                    Text("Selezionato automaticamente: \(route.title)").font(.caption)
+                }
                 Toggle("Mostra certificati non idonei", isOn: $showExcludedCertificates)
                     .disabled(interfaceLocked || batch.isFrozen)
                 if CertificateVisibility(devices.certificates).eligible.isEmpty && !devices.isSearching {
@@ -663,12 +670,15 @@ private enum SignumFormat: String, Hashable {
             MiddlewarePreferences(defaults: preferences.defaults).remember(path); manualPaths = MiddlewarePreferences(defaults: preferences.defaults).paths
         }
         provider.beginDiscovery()
+        batch.invalidateReview()
+        let configuredPaths = manualPaths
+        let expectedPaths = Set(MiddlewareRegistry.known.flatMap(\.candidatePaths) + configuredPaths)
         let request = devices.beginDiscovery(), operation = beginWork()
         busy = true; status = "Ricerca dei dispositivi in corso…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let results = MiddlewareDiscovery().discover(registry: paths.isEmpty ? MiddlewareRegistry.known : [],
-                manualPaths: paths, isCancelled: { operation.isCancellationRequested })
-            let prepared = DeviceDiscoveryResult(providers: operation.isCancellationRequested ? [] : results)
+            let results = MiddlewareDiscovery().discover(registry: MiddlewareRegistry.known,
+                manualPaths: configuredPaths, isCancelled: { operation.isCancellationRequested })
+            let prepared = DeviceDiscoveryResult(providers: operation.isCancellationRequested ? [] : results, expectedPaths:expectedPaths)
             DispatchQueue.main.async {
                 guard self.devices.requestID == request else { return }
                 self.busy = false; self.work = nil
@@ -677,6 +687,7 @@ private enum SignumFormat: String, Hashable {
                     self.status = "Ricerca annullata. Cerca nuovamente."; return
                 }
                 guard self.devices.accept(prepared, request: request) else { return }
+                if let route=self.devices.selectedRoute { self.provider.select(route:route) }
                 self.status = self.devices.message
             }
         }
@@ -703,7 +714,7 @@ private enum SignumFormat: String, Hashable {
         guard !interfaceLocked, !batch.isFrozen else { return }
         MiddlewarePreferences(defaults: preferences.defaults).remove(path); manualPaths = MiddlewarePreferences(defaults: preferences.defaults).paths
         if manualPath == path { manualPath = "" }
-        devices.beginDiscovery(); provider.beginDiscovery()
+        devices.beginDiscovery(); provider.beginDiscovery(); batch.invalidateReview()
         status = "Configurazione manuale rimossa. Cerca nuovamente per scegliere un certificato."
     }
 

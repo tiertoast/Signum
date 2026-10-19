@@ -44,13 +44,14 @@ final class CertificateVisibilityTests: XCTestCase {
     func testRefreshNeverPreselectsAnExcludedCertificateOrChangesPolicy() throws {
         let fixture = try CertificateEligibilityTests.fixtures.get()
         var selection = DeviceSelection(); let request = selection.beginDiscovery()
-        selection.accept([DeviceSelectionTests().provider(der: fixture.der("authentication"))], request: request)
+        selection.acceptCompleteFixture([DeviceSelectionTests().provider(der: fixture.der("authentication"))], request: request)
         XCTAssertTrue(CertificateVisibility(selection.certificates).visible(showExcluded: false).isEmpty)
         XCTAssertNil(selection.selectedRoute)
         let refreshed = selection.beginDiscovery()
-        selection.accept([DeviceSelectionTests().provider(der: fixture.der("valid"))], request: refreshed)
+        selection.acceptCompleteFixture([DeviceSelectionTests().provider(der: fixture.der("valid"))], request: refreshed)
         XCTAssertEqual(CertificateVisibility(selection.certificates).visible(showExcluded: false).count, 1)
-        XCTAssertNil(selection.selectedRoute)
+        XCTAssertEqual(selection.selectionOrigin,.automatic)
+        XCTAssertTrue(selection.selectedRoute?.assessment.permitsSigning == true)
     }
 }
 #endif

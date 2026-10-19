@@ -43,6 +43,31 @@ public struct DeviceCertificateRoute: Identifiable, Sendable {
         let current = try MiddlewareFileSecurity.inspect(providerPath, automatic: origin == .known)
         guard current.canonicalPath == providerPath, current.identity == moduleIdentity else { throw MiddlewareFileSecurity.Failure.changed }
     }
+    public enum AvailabilityFailure: Error, LocalizedError {
+        case unavailable
+        public var errorDescription:String? { "Dispositivo o certificato non più disponibile. Cerca nuovamente prima di approvare." }
+    }
+    /// Public revalidation off-main before consent. Proves the observed token,
+    /// CKA_ID and DER are still available, without claiming access to a private
+    /// object hidden until login. Existing signing engines prove that key later.
+    public func requireCurrentCredential(client:IsolatedPKCS11Client = .init()) throws {
+        do {
+            try requireCurrentModule()
+            let automatic=origin == .known
+            let scan=try client.scan(provider:providerPath,timeout:8,expectedModule:moduleIdentity,automatic:automatic)
+            guard scan.provider == providerPath, scan.tokens.contains(where: {
+                $0.slot == token.slot && $0.serial == token.serial && $0.manufacturer == token.manufacturer &&
+                $0.model == token.model && $0.reader == token.reader
+            }) else {throw AvailabilityFailure.unavailable}
+            let actual=try client.certificates(provider:providerPath,slot:token.slot,timeout:8,expectedModule:moduleIdentity,automatic:automatic)
+            guard actual.contains(where: {$0.certificate.identifier == certificate.identifier && $0.der == der}) else {
+                throw AvailabilityFailure.unavailable
+            }
+            try requireCurrentModule()
+            try CertificateEligibility.requireEligible(certificateDER:der)
+        } catch { throw AvailabilityFailure.unavailable }
+    }
+
 }
 
 /// Same DER groups *certificates*, not physical tokens. All routes remain visible
