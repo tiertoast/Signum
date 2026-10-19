@@ -11,7 +11,7 @@ final class CAdESVerificationIntegrationTests: XCTestCase {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
-        process.waitUntilExit()
+        try FixtureProcess.wait(process)
         guard process.terminationStatus == 0 else {
             throw SignumError.module("Local OpenSSL test fixture failed: \(arguments.first ?? "")")
         }

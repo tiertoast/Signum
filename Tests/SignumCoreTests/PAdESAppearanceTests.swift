@@ -93,7 +93,7 @@ final class PAdESAppearanceTests: XCTestCase {
         }
     }
     func signed(_ source:Data,configuration:PAdESAppearanceConfiguration,root:URL,signer:SoftwareSigner,mock:MockModule,name:String) throws -> (Data,RenderedPAdESAppearance) {
-        guard let helper=ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Native helper required") }
+        let helper = try FixtureRequirements.helper()
         let file=root.appendingPathComponent(name+".pdf"); try source.write(to:file)
         let snapshot=try DocumentSnapshot.capture(source:file,format:.pades,privateRoot:root)
         let job=try SigningJob(snapshot:snapshot,providerPath:mock.path.path,slot:7,certificate:.init(label:"Untrusted label",identifier:Data([1])),certificateDER:signer.der,destination:root.appendingPathComponent(name+"-signed.pdf"))
@@ -147,7 +147,7 @@ final class PAdESAppearanceTests: XCTestCase {
             let referenceDoc=try XCTUnwrap(PDFDocument(data:referenceBytes as Data)),referencePage=try XCTUnwrap(referenceDoc.page(at:0))
             referencePage.rotation=rotation;referencePage.setBounds(crop,for:.cropBox)
             let expected=try raster(previewPage),actual=try raster(referencePage)
-            let debug=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".build/04b-rendered")
+            let debug = try FixtureFiles.directory("appearance",evidence:true)
             try FileManager.default.createDirectory(at:debug,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
             try bytes.write(to:debug.appendingPathComponent("signed-\(rotation).pdf"))
             try XCTUnwrap(referenceDoc.dataRepresentation()).write(to:debug.appendingPathComponent("reference-\(rotation).pdf"))
@@ -170,7 +170,7 @@ final class PAdESAppearanceTests: XCTestCase {
         XCTAssertTrue(second.starts(with:first)); XCTAssertGreaterThan(second.count,first.count)
     }
     @MainActor func testThreePAdESUseDistinctFrozenAppearancesAndOnePINPerDocument() async throws {
-        guard let helper=ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Native helper required") }
+        let helper = try FixtureRequirements.helper()
         let root=FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700]);defer{try?FileManager.default.removeItem(at:root)}
         let signer=try SoftwareSigner(folder:root),mock=try MockModule(certificate:signer.der,privateKey:signer.rsaPrivateDER(),audit:true)
@@ -213,7 +213,7 @@ final class PAdESAppearanceTests: XCTestCase {
         contextB.appearanceHashes=contextA.appearanceHashes;XCTAssertEqual(contextA,contextB)
     }
     func testNativeAppearanceTimeoutAndCrashDoNotPublishOrRetry() throws {
-        guard let helper=ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Native helper required") }
+        let helper = try FixtureRequirements.helper()
         for effect in [2,3] {
             let root=FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700]);defer{try?FileManager.default.removeItem(at:root)}

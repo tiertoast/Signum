@@ -7,7 +7,7 @@ import ImageIO
 
 @MainActor final class PAdESStabilizationSigningTests: XCTestCase {
     func testFrozenMovedArtworkIsActuallySignedOnLargeRotatedVectorPages() async throws {
-        guard let helper=ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Local helper required") }
+        let helper = try FixtureRequirements.helper()
         let root=FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false)
         defer { try? FileManager.default.removeItem(at:root) }
@@ -89,7 +89,7 @@ import ImageIO
                     let process=Process(); process.executableURL=URL(fileURLWithPath:poppler)
                     process.arguments=["-f","1","-singlefile","-cropbox","-scale-to","1600","-png",pdf.path,prefix.path]
                     process.standardOutput=FileHandle.nullDevice; process.standardError=FileHandle.nullDevice
-                    try process.run(); process.waitUntilExit(); XCTAssertEqual(process.terminationStatus,0)
+                    try process.run(); try FixtureProcess.wait(process); XCTAssertEqual(process.terminationStatus,0)
                     let source=try XCTUnwrap(CGImageSourceCreateWithURL(prefix.appendingPathExtension("png") as CFURL,nil))
                     let image=try XCTUnwrap(CGImageSourceCreateImageAtIndex(source,0,nil))
                     let bitmap=try XCTUnwrap(CGContext(data:nil,width:image.width,height:image.height,bitsPerComponent:8,bytesPerRow:image.width*4,

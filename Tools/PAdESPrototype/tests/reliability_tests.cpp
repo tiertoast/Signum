@@ -198,16 +198,23 @@ static pid_t spawnFixture(std::vector<std::string> arguments, const fs::path& lo
     if (!input.empty()) expect(write(pipeFD[1], input.data(), input.size()) == static_cast<ssize_t>(input.size()), "Cannot send fixture credential");
     close(pipeFD[1]); return pid;
 }
-static int waitFixture(pid_t pid) {
-    int status = 0; auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    for (;;) {
-        auto result = waitpid(pid, &status, WNOHANG);
-        if (result == pid) break;
+static int waitStatus(pid_t pid, std::chrono::seconds limit = std::chrono::seconds(10)) {
+    int status = 0; bool expired = false;
+    auto deadline = std::chrono::steady_clock::now() + limit;
+    while (true) {
+        const auto result = waitpid(pid, &status, WNOHANG);
+        if (result == pid) { expect(!expired, "Fixture timed out (child killed)"); return status; }
         if (result < 0 && errno == EINTR) continue;
         expect(result >= 0, "Cannot reap fixture");
-        if (std::chrono::steady_clock::now() > deadline) { kill(pid, SIGKILL); waitpid(pid, &status, 0); throw std::runtime_error("Fixture timed out"); }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            if (expired) throw std::runtime_error("Fixture did not reap after SIGKILL");
+            kill(pid, SIGKILL); expired = true; deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        }
         usleep(10000);
     }
+}
+static int waitFixture(pid_t pid) {
+    const auto status = waitStatus(pid);
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 static fs::path softwareProvider(const Folder& folder, const Identity& identity) {
@@ -595,7 +602,7 @@ int main(int argc, char** argv) {
             std::string executable = fs::absolute(argv[0]).string(), destination = output.string();
             char* args[] = {executable.data(), const_cast<char*>(phase.c_str()), destination.data(), nullptr};
             pid_t pid; expect(posix_spawn(&pid, executable.c_str(), nullptr, nullptr, args, environ) == 0, "Cannot spawn crash fixture");
-            int status; expect(waitpid(pid, &status, 0) == pid && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL, "Fixture not killed");
+            const int status = waitStatus(pid); expect(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL, "Fixture not killed");
             expect(!fs::exists(output) && !fs::is_empty(f.path), "Crash exposed final or did not exercise staging");
             { TransactionalOutput recovery(output.string()); }
             expect(fs::is_empty(f.path), "Abandoned staging not recovered");
@@ -638,7 +645,7 @@ int main(int argc, char** argv) {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
             while ((result = waitpid(pid, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline)
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            if (result == 0) { kill(pid, SIGKILL); waitpid(pid, &status, 0); }
+            if (result == 0) { kill(pid, SIGKILL); status = waitStatus(pid, std::chrono::seconds(2)); }
             close(channel[1]);
             expect(result == pid && WIFEXITED(status) && WEXITSTATUS(status) == (scenario == 4 ? 2 : 1), "Helper waited for PIN or failed unexpectedly");
             auto bytes = fileBytes(log); std::string reason(bytes.begin(), bytes.end());

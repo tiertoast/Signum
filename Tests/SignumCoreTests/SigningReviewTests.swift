@@ -148,7 +148,7 @@ import XCTest
     func testDocumentRemovedOrAddedInvalidatesReviewAndLatePreparationIsDiscarded() async throws {
         try await fixture { _, batch, context in
             let review = SigningReview(), entered = expectation(description: "validation entered"), release = DispatchSemaphore(value: 0)
-            let task = Task { await review.prepare(context, batch: batch, validate: { entered.fulfill(); release.wait() }) }
+            let task = Task { await review.prepare(context, batch: batch, validate: { entered.fulfill(); _ = release.wait(timeout:.now()+5) }) }
             await fulfillment(of: [entered], timeout: 5)
             XCTAssertTrue(review.isPreparing); XCTAssertNil(review.approval)
             batch.remove(batch.documents[0].id)

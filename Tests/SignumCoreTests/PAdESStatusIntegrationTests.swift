@@ -7,9 +7,7 @@ import CProcessCoordination
 
 final class PAdESStatusIntegrationTests: XCTestCase {
     func testNativeV4ThroughAppMappingBeforeAndAfterAuthentication() throws {
-        guard let path = ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else {
-            throw XCTSkip("Set SIGNUM_TEST_PADES_HELPER to the locally built helper for native end-to-end tests")
-        }
+        let path = try FixtureRequirements.helper()
         let executable = URL(fileURLWithPath: path)
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: path))
         for scenario in ["busy", "certificateChanged", "signError", "success"] {

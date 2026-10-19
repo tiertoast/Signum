@@ -104,7 +104,7 @@ final class LargeDocumentTests: XCTestCase {
         }
     }
     func test100MiBPAdESNativeVerifiedPublication() throws {
-        guard let helper = ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Explicit native helper required") }
+        let helper = try FixtureRequirements.helper()
         try fixture { root in
             let signer = try SoftwareSigner(folder: root)
             let mock = try MockModule(certificate: signer.der, privateKey: signer.rsaPrivateDER(), audit: true)

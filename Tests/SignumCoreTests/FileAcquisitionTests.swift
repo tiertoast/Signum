@@ -142,7 +142,7 @@ final class FileAcquisitionTests: XCTestCase {
         let entered = expectation(description: "capture entered"), release = DispatchSemaphore(value: 0)
         let batch = BatchSigningCoordinator(capture: { url, format, _ in
             let snapshot = try DocumentSnapshot.capture(source: url, format: format)
-            entered.fulfill(); release.wait(); return snapshot
+            entered.fulfill(); _ = release.wait(timeout:.now()+5); return snapshot
         })
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

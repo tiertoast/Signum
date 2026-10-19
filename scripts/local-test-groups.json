@@ -1,0 +1,117 @@
+{
+  "groups": {
+    "pure-swift": [
+      "AppVersionTests",
+      "BatchWorkspaceSummaryTests",
+      "CAdESInputTests",
+      "CAdESTests",
+      "CertificateIdentityTests",
+      "MiddlewareRegistryTests",
+      "PAdESInputContractTests",
+      "SigningWorkspaceSelectionTests",
+      "SignumCoreTests"
+    ],
+    "native-helper": [
+      "BatchDestinationTests",
+      "BatchSigningTests",
+      "DynamicSigningFormatTests",
+      "LargeDocumentTests",
+      "OneShotContextTests",
+      "PAdESSourcePreflightTests",
+      "PAdESStatusIntegrationTests",
+      "SigningFormatStabilizationTests",
+      "UnifiedVerificationTests"
+    ],
+    "poppler": [
+      "PAdESDefaultSigningTests",
+      "PAdESOrientationOutputTests",
+      "PAdESStabilizationSigningTests"
+    ],
+    "synthetic-pkcs11": [
+      "AutomaticCertificateSelectionTests",
+      "BatchAuthIntegrationTests",
+      "BatchAuthenticationTests",
+      "CertificateSigningGateTests",
+      "DeviceSelectionTests",
+      "MiddlewareDiscoveryTests",
+      "PKCS11LifecycleIntegrationTests",
+      "PKCS11WorkerTests",
+      "SupervisedProcessTests",
+      "PostLoginCertificateTests",
+      "ProcessCoordinationTests",
+      "SecureBatchNativeTests",
+      "SigningInteractionTests",
+      "SigningJobTests",
+      "SigningOperationTests",
+      "SigningReviewTests"
+    ],
+    "integration": [
+      "AutomaticSelectionConsentTests",
+      "BatchAuthenticationPreferenceTests",
+      "BatchCleanupContractTests",
+      "CAdESVerificationIntegrationTests",
+      "CertificateEligibilityTests",
+      "CertificateVisibilityTests",
+      "DiscoveryExperienceTests",
+      "DocumentSnapshotTests",
+      "FileAcquisitionTests",
+      "FixtureInfrastructureTests",
+      "PAdESHelperProcessTests",
+      "PAdESRenderCoordinationTests",
+      "ProviderSelectionTests",
+      "SecurePINBufferTests",
+      "SignumFileOutputTests",
+      "VerificationDropLifecycleTests"
+    ],
+    "ui": [
+      "DynamicFormatWorkspaceTests",
+      "PAdESAppearanceTests",
+      "PAdESDefaultPlacementTests",
+      "PAdESGeometryStabilizationTests",
+      "PAdESOrientationPerformanceTests",
+      "PAdESOrientationTests",
+      "PAdESOrientationWorkflowTests",
+      "PAdESPlacementPerformanceTests",
+      "PAdESPreviewTests",
+      "SignaturePlacementOverlayTests",
+      "SigningWorkspaceTests"
+    ]
+  },
+  "requires": {
+    "helper": [
+      "BatchDestinationTests",
+      "BatchSigningTests",
+      "DynamicSigningFormatTests",
+      "LargeDocumentTests",
+      "OneShotContextTests",
+      "PAdESAppearanceTests",
+      "PAdESDefaultSigningTests",
+      "PAdESOrientationOutputTests",
+      "PAdESOrientationWorkflowTests",
+      "PAdESSourcePreflightTests",
+      "PAdESStabilizationSigningTests",
+      "PAdESStatusIntegrationTests",
+      "SigningFormatStabilizationTests",
+      "UnifiedVerificationTests"
+    ],
+    "poppler": [
+      "PAdESDefaultSigningTests",
+      "PAdESOrientationOutputTests",
+      "PAdESStabilizationSigningTests"
+    ],
+    "windowserver": [
+      "DynamicFormatWorkspaceTests",
+      "PAdESAppearanceTests",
+      "PAdESDefaultPlacementTests",
+      "PAdESGeometryStabilizationTests",
+      "PAdESOrientationPerformanceTests",
+      "PAdESOrientationTests",
+      "PAdESOrientationWorkflowTests",
+      "PAdESPlacementPerformanceTests",
+      "PAdESPreviewTests",
+      "PAdESStabilizationSigningTests",
+      "SignaturePlacementOverlayTests",
+      "SigningWorkspaceTests"
+    ]
+  }
+}

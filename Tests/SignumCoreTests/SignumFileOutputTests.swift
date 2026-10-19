@@ -530,7 +530,7 @@ final class SignumFileOutputTests: XCTestCase {
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             try process.run()
-            process.waitUntilExit()
+            try FixtureProcess.wait(process)
             XCTAssertEqual(process.terminationReason, .uncaughtSignal)
             XCTAssertEqual(process.terminationStatus, SIGKILL)
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))

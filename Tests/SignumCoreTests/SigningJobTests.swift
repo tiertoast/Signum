@@ -40,7 +40,7 @@ final class SoftwareSigner {
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
         process.arguments = args; process.currentDirectoryURL = folder
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
-        try process.run(); process.waitUntilExit()
+        try process.run(); try FixtureProcess.wait(process)
         guard process.terminationStatus == 0 else { throw SignumError.module("Synthetic software CMS fixture failed") }
     }
 }
@@ -191,7 +191,7 @@ final class SigningJobTests: XCTestCase {
             let fd = output.fileHandleForReading.fileDescriptor
             XCTAssertEqual(fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK), 0)
             try process.run()
-            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); process.waitUntilExit() } }
+            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); try? FixtureProcess.wait(process) } }
             var text = Data(), buffer = [UInt8](repeating: 0, count: 4096)
             let deadline = ProcessInfo.processInfo.systemUptime + 4
             while ProcessInfo.processInfo.systemUptime < deadline {
@@ -213,7 +213,7 @@ final class SigningJobTests: XCTestCase {
             let finish = ProcessInfo.processInfo.systemUptime + 3
             while process.isRunning && ProcessInfo.processInfo.systemUptime < finish { Thread.sleep(forTimeInterval: 0.01) }
             if process.isRunning { kill(process.processIdentifier, SIGKILL); XCTFail("CLI cancellation blocked") }
-            process.waitUntilExit()
+            try FixtureProcess.wait(process)
             let error = String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             XCTAssertEqual(process.terminationStatus, 1)
             XCTAssertTrue(error.contains("annullata"), error)

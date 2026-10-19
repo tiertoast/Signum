@@ -43,9 +43,7 @@ import CoreGraphics
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let bytes = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let folder = root.appendingPathComponent(".build/04a41-ui")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try FixtureFiles.directory("signing-workspace",evidence:true)
         try bytes.write(to: folder.appendingPathComponent(name + ".png"))
     }
     func testPINIsReachableWithoutScrollingThirtyTwoDocuments() async throws {

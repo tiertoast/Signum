@@ -19,7 +19,7 @@ final class ProcessCoordinationTests: XCTestCase {
         defer {
             try? pipe.fileHandleForWriting.close()
             if owner.isRunning { kill(owner.processIdentifier, SIGKILL) }
-            owner.waitUntilExit()
+            try? FixtureProcess.wait(owner)
         }
         let request = PKCS11WorkerRequest(action: .certificates, provider: mock.path.path, slot: 7)
         try pipe.fileHandleForWriting.write(contentsOf: JSONEncoder().encode(request)); try pipe.fileHandleForWriting.close()
@@ -55,7 +55,7 @@ final class ProcessCoordinationTests: XCTestCase {
         try withOwner { mock, owner in
             let client = IsolatedPKCS11Client(executable: worker, leaseWaitMilliseconds: 50)
             XCTAssertThrowsError(try client.scan(provider: mock.path.path))
-            XCTAssertEqual(kill(owner.processIdentifier, SIGKILL), 0); owner.waitUntilExit()
+            XCTAssertEqual(kill(owner.processIdentifier, SIGKILL), 0); try FixtureProcess.wait(owner)
             XCTAssertEqual(try client.scan(provider: mock.path.path).tokens.count, 1)
             XCTAssertFalse(try client.certificates(provider: mock.path.path, slot: 7).isEmpty)
         }

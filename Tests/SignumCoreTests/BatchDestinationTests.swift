@@ -96,10 +96,10 @@ import CoreGraphics
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
             let chmod = Process(); chmod.executableURL = URL(fileURLWithPath: "/bin/chmod")
             chmod.arguments = ["+a", "user:\(NSUserName()) deny add_file,add_subdirectory", output.path]
-            try chmod.run(); chmod.waitUntilExit(); XCTAssertEqual(chmod.terminationStatus, 0)
+            try chmod.run(); try FixtureProcess.wait(chmod); XCTAssertEqual(chmod.terminationStatus, 0)
             defer {
                 let cleanup = Process(); cleanup.executableURL = URL(fileURLWithPath: "/bin/chmod"); cleanup.arguments = ["-N", output.path]
-                try? cleanup.run(); cleanup.waitUntilExit()
+                try? cleanup.run(); try? FixtureProcess.wait(cleanup)
             }
             await batch.addDocuments([paths[0]], format: .cades)
             do { _ = try await plan(batch, der: der, destination: .commonDirectory(output)); XCTFail("Denied ACL accepted") } catch {}

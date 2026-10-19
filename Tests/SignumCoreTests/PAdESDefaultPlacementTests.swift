@@ -131,8 +131,7 @@ import SwiftUI
         XCTAssertGreaterThan(visibleInk,20,"Prepared default text/border must actually produce visible pixels")
         let capture=try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in:host.bounds))
         host.cacheDisplay(in:host.bounds,to:capture)
-        let repo=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let evidence=repo.appendingPathComponent(".build/04stabilization-b13/evidence/native-default.png")
+        let evidence = try FixtureFiles.directory("default-placement",evidence:true).appendingPathComponent("native-default.png")
         try XCTUnwrap(capture.representation(using:.png,properties:[:])).write(to:evidence)
 
         XCTAssertEqual(state.readiness.first,false)

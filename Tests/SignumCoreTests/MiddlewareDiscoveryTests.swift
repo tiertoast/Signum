@@ -114,7 +114,7 @@ final class MiddlewareDiscoveryTests: XCTestCase {
         XCTAssertEqual(sg_discovery_acl_safe(mock.path.path), 1)
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/chmod")
         process.arguments = ["+a", "user:\(NSUserName()) allow write", mock.path.path]
-        try process.run(); process.waitUntilExit(); XCTAssertEqual(process.terminationStatus, 0)
+        try process.run(); try FixtureProcess.wait(process); XCTAssertEqual(process.terminationStatus, 0)
         XCTAssertEqual(sg_discovery_acl_safe(mock.path.path), 0)
         XCTAssertFalse(try MiddlewareFileSecurity.node(mock.path.path).aclSafe)
     }

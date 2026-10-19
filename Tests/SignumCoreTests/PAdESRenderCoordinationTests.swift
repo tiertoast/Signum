@@ -70,7 +70,9 @@ import CoreGraphics
                 tasks.append(Task { await review.prepare(next,batch:batch,validate:{}) })
                 await Task.yield()
             }
-            while review.context?.routeID != "route 30" { await Task.yield() }
+            let waitDeadline = ProcessInfo.processInfo.systemUptime+5
+            while review.context?.routeID != "route 30", ProcessInfo.processInfo.systemUptime < waitDeadline { await Task.yield() }
+            XCTAssertFalse(review.context?.routeID != "route 30", "Timed out waiting for async fixture")
             release.signal(); await first.value
             for task in tasks { await task.value }
             XCTAssertEqual(review.preflightsStarted,2)

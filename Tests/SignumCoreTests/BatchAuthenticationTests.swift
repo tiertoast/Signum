@@ -240,7 +240,7 @@ final class BatchAuthenticationTests: XCTestCase {
             }
             """.write(to: source, atomically: false, encoding: .utf8)
             let cc = Process(); cc.executableURL = URL(fileURLWithPath: "/usr/bin/cc")
-            cc.arguments = [source.path, "-o", wrapper.path]; try cc.run(); cc.waitUntilExit(); XCTAssertEqual(cc.terminationStatus, 0)
+            cc.arguments = [source.path, "-o", wrapper.path]; try cc.run(); try FixtureProcess.wait(cc); XCTAssertEqual(cc.terminationStatus, 0)
             let session = BatchSignatureConnection(manifest: unused.manifest, executable: wrapper)
             let job = session.manifest.jobs[0]
             XCTAssertThrowsError(try session.sign(jobID: job.id, attributes: job.attributes, pin: "synthetic-fixture")) {

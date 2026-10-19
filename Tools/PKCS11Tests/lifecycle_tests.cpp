@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#include <signal.h>
 extern char** environ;
 namespace fs = std::filesystem;
 static int passed;
@@ -145,7 +146,18 @@ int main(int argc, char** argv) {
             std::string executable = fs::absolute(argv[0]).string(), provider = p.path.string(), flag = "--child-registry";
             char* args[] = {executable.data(), provider.data(), flag.data(), nullptr};
             pid_t child; require(posix_spawn(&child, executable.c_str(), nullptr, nullptr, args, environ) == 0, "Cannot exec registry fixture");
-            int status = 0; require(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0, "Child registry failed");
+            int status = 0; pid_t reaped = 0;
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while ((reaped = waitpid(child, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            if (!reaped) {
+                kill(child, SIGKILL);
+                deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                while ((reaped = waitpid(child, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                throw std::runtime_error("Child registry fixture deadline exceeded");
+            }
+            require(reaped == child && WIFEXITED(status) && WEXITSTATUS(status) == 0, "Child registry failed");
             require(p.stats().calls[M_INIT] == 1 && !p.stats().calls[M_FINALIZE] && p.stats().initialized, "Child affected parent ownership");
             tokens(parent.get());
         });

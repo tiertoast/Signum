@@ -21,7 +21,7 @@ final class UnifiedVerificationTests: XCTestCase {
     private func openssl(_ args: [String], root: URL) throws {
         let process = Process(); process.executableURL = URL(fileURLWithPath:"/usr/bin/openssl"); process.arguments = args; process.currentDirectoryURL = root
         process.standardError = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice
-        try process.run(); process.waitUntilExit(); XCTAssertEqual(process.terminationStatus,0)
+        try process.run(); try FixtureProcess.wait(process); XCTAssertEqual(process.terminationStatus,0)
     }
     private func assertUnassessed(_ report: VerificationReport, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(report.trust,.notChecked,file:file,line:line); XCTAssertEqual(report.revocation,.notChecked,file:file,line:line); XCTAssertEqual(report.qualification,.notChecked,file:file,line:line)
@@ -244,10 +244,13 @@ final class UnifiedVerificationTests: XCTestCase {
         }
         XCTAssertEqual(workspace.rows.count,2);XCTAssertFalse(workspace.rows[0].issue.isEmpty);XCTAssertEqual(workspace.rows[1].report?.integrity,.absent)
         let task = Task { await workspace.verify(urls) { _,control in
-            while !control.isCancellationRequested { Thread.sleep(forTimeInterval:0.001) }
+            let deadline = ProcessInfo.processInfo.systemUptime+5
+            while !control.isCancellationRequested, ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval:0.001) }
             throw SupervisedProcess.Failure.cancelled
         } }
-        while !workspace.busy { await Task.yield() };workspace.cancel();await task.value
+        let waitDeadline = ProcessInfo.processInfo.systemUptime+5
+        while !workspace.busy, ProcessInfo.processInfo.systemUptime < waitDeadline { await Task.yield() }
+        XCTAssertTrue(workspace.busy, "Timed out waiting for async fixture");workspace.cancel();await task.value
         XCTAssertFalse(workspace.busy);XCTAssertTrue(workspace.rows.allSatisfy{!$0.issue.isEmpty})
         await workspace.verify((0..<33).map{URL(fileURLWithPath:"/synthetic/\($0)")})
         XCTAssertFalse(workspace.issue.isEmpty)

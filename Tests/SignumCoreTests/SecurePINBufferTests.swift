@@ -56,9 +56,9 @@ final class SecurePINBufferTests: XCTestCase {
         let cc = Process(); cc.executableURL = URL(fileURLWithPath: "/usr/bin/cc")
         cc.arguments = [source.path, repo.appendingPathComponent("Sources/CSecurePIN/secure_pin.c").path,
             "-I", repo.appendingPathComponent("Sources/CSecurePIN/include").path, "-o", executable.path]
-        try cc.run(); cc.waitUntilExit(); XCTAssertEqual(cc.terminationStatus, 0)
+        try cc.run(); try FixtureProcess.wait(cc); XCTAssertEqual(cc.terminationStatus, 0)
         let probe = Process(); probe.executableURL = executable
-        try probe.run(); probe.waitUntilExit(); XCTAssertEqual(probe.terminationStatus, 0)
+        try probe.run(); try FixtureProcess.wait(probe); XCTAssertEqual(probe.terminationStatus, 0)
     }
 }
 #endif

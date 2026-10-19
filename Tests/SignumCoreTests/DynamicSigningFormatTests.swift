@@ -80,7 +80,7 @@ import XCTest
         }
     }
     func testActualCAdESAndPAdESOutputsFollowChangedConfigurationAndStayFrozen() async throws {
-        guard let helper=ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Local helper required") }
+        let helper = try FixtureRequirements.helper()
         let worker=Bundle(for:Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker")
         for chosen in [SigningFormat.pades,.cades] {
             try await SigningFormatStabilizationTests().fixture { root,batch,file in

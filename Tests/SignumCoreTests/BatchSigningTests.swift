@@ -111,7 +111,9 @@ import CoreGraphics
                     try job.signCAdES(using: IsolatedPKCS11Client(executable: worker), pin: pin, operation: operation)
                 }
             }
-            while !batch.isRunning { await Task.yield() }
+            let waitDeadline = ProcessInfo.processInfo.systemUptime+5
+            while !batch.isRunning, ProcessInfo.processInfo.systemUptime < waitDeadline { await Task.yield() }
+            XCTAssertTrue(batch.isRunning, "Timed out waiting for async fixture")
             batch.cancelPending()
             try await task.value
             XCTAssertEqual(batch.documents.map(\.state), [.completed, .cancelled, .cancelled])
@@ -150,7 +152,7 @@ import CoreGraphics
         }
     }
     func testMixedBatchUsesExistingNativePAdESAndWorkerCAdES() async throws {
-        guard let helper = ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Native helper required") }
+        let helper = try FixtureRequirements.helper()
         try await fixture { root, signer, mock, batch, paths in
             await batch.addDocuments([paths[0]], format: .cades)
             let pdf = NSMutableData()
@@ -173,7 +175,7 @@ import CoreGraphics
         }
     }
     func testThreePAdESUseExplicitDiscoveredRouteAndImmutableApprovedPDFs() async throws {
-        guard let helper = ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"] else { throw XCTSkip("Native helper required") }
+        let helper = try FixtureRequirements.helper()
         try await fixture { root, _, mock, batch, _ in
             var paths: [URL] = [], approved: [Data] = []
             for index in 0..<3 {
@@ -291,7 +293,9 @@ import CoreGraphics
                     try job.signCAdES(using: IsolatedPKCS11Client(executable: worker), pin: pin, operation: operation)
                 }
             }
-            while !batch.isRunning { await Task.yield() }
+            let waitDeadline = ProcessInfo.processInfo.systemUptime+5
+            while !batch.isRunning, ProcessInfo.processInfo.systemUptime < waitDeadline { await Task.yield() }
+            XCTAssertTrue(batch.isRunning, "Timed out waiting for async fixture")
             do { try await batch.authorizeNext(pin: "synthetic-fixture") { _, _, _ in XCTFail("Concurrent private request") }; XCTFail("Concurrent request accepted") } catch { }
             try await first.value
             XCTAssertEqual(batch.documents[0].state, .completed)

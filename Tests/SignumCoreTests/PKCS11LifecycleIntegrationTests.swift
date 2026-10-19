@@ -20,7 +20,7 @@ final class MockModule: @unchecked Sendable {
     init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false, reportVersion: Bool = false, alwaysAuth: Bool = false, unknownAuth: Bool = false, preauthenticated: Bool = false, preinitialized: Bool = false, faultAfter: Int = 0, strictContext: Bool = false) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        folder = root.appendingPathComponent(".build/swift-provider-tests/" + UUID().uuidString)
+        folder = try FixtureFiles.directory("provider")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         path = folder.appendingPathComponent("mock.dylib")
@@ -56,7 +56,7 @@ final class MockModule: @unchecked Sendable {
         }
         compiler.standardOutput = FileHandle.nullDevice
         try compiler.run()
-        compiler.waitUntilExit()
+        try FixtureProcess.wait(compiler)
         guard compiler.terminationStatus == 0, let handle = dlopen(path.path, RTLD_NOW | RTLD_LOCAL) else {
             throw SignumError.module("Cannot compile/load synthetic provider")
         }

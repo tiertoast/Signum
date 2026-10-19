@@ -9,7 +9,7 @@ import ImageIO
     func run(_ executable:String,_ args:[String]) throws {
         let p=Process();p.executableURL=URL(fileURLWithPath:executable);p.arguments=args
         p.standardOutput=FileHandle.nullDevice;p.standardError=FileHandle.nullDevice
-        try p.run();p.waitUntilExit();XCTAssertEqual(p.terminationStatus,0)
+        try p.run();try FixtureProcess.wait(p);XCTAssertEqual(p.terminationStatus,0)
     }
     func centers(_ url:URL) throws -> [CGPoint] {
         let source=try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL,nil))
