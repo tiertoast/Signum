@@ -51,7 +51,19 @@ import XCTest
             let third = Task { await review.prepare(context,batch:batch,validate:{}) }
             await first.value;await second.value;await third.value
             XCTAssertEqual(review.preflightsStarted,2);XCTAssertNotNil(review.approval)
-            review.cancel();XCTAssertNil(review.approval);XCTAssertNil(review.context);XCTAssertFalse(review.isPreparing)
+            let closingEntered = expectation(description:"closing validation entered")
+            let closing = Task { await review.prepare(context,batch:batch,validateCancellable:{ control in
+                closingEntered.fulfill()
+                let end = ProcessInfo.processInfo.systemUptime+3
+                while !control.isCancellationRequested, ProcessInfo.processInfo.systemUptime < end {
+                    _ = release.wait(timeout:.now()+0.01)
+                }
+                XCTAssertTrue(control.isCancellationRequested,"Closing must cancel in-flight public work")
+                throw SupervisedProcess.Failure.cancelled
+            }) }
+            await fulfillment(of:[closingEntered],timeout:2)
+            review.cancel();await closing.value
+            XCTAssertNil(review.approval);XCTAssertNil(review.context);XCTAssertFalse(review.isPreparing)
         }
     }
     func testCancellationReachesSupervisedPublicScanAndDERAndPreservesAvailabilityMeaning() async throws {

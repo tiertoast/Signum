@@ -152,7 +152,11 @@ final class FileAcquisitionTests: XCTestCase {
         await fulfillment(of: [entered], timeout: 5)
         XCTAssertTrue(batch.isPreparing)
         await batch.addDocuments([source], format: .pades) // Concurrent selection cannot alter this acquisition.
-        batch.cancelAll(); release.signal(); await task.value
+        batch.cancelAll()
+        XCTAssertTrue(batch.isPreparing, "Cancelled acquisition retains its slot until owned work returns")
+        let queued = batch.enqueueDocuments([source],format:.cades)
+        XCTAssertNil(queued, "Cannot overlap an acquisition still draining"); queued?.cancel()
+        release.signal(); await task.value; await queued?.value
         XCTAssertTrue(batch.documents.isEmpty); XCTAssertFalse(batch.isPreparing)
         batch.reset(); XCTAssertFalse(batch.isApproved)
     }

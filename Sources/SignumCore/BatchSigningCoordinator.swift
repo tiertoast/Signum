@@ -172,7 +172,7 @@ public struct BatchApproval: Sendable {
         let request = UUID(); acquisitionID = request
         let operation = SigningOperation(), capture = captureDocument
         acquisitionOperation = operation
-        defer { if acquisitionID == request { isPreparing = false; acquisitionOperation = nil } }
+        defer { if acquisitionOperation === operation { isPreparing = false; acquisitionOperation = nil } }
         for url in urls.prefix(Self.maximumDocuments) {
             guard acquisitionID == request, !Task.isCancelled else { operation.requestCancellation(); break }
             guard documents.count < Self.maximumDocuments else {
@@ -268,7 +268,10 @@ public struct BatchApproval: Sendable {
     public func cancelPending() {
         invalidateReview(); revision = UUID()
         acquisitionOperation?.requestCancellation()
-        acquisitionID = UUID(); isPreparing = false; acquisitionOperation = nil
+        acquisitionID = UUID()
+        // An executing capture keeps its single slot until its owner returns.
+        // A merely queued acquisition has no work to drain.
+        if acquisitionOperation == nil { isPreparing = false }
         for id in documents.map(\.id) { cancelDocument(id) }
     }
     public func cancelDocument(_ id: UUID) {

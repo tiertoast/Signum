@@ -50,6 +50,15 @@ final class PAdESSourcePreflightTests: XCTestCase {
             XCTAssertThrowsError(try PAdESSourcePreflight.inspect(snapshot,helper:helper,isCancelled:{true})) {
                 XCTAssertEqual($0 as? SupervisedProcess.Failure,.cancelled)
             }
+            let slow = root.appendingPathComponent("controlled-preflight")
+            try Data("#!/bin/sh\n: > \"$0.started\"\nexec /bin/sleep 5\n".utf8).write(to:slow)
+            XCTAssertEqual(chmod(slow.path,0o700),0)
+            let marker = slow.path+".started"
+            XCTAssertThrowsError(try PAdESSourcePreflight.inspect(snapshot,helper:slow,timeout:3,
+                isCancelled:{FileManager.default.fileExists(atPath:marker)})) {
+                XCTAssertEqual($0 as? SupervisedProcess.Failure,.cancelled)
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath:marker),"Cancellation occurs after the supervised child starts")
             XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent("output.pdf").path))
         }
     }
