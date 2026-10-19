@@ -9,7 +9,9 @@ public final class BatchCAdESSession: @unchecked Sendable {
     private let jobs: [SigningJob], serial: String, identity: MiddlewareFileIdentity, automatic: Bool, executable: URL
     private let temporaryPIN: Bool
     private let ioLock = NSLock(), state = NSLock()
-    private var connection: BatchSignatureConnection?
+    private var connection: BatchSigningConnection?
+    // Internal test seam for the session lifecycle, without launching a worker.
+    var makeConnection: (BatchWorkerStart, URL) -> BatchSigningConnection = { BatchSignatureConnection(manifest: $0, executable: $1) }
     private var stopped = false, reusable = false, began = false, cleanupFailed = false
     public var cleanupUncertain: Bool { state.lock(); defer { state.unlock() }; return cleanupFailed }
     public var canContinue: Bool { state.lock(); defer { state.unlock() }; return reusable && !stopped }
@@ -42,8 +44,16 @@ public final class BatchCAdESSession: @unchecked Sendable {
     }
     private func retire() {
         ioLock.lock(); defer { ioLock.unlock() }
+        retireConnection()
+    }
+    // ioLock is held by every caller. Uncertainty is monotonic and independent
+    // of the primary document error and the lifetime of the connection.
+    private func finishConnection() throws {
         do { try connection?.finish() }
-        catch { state.lock(); cleanupFailed = true; state.unlock() }
+        catch { state.lock(); cleanupFailed = true; state.unlock(); throw error }
+    }
+    private func retireConnection() {
+        try? finishConnection()
         connection?.abort(); connection = nil
     }
     func stopAndWait() async {
@@ -86,7 +96,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
                     certificate: WorkerCertificate(job.certificate, der: job.certificateDER), automatic: automatic,
                     moduleIdentity: identity, jobs: manifestJobs, pin: nil)
                 if temporaryPIN { manifest.temporaryPIN = true }
-                connection = BatchSignatureConnection(manifest: manifest, executable: executable)
+                connection = makeConnection(manifest, executable)
                 began = true
             }
             guard let connection, pin == nil || connection.next == 0 else { throw SupervisedProcess.Failure.protocolViolation }
@@ -103,7 +113,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
                     timeout: timeout, isCancelled: cancelled)
                 receivedSignature = true
                 if connection.next == jobs.count {
-                    do { try connection.finish() }
+                    do { try finishConnection() }
                     catch { throw SignumError.outputUncertain("Chiusura della sessione non confermata. Nessuna ripetizione automatica.") }
                 }
                 operation.transition(to: .verifying)
@@ -115,7 +125,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
             update(reusable: false)
             // No teardown races with an active vendor call: transport errors
             // already terminated the worker, otherwise it is idle here.
-            try? connection?.finish(); connection?.abort(); connection = nil
+            retireConnection()
             state.lock(); stopped = true; state.unlock()
             if error is BatchSignatureConnection.Failure { throw error } // Explicit pre-login refusal, not an uncertain Sign.
             if submitted && !receivedSignature {

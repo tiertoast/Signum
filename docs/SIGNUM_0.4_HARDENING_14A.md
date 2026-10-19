@@ -19,3 +19,8 @@ Confermato il passaggio indiscriminato di `manualPaths` dalla finestra. Estratta
 ## Esecuzione ed evidenze
 
 Log e runner nella consegna della chat, `outputs/evidence`; scratch `work/hardening/source`. Il runner registra comando, exit e durata con watchdog di processo. Prerequisito CQ-13 predisposto solo nello scratch: `.build/04stabilization-b13/evidence`. I rapporti originali non vengono alterati.
+
+### CQ-02 — corretto
+
+Un solo ritiro conserva il fallimento di finish sotto lock, prima di abort e azzeramento. Lo stesso checkpoint registra il fallimento della chiusura finale. Il flag non può tornare falso; l’errore primario mantiene la classificazione documento e il coordinatore espone separatamente cleanup incerto e blocco delle autorizzazioni. Nessun retry. Un protocollo interno ristretto consente una connessione fittizia, senza nuovo manager o livello runtime.
+Regressione con primo output CMS sintetico verificato, errore locale prima del secondo submit e finish fallito: sul catch precedente quattro assertion falliscono (flag, propagazione, avviso, stop ripetuto); dopo correzione 48 test batch/Secure Batch PIN passati, zero skip. I primi tentativi dell’harness avevano un locator temporaneo non canonico: corretta la fixture e ripetuta la prova prima/dopo; quei run falliti restano nei log e non provano la regressione applicativa.

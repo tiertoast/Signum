@@ -3,7 +3,16 @@ import Foundation
 import Security
 
 /// Single-owner off-main connection. Contains only public manifest data, never PIN.
-final class BatchSignatureConnection {
+protocol BatchSigningConnection: AnyObject {
+    var next: Int { get }
+    var reusable: Bool { get }
+    func sign(jobID: UUID, attributes: Data, pin: String?, timeout: TimeInterval, isCancelled: () -> Bool) throws -> Data
+    func skip(isCancelled: () -> Bool) throws
+    func finish() throws
+    func abort()
+}
+
+final class BatchSignatureConnection: BatchSigningConnection {
     enum Failure: LocalizedError {
         case temporaryPINUnavailable
         var errorDescription: String? { "Memoria protetta non disponibile. Nessuna autenticazione tentata. Avvia una nuova sessione con PIN per ogni firma." }
