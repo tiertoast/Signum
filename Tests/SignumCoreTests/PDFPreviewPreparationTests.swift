@@ -39,12 +39,36 @@ import PDFKit
     }
     func testRasterUsesPrivateDocumentAndReturnsBoundedPixels() async throws {
         let bytes = try pdf(pages: 3, vectors: 500)
+        let start = ProcessInfo.processInfo.systemUptime
         let image = try await PDFPreviewPreparation.page(bytes, index: 2)
+        print("CQ08 verification-thumbnail seconds=\(ProcessInfo.processInfo.systemUptime-start)")
         XCTAssertEqual(image.pageCount, 3)
         let source = try XCTUnwrap(CGImageSourceCreateWithData(image.png as CFData, nil))
         let cg = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
         XCTAssertLessThanOrEqual(cg.width, 1000); XCTAssertLessThanOrEqual(cg.height, 1000)
         XCTAssertThrowsError(try PDFPreviewPreparation.raster(bytes, index: 3))
+    }
+    func testVerificationRasterPreservesVisibleAnnotations() async throws {
+        let document = try XCTUnwrap(PDFDocument(data: pdf()))
+        let page = try XCTUnwrap(document.page(at: 0))
+        let annotation = PDFAnnotation(bounds: CGRect(x: 200, y: 200, width: 150, height: 150), forType: .square, withProperties: nil)
+        annotation.color = .blue; annotation.interiorColor = .blue
+        page.addAnnotation(annotation)
+        let bytes = try XCTUnwrap(document.dataRepresentation())
+        let reference = try XCTUnwrap(page.thumbnail(of: CGSize(width: 1000, height: 1000), for: .cropBox).tiffRepresentation)
+        func bluePixels(_ data: Data) throws -> Int {
+            let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+            let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            let context = try XCTUnwrap(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width*4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            return (0..<image.width*image.height).filter { pixels[$0*4] < 80 && pixels[$0*4+1] < 80 && pixels[$0*4+2] > 180 }.count
+        }
+        let expected = try bluePixels(reference)
+        XCTAssertGreaterThan(expected, 5000, "Reference must contain the annotation")
+        let result = try await PDFPreviewPreparation.page(bytes, index: 0)
+        XCTAssertGreaterThan(try bluePixels(result.png), expected*9/10, "Read-only preview must retain visible annotations")
     }
     func testCorruptAndCancelledPDFsRejectBeforePublication() throws {
         XCTAssertThrowsError(try PDFPreviewPreparation.inspect(Data("corrupt".utf8)))
