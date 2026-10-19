@@ -112,14 +112,19 @@ enum SignumPAdESHelper {
         operation?.transition(to: .waitingForAuthentication)
         operation?.transition(to: .signing)
         let fingerprint = job.certificateSHA256
+        // A bound GUI job never falls back to the explicit legacy v4 helper contract.
+        if let binding = job.providerContext {
+            guard binding.valid, binding.padesWire.utf8.count <= 16384 else { throw SignumError.module("Contesto PAdES non valido.") }
+            args += ["--provider-context-v1", binding.padesWire]
+        }
         if let appearance, appearance.configuration.visible, let unit=appearance.configuration.userUnit {
             args += ["--appearance-user-unit",String(Double(unit))]
         }
         args += ["--job-id", job.id.uuidString, "--snapshot-id", job.snapshotIdentity.id.uuidString,
                  "--expected-document-sha256", job.contentSHA256,
-                 "--expected-cert-sha256", fingerprint, "--verified-output-v4"]
+                 "--expected-cert-sha256", fingerprint, job.providerContext == nil ? "--verified-output-v4" : "--verified-output-v5"]
         let outcome = PAdESHelperProcess.run(executable: engine, arguments: args, input: &secret,
-            destination: output, timeout: timeout, expectedJobID: job.id,
+            destination: output, timeout: timeout, expectedJobID: job.id, expectedProtocolVersion: job.providerContext == nil ? 4 : 5,
             maximumInput: appearance == nil ? 512 : PAdESAppearanceRenderer.maximumPDFBytes+69,
             isCancelled: { operation?.isCancellationRequested ?? false })
         try PAdESHelperProcess.requirePublished(outcome)

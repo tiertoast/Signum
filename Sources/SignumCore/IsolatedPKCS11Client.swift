@@ -8,9 +8,11 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
     public enum Failure: Error, LocalizedError {
         case busy
         case authenticationRequired
+        case contextChanged
         public var errorDescription: String? {
             switch self {
             case .busy: return "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al provider."
+            case .contextChanged: return "Il contesto del dispositivo è cambiato. Nessuna autenticazione inviata. Cerca nuovamente e approva una nuova sessione."
             case .authenticationRequired: return "Il dispositivo richiede autenticazione per leggere i certificati. La ricerca non invia PIN."
             }
         }
@@ -64,12 +66,15 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
     // Only internal callers supply the exact attributes/proof message and the
     // approved DER; even a lying worker cannot return an accepted foreign key.
     func sign(provider: String, slot: UInt, certificate: SignumCertificate, der: Data, attributes: Data,
-              pin: String, id: UUID, timeout: TimeInterval = 120,
+              pin: String, id: UUID, timeout: TimeInterval = 120, providerContext: SigningProviderContext? = nil,
               isCancelled: () -> Bool = { false }) throws -> Data {
         try CertificateEligibility.requireEligible(certificateDER: der)
-        let result = try exchange(.init(id: id, action: .rsaSHA256, provider: provider, slot: slot,
-            certificate: WorkerCertificate(certificate, der: der), attributes: attributes, pin: pin, leaseWaitMilliseconds: leaseWaitMilliseconds),
-            timeout: timeout, isCancelled: isCancelled)
+        if let providerContext, !providerContext.matches(provider: provider, slot: slot, certificate: certificate, der: der) { throw Failure.contextChanged }
+        var request = PKCS11WorkerRequest(version: providerContext == nil ? 1 : 2, id: id, action: .rsaSHA256, provider: provider, slot: slot,
+            certificate: WorkerCertificate(certificate, der: der), attributes: attributes, pin: pin, leaseWaitMilliseconds: leaseWaitMilliseconds)
+        request.providerContext = providerContext
+        request.expectedModule = providerContext?.moduleIdentity; request.automaticModule = providerContext?.automatic
+        let result = try exchange(request, timeout: timeout, isCancelled: isCancelled)
         guard result.tokens.isEmpty, result.certificates.isEmpty, let signature = result.signature,
               (128...1024).contains(signature.count), let cert = SecCertificateCreateWithData(nil, der as CFData),
               let key = SecCertificateCopyKey(cert),
@@ -89,11 +94,15 @@ public final class IsolatedPKCS11Client: @unchecked Sendable {
         var input = try JSONEncoder().encode(request)
         let data = try SupervisedProcess.run(executable: executable, input: &input, timeout: timeout, isCancelled: isCancelled)
         guard let response = try? JSONDecoder().decode(PKCS11WorkerResponse.self, from: data),
-              response.version == 1, response.id == request.id, response.action == request.action,
+              response.version == request.version, response.id == request.id, response.action == request.action,
               response.provider.hasPrefix("/"), response.provider.utf8.count <= 4096,
               !response.provider.utf8.contains(0) else { throw SupervisedProcess.Failure.protocolViolation }
         if !response.succeeded, response.failureKind == "busy" { throw Failure.busy }
         if !response.succeeded, response.failureKind == "authenticationRequired", request.action != .rsaSHA256 { throw Failure.authenticationRequired }
+        if !response.succeeded, response.failureKind == "contextChanged", request.version == 2 { throw Failure.contextChanged }
+        if let binding = request.providerContext, response.succeeded {
+            guard response.provider == binding.provider, response.validatedContext == binding else { throw SupervisedProcess.Failure.protocolViolation }
+        }
         guard response.succeeded, response.failureKind == nil else { throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.") }
         if let expected = request.expectedModule {
             guard response.validatedModule == expected, response.automaticValidated == request.automaticModule else { throw SupervisedProcess.Failure.protocolViolation }

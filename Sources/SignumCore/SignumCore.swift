@@ -22,7 +22,7 @@ public enum SignumError: Error, LocalizedError {
     }
 }
 
-public struct SignumToken: Identifiable, Hashable, Sendable {
+public struct SignumToken: Identifiable, Codable, Hashable, Sendable {
     public let slot: UInt
     public let label: String
     public let manufacturer: String

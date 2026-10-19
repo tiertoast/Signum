@@ -101,7 +101,7 @@ extension SigningJob {
                 submitted = true
                 let signature = try worker.sign(provider: providerPath, slot: slot, certificate: certificate,
                     der: certificateDER, attributes: prepared.attributesToSign, pin: pin, id: id,
-                    timeout: timeout, isCancelled: { operation.isCancellationRequested })
+                    timeout: timeout, providerContext: providerContext, isCancelled: { operation.isCancellationRequested })
                 receivedVerifiedSignature = true
                 operation.transition(to: .verifying)
                 try operation.checkCancellation()

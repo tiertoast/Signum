@@ -1,3 +1,4 @@
+#include "SigningProviderContext.h"
 #include "PAdESInput.h"
 #include "SignumCertificatePolicy.h"
 #include "TransactionalOutput.h"
@@ -274,6 +275,30 @@ int main(int argc, char** argv) {
             page.GetObject().GetDictionary().AddKey("UserUnit",PdfObject(PdfString("invalid")));
             rejected = false; try { (void)signum::approvedAppearanceUserUnit(page,1); } catch (...) { rejected = true; }
             expect(rejected, "Malformed unit accepted");
+        });
+        test("bound provider context codec validates every field and detects file replacement", [&] {
+            Folder fixture; auto module = fs::canonical(fixture.path) / "synthetic-module";
+            put(module, Bytes{1,2,3}); struct stat st{}; expect(lstat(module.c_str(), &st) == 0, "Fixture stat");
+            auto hex = [](const std::string& value) { std::string out; const char* digits = "0123456789abcdef";
+                for (unsigned char c : value) { out += digits[c>>4]; out += digits[c&15]; } return out; };
+            std::vector<std::string> fields = {"1",hex(module.string()),std::to_string(st.st_dev),std::to_string(st.st_ino),std::to_string(st.st_size),
+                std::to_string(st.st_mtimespec.tv_sec),std::to_string(st.st_mtimespec.tv_nsec),std::to_string(st.st_ctimespec.tv_sec),std::to_string(st.st_ctimespec.tv_nsec),
+                "0","7",hex("label"),hex("manufacturer"),hex("model"),hex("reader"),hex("serial"),"01",std::string(64,'a'),std::string(64,'b'),"00000000-0000-0000-0000-000000000001"};
+            auto encode = [](const std::vector<std::string>& values) { std::string out; for (size_t i=0;i<values.size();++i) { if(i) out += ':';out += values[i]; }return out; };
+            signum::SigningProviderContext context(encode(fields)); context.requireCurrentModule(module.string());
+            expect(context.matchesToken(7,"label","manufacturer","model","reader","serial"),"Context changed token bytes");
+            expect(context.matchesToken(7," label ","manufacturer","model","reader","serial"),"Discovery whitespace normalization changed");
+            expect(!context.matchesToken(8,"label","manufacturer","model","reader","serial"),"Changed slot accepted");
+            expect(!context.matchesToken(7,"label","manufacturer","model","reader","other"),"Changed metadata accepted");
+            const std::vector<std::pair<size_t,std::string>> invalid = {{0,"2"},{1,"00"},{1,"zz"},{2,"-1"},{3,"0"},{4,"18446744073709551616"},
+                {6,"1000000000"},{8,"1000000000"},{9,"2"},{10,"-1"},{11,"00"},{12,std::string(258,'a')},{13,"z0"},{14,std::string(514,'a')},
+                {15,std::string(66,'a')},{16,""},{16,std::string(130,'a')},{17,"bad"},{18,std::string(64,'z')},{19,"not-a-uuid"}};
+            for (const auto& item : invalid) { auto changed=fields;changed[item.first]=item.second;bool rejected=false;
+                try { signum::SigningProviderContext bad(encode(changed)); }catch(...){rejected=true;}expect(rejected,"Malformed context field accepted"); }
+            for (const auto& wire : {std::string(),encode(fields)+":extra",std::string(16385,'a')}) { bool rejected=false;
+                try { signum::SigningProviderContext bad(wire); }catch(...){rejected=true;}expect(rejected,"Malformed context frame accepted"); }
+            auto replacement=module.parent_path()/"replacement";put(replacement,Bytes{4,5,6});fs::rename(replacement,module);
+            bool rejected=false;try{context.requireCurrentModule(module.string());}catch(...){rejected=true;}expect(rejected,"Replaced file accepted");
         });
         test("PAdES line codec preserves accepted bytes and rejects invalid or incomplete frames", [&] {
             auto decode = [](const std::string& frame) {

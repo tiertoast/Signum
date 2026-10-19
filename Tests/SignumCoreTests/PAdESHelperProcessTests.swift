@@ -113,5 +113,22 @@ final class PAdESHelperProcessTests: XCTestCase {
             }
         }
     }
+    func testBoundStatusCannotDowngradeToLegacyOrAcceptMalformedResponse() throws {
+        try fixture { output in
+            let job = UUID()
+            for message in ["malformed", "{}", "{\"version\":4,\"jobID\":\"\(job)\",\"outcome\":\"rejectedBeforeAuthentication\",\"reason\":\"preflight\"}"] {
+                var input = Data()
+                let result = PAdESHelperProcess.run(executable: URL(fileURLWithPath: "/bin/echo"), arguments: [message],
+                    input: &input, destination: output, expectedJobID: job, expectedProtocolVersion: 5)
+                guard case .uncertain = result else { return XCTFail("Invalid/legacy status accepted for bound request") }
+            }
+            var input = Data()
+            let message = "{\"version\":5,\"jobID\":\"\(job)\",\"outcome\":\"rejectedBeforeAuthentication\",\"reason\":\"preflight\"}"
+            let result = PAdESHelperProcess.run(executable: URL(fileURLWithPath: "/bin/echo"), arguments: [message],
+                input: &input, destination: output, expectedJobID: job, expectedProtocolVersion: 5)
+            guard case .failed = result else { return XCTFail("Bound pre-authentication rejection lost") }
+        }
+    }
+
 }
 #endif

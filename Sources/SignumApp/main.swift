@@ -116,7 +116,8 @@ private enum SignumFormat: String, Hashable {
               batch.documents.allSatisfy({ !$0.state.isTerminal && ($0.format != .pades ||
                 (readyPreviews.contains($0.id) && placements[$0.id]?.appearance?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
         return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
-                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity })
+                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity },
+                     providerContext: route.signingContext(discoveryID: devices.requestID))
     }
     private var canApproveBatch: Bool {
         !interfaceLocked && !batch.isFrozen && !workspace.showingPDFPreview && review.matches(reviewContext, batch: batch)
@@ -769,7 +770,8 @@ private enum SignumFormat: String, Hashable {
 
     private func prepareBatch() {
         guard canApproveBatch, let plan = review.approval, let context = reviewContext,
-              let route = devices.selectedRoute else { return }
+              let route = devices.selectedRoute, let binding = context.providerContext,
+              binding.valid, plan.jobs.allSatisfy({ $0.providerContext == binding }) else { return }
         provider.pin = ""
         let holder = selectedHolder, requestedAuthenticationMode = authenticationMode
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
@@ -811,6 +813,7 @@ private enum SignumFormat: String, Hashable {
         let session = authenticationSession
         workspace.showingPDFPreview = false
         interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
+            guard job.providerContext != nil else { throw SignumError.module("Contesto dispositivo approvato mancante.") }
             try route.requireCurrentModule()
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }

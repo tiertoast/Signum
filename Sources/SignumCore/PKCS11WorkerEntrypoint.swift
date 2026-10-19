@@ -32,11 +32,12 @@ public enum PKCS11WorkerEntrypoint {
         Darwin.close(STDIN_FILENO)
         guard let request = try? JSONDecoder().decode(PKCS11WorkerRequest.self, from: input), request.valid else { return 2 }
         input.resetBytes(in: 0..<input.count)
-        var response = PKCS11WorkerResponse(version: 1, id: request.id, action: request.action,
+        var response = PKCS11WorkerResponse(version: request.version, id: request.id, action: request.action,
             provider: request.provider, tokens: [], unavailable: 0, certificates: [], signature: nil, succeeded: false)
         do { response = try perform(request) }
         catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
         catch IsolatedPKCS11Client.Failure.authenticationRequired { response.failureKind = "authenticationRequired" }
+        catch is MiddlewareFileSecurity.Failure { if request.version == 2 { response.failureKind = "contextChanged" } }
         catch { /* Never return vendor diagnostics or request bytes. */ }
         guard var output = try? JSONEncoder().encode(response), output.count <= 2 * 1024 * 1024 else { return 2 }
         defer { output.resetBytes(in: 0..<output.count) }
@@ -77,13 +78,17 @@ public enum PKCS11WorkerEntrypoint {
                 }
             case .rsaSHA256:
                 let certificate = request.certificate!
+                if let binding = request.providerContext {
+                    try binding.requireCurrentModule()
+                    try binding.requireCurrentToken(module)
+                }
                 try CertificateEligibility.requireEligible(certificateDER: certificate.der)
                 signature = try module.signRSASHA256(slot: request.slot!, certificate: certificate.value,
                     pin: request.pin!, message: request.attributes!, expectedCertificateDER: certificate.der)
             }
-            return PKCS11WorkerResponse(version: 1, id: request.id, action: request.action, provider: module.modulePath,
+            return PKCS11WorkerResponse(version: request.version, id: request.id, action: request.action, provider: module.modulePath,
                 tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true,
-                libraryVersion: version, validatedModule: request.expectedModule, automaticValidated: request.automaticModule)
+                libraryVersion: version, validatedModule: request.expectedModule, automaticValidated: request.automaticModule, validatedContext: request.providerContext)
         }
         // A blocked Finalize is contained by the parent's same deadline. Do not
         // announce success before checked provider teardown completes.

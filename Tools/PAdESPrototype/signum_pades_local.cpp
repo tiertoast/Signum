@@ -1,3 +1,5 @@
+#include "SigningProviderContext.h"
+#include <optional>
 #include "PAdESInput.h"
 #include <cmath>
 #include "process_coordination.h"
@@ -193,7 +195,7 @@ static std::string read_appearance_pdf() {
     if (!length || length > 8*1024*1024) throw std::runtime_error("Appearance PDF exceeds limit");
     std::string bytes(length, '\0'); exact(bytes.data(), bytes.size()); return bytes;
 }
-static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, const Rect& rect, const std::string& bytes) {
+static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, const PoDoFo::Rect& rect, const std::string& bytes) {
     charbuff buffer(bytes);
     auto device = std::make_shared<BufferStreamDevice>(buffer);
     PdfMemDocument appearance(device);
@@ -203,7 +205,7 @@ static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, co
     if (source.GetRotation() || std::abs(box.X) > .001 || std::abs(box.Y) > .001 ||
         std::abs(box.Width-rect.Width) > .01 || std::abs(box.Height-rect.Height) > .01)
         throw std::runtime_error("Appearance geometry mismatch");
-    auto form = doc.CreateXObjectForm(Rect(0,0,rect.Width,rect.Height));
+    auto form = doc.CreateXObjectForm(PoDoFo::Rect(0,0,rect.Width,rect.Height));
     form->FillFromPage(source);
     field.MustGetWidget().SetRectRaw(Corners(rect.X,rect.Y,rect.X+rect.Width,rect.Y+rect.Height));
     field.MustGetWidget().SetAppearanceStreamRaw(*form);
@@ -213,7 +215,8 @@ static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, co
 int main(int argc, char** argv) {
     if (sg_worker_watch_parent() != 0) return 2;
     if (argc == 2 && std::strcmp(argv[1], "--verify-stdin-v1") == 0) return signum::verificationMain();
-    const bool statusProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v4") == 0;
+    const bool boundProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v5") == 0;
+    const bool statusProtocol = boundProtocol || (argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v4") == 0);
     // Reserve the only status descriptor before loading any vendor code. Vendor
     // stdout/stderr cannot masquerade as a pre-authentication rejection.
     int reply = -1;
@@ -238,6 +241,8 @@ int main(int argc, char** argv) {
     const auto snapshotID = option("--snapshot-id");
     const auto jobID = option("--job-id");
     const auto appearanceUserUnit = option("--appearance-user-unit");
+    const auto providerContextWire = option("--provider-context-v1");
+    if (boundProtocol != !providerContextWire.empty()) return 2;
     auto uuid = [](const std::string& text) {
         if (text.size() != 36) return false;
         for (size_t i = 0; i < text.size(); ++i) {
@@ -252,7 +257,7 @@ int main(int argc, char** argv) {
     }
     auto respond = [&](const char* outcome, const char* reason) {
         // UUID syntax has been validated; all other fields are fixed literals.
-        const auto status = std::string("{\"version\":4,\"jobID\":\"") + jobID +
+        const auto status = std::string("{\"version\":") + (boundProtocol ? "5" : "4") + ",\"jobID\":\"" + jobID +
             "\",\"outcome\":\"" + outcome + "\",\"reason\":\"" + reason + "\"}";
         size_t sent = 0;
         while (sent < status.size()) {
@@ -284,6 +289,13 @@ int main(int argc, char** argv) {
         const fs::path middleware = argv[3];
         const auto slot = static_cast<unsigned long>(std::stoul(argv[4]));
         auto certificateID = parse_hex(argv[5]);
+        std::optional<signum::SigningProviderContext> binding;
+        if (boundProtocol) {
+            binding.emplace(providerContextWire);
+            signum::SigningProviderContext::require(binding->provider == middleware.string() && binding->slot == slot &&
+                binding->objectID == std::string(reinterpret_cast<const char*>(certificateID.data()), certificateID.size()) &&
+                binding->certificateSHA256 == expectedFingerprint);
+        }
 
         if (fs::absolute(input).lexically_normal() == fs::absolute(output).lexically_normal())
             throw std::runtime_error("Output conflicts with input");
@@ -301,7 +313,18 @@ int main(int argc, char** argv) {
             rejectionReason = errno == ETIMEDOUT ? "busy" : "coordination";
             throw std::runtime_error("Dispositivo occupato o coordinamento non disponibile; nessun PIN inviato al provider");
         }
+        if (binding) binding->requireCurrentModule(middleware.string());
         PKCS11 token(middleware.c_str());
+        if (binding) {
+            std::array<SGToken,256> tokens{}; size_t count = 0, unavailable = 0; std::array<char,512> error{};
+            signum::SigningProviderContext::require(sg_tokens(token.context, tokens.data(), tokens.size(), &count, &unavailable, error.data(), error.size()) == 0 && count <= tokens.size());
+            bool matched = false;
+            for (size_t i = 0; i < count; ++i) { const auto& row = tokens[i];
+                matched = matched || binding->matchesToken(row.slot, row.label, row.manufacturer, row.model, row.reader, row.serial);
+            }
+            signum::SigningProviderContext::require(matched);
+            binding->requireCurrentModule(middleware.string());
+        }
         const auto der = token.certificate(slot, certificateID);
         // Bind to the exact certificate shown by the GUI, before any PIN read
         // or private-key operation.
@@ -338,7 +361,7 @@ int main(int argc, char** argv) {
             auto io = std::make_shared<BufferStreamDevice>(pdfBytes);
             PdfMemDocument doc(io);
             unsigned pageIndex = 0;
-            Rect rectangle;
+            PoDoFo::Rect rectangle;
             if (positionalCount == 11) {
                 pageIndex = static_cast<unsigned>(std::stoul(argv[6]));
                 const double x = std::stod(argv[7]);
@@ -348,7 +371,7 @@ int main(int argc, char** argv) {
                 if (!(width > 0.0 && height > 0.0 && std::isfinite(width) && std::isfinite(height) &&
                     (!appearanceUserUnit.empty() || (width < 1000.0 && height < 1000.0))))
                     throw std::runtime_error("Invalid signature rectangle");
-                rectangle = Rect(x, y, width, height);
+                rectangle = PoDoFo::Rect(x, y, width, height);
             }
             if (pageIndex >= doc.GetPages().GetCount())
                 throw std::runtime_error("Page index exceeds PDF page count");

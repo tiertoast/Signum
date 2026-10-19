@@ -18,12 +18,14 @@ public struct SigningJob: Sendable {
     public let certificateSHA256: String
     public let destination: URL
     public let destinationDirectoryIdentity: OutputDirectoryIdentity?
+    /// nil explicitly denotes the legacy locator/DER-only API, never the GUI.
+    public let providerContext: SigningProviderContext?
     public let padesAppearance: RenderedPAdESAppearance?
 
     public init(snapshot: DocumentSnapshot, format: SigningFormat? = nil, providerPath: String, slot: UInt,
                 certificate: SignumCertificate, certificateDER: Data, destination: URL,
                 destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
-                padesAppearance: RenderedPAdESAppearance? = nil) throws {
+                padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil) throws {
         let effectiveFormat = format ?? snapshot.format
         if effectiveFormat == .pades, format != nil { try DocumentSigningConfiguration.requirePDF(snapshot) }
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
@@ -32,6 +34,10 @@ public struct SigningJob: Sendable {
               providerPath.hasPrefix("/"), !certificateDER.isEmpty, certificateDER.count <= 65536 else {
             throw SignumError.module("Richiesta di firma incompleta o destinazione non valida.")
         }
+        if let providerContext, !providerContext.matches(provider: providerPath, slot: slot, certificate: certificate, der: certificateDER) {
+            throw SignumError.module("Contesto dispositivo non coerente con il job approvato.")
+        }
+        self.providerContext = providerContext
         if let appearance = padesAppearance {
             guard effectiveFormat == .pades,
                   appearance.certificateSHA256 == DocumentSnapshot.digest(certificateDER),
@@ -90,6 +96,7 @@ public struct SigningJob: Sendable {
     public func signCAdES(using module: PKCS11Module, pin: String) throws {
         try executeCAdES { bytes in
             guard module.modulePath == providerPath else { throw SignumError.module("Provider differente da quello approvato.") }
+            if let providerContext { try providerContext.requireCurrentModule(); try providerContext.requireCurrentToken(module) }
             return try module.createCAdES(document: bytes, slot: slot, certificate: certificate,
                                           pin: pin, expectedCertificateDER: certificateDER)
         }

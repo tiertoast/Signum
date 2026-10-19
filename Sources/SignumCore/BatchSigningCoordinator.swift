@@ -99,6 +99,7 @@ public struct BatchApproval: Sendable {
     /// create output or ask for a PIN; edits invalidate the plan by revision.
     public func prepareReview(provider: String, slot: UInt, certificate: SignumCertificate,
                               der: Data, destination: BatchOutputDestination,
+                              providerContext: SigningProviderContext? = nil,
                               appearances: [UUID: RenderedPAdESAppearance] = [:],
                               isCancelled: @escaping @Sendable () -> Bool = { false }) async throws -> BatchApproval {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
@@ -117,7 +118,7 @@ public struct BatchApproval: Sendable {
             let jobs = try zip(selected, outputs).map { snapshot, output in
                 try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot, certificate: certificate,
                     certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity,
-                    padesAppearance: appearances[snapshot.identity.id])
+                    padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext)
             }
             return BatchApproval(id: UUID(), jobs: jobs)
         }.value
