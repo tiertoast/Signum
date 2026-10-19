@@ -184,16 +184,16 @@ public struct BatchApproval: Sendable {
             let captureTask = Task.detached(priority: .userInitiated) { Result { try capture(url, format, operation) } }
             let captured = await withTaskCancellationHandler(operation: { await captureTask.value },
                 onCancel: { operation.requestCancellation(); captureTask.cancel() })
-            guard acquisitionID == request, !Task.isCancelled else { if case .success(let snapshot) = captured { snapshot.close() }; break }
+            guard acquisitionID == request, !Task.isCancelled else { if case .success(let snapshot) = captured { snapshot.retire() }; break }
             switch captured {
             case .failure(let error):
                 selectionIssues.append("\(url.lastPathComponent): \(error.localizedDescription)")
                 if let failure = error as? DocumentAcquisitionFailure { selectionTechnicalDetails.append("\(url.lastPathComponent): \(failure.kind.rawValue) · \(failure.technicalDetails)") }
             case .success(let snapshot):
                 if documents.contains(where: { $0.snapshot.identity.sha256 == snapshot.identity.sha256 && $0.format == format }) {
-                    snapshot.close(); selectionIssues.append("\(url.lastPathComponent): contenuto duplicato nello stesso formato.")
+                    snapshot.retire(); selectionIssues.append("\(url.lastPathComponent): contenuto duplicato nello stesso formato.")
                 } else if documents.reduce(0, { $0 + $1.snapshot.identity.byteCount }) + snapshot.identity.byteCount > Self.maximumTotalBytes {
-                    snapshot.close(); selectionIssues.append("Dimensione totale massima: 128 MiB.")
+                    snapshot.retire(); selectionIssues.append("Dimensione totale massima: 128 MiB.")
                 } else { documents.append(BatchDocument(snapshot: snapshot)) }
             }
         }
@@ -202,13 +202,13 @@ public struct BatchApproval: Sendable {
     public func remove(_ id: UUID) {
         guard !isFrozen, !isPreparing, !isRunning, let index = documents.firstIndex(where: { $0.id == id }) else { return }
         invalidateReview(); revision = UUID()
-        documents.remove(at: index).snapshot.close()
+        documents.remove(at: index).snapshot.retire()
     }
     public func reset() {
         guard !isRunning, !isPreparing, !isContinuingAuthenticated else { return }
         authenticationNotice = ""
         isFrozen = false; invalidateReview(); revision = UUID()
-        documents.forEach { $0.snapshot.close() }
+        documents.forEach { $0.snapshot.retire() }
         documents = []; approval = nil; selectionIssues = []; selectionTechnicalDetails = []
         isFrozen = false; isApproved = false; needsOutcomeReview = false
     }
@@ -279,7 +279,7 @@ public struct BatchApproval: Sendable {
         invalidateReview(); revision = UUID()
         documents[index].state = .cancelled
         documents[index].result = "Nessuna richiesta privata inviata."
-        documents[index].snapshot.close()
+        documents[index].snapshot.retire()
     }
     public func cancelAll() { cancelPending(); activeOperation?.requestCancellation() }
     public func acknowledgeUncertainOutcome() { if !isRunning { needsOutcomeReview = false } }

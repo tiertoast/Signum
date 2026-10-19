@@ -206,21 +206,32 @@ struct UnifiedVerificationPane: View {
 private struct VerificationPDFPreview: View {
     let report: VerificationReport
     @Environment(\.dismiss) private var dismiss
-    @State private var document: PDFDocument?
+    @State private var thumbnail: NSImage?
+    @State private var pageCount = 0
+    @State private var previewIssue = ""
     @State private var page = 0
     var body: some View {
         VStack(alignment: .leading) {
             HStack { Text(report.documentName).font(.headline); Spacer(); Button("Chiudi") { dismiss() } }
-            if let document, document.pageCount > 0 {
-                Picker("Pagina", selection: $page) { ForEach(0..<min(1000, document.pageCount), id: \.self) { Text("\($0+1)").tag($0) } }
-                if let current = document.page(at: page) {
-                    Image(nsImage: current.thumbnail(of: CGSize(width: 1000, height: 1000), for: .cropBox))
-                        .resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            } else { Text("Anteprima PDF non disponibile.") }
+            if pageCount > 0 {
+                Picker("Pagina", selection: $page) { ForEach(0..<min(1000, pageCount), id: \.self) { Text("\($0+1)").tag($0) } }
+            }
+            if let thumbnail {
+                Image(nsImage: thumbnail).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if previewIssue.isEmpty { ProgressView("Preparazione anteprima…") }
+            else { Text(previewIssue) }
             Text("Sola lettura · l'immagine della pagina non costituisce verifica crittografica.").font(.caption)
         }.padding().frame(width: 780, height: 680)
-        .onAppear { document = report.previewPDF.flatMap(PDFDocument.init(data:)) }
+        .task(id: page) {
+            thumbnail = nil; previewIssue = ""
+            guard let bytes = report.previewPDF else { previewIssue = "Anteprima PDF non disponibile."; return }
+            do {
+                let prepared = try await PDFPreviewPreparation.page(bytes, index: page)
+                try Task.checkCancellation()
+                pageCount = prepared.pageCount; thumbnail = NSImage(data: prepared.png)
+                if thumbnail == nil { previewIssue = "Anteprima PDF non disponibile." }
+            } catch { if !Task.isCancelled { previewIssue = error.localizedDescription } }
+        }
     }
 }
 #endif

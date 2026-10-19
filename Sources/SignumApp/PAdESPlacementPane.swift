@@ -19,6 +19,7 @@ struct PAdESPlacementPane: View {
     var certificateDER: Data? = nil
     @Binding var placement: PAdESPlacement?
     @State private var configuration = PAdESAppearanceConfiguration()
+    @State private var imageURL: URL?
     @State private var pdfDocument: PDFDocument?
     @State private var rendered: RenderedPAdESAppearance?
     @State private var issue = ""
@@ -75,7 +76,7 @@ struct PAdESPlacementPane: View {
                     TextField("Testo personalizzato (distinto dall'identità del certificato)",text:editing(\.customText)).textFieldStyle(.roundedBorder)
                     HStack {
                         Button("PNG o JPEG…") { chooseImage() }
-                        if configuration.image != nil { Button("Rimuovi immagine") { change { $0.image = nil } } }
+                        if configuration.image != nil { Button("Rimuovi immagine") { imageURL=nil; change { $0.image = nil } } }
                         Picker("Allineamento",selection:editing(\.alignment)) {
                             Text("Sinistra").tag(PAdESAppearanceConfiguration.Alignment.leading)
                             Text("Centro").tag(PAdESAppearanceConfiguration.Alignment.center)
@@ -118,9 +119,18 @@ struct PAdESPlacementPane: View {
                 Text("L'aspetto grafico non prova l'integrità. La data locale non è una marca temporale qualificata.").font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
-        .onAppear {
+        .task(id: snapshot.identity.id) {
             isActive = true
-            pdfDocument = PDFDocument(data:snapshot.approvedBytes)
+            previewReady(snapshot.identity.id,false)
+            do {
+                let prepared = try await PDFPreviewPreparation.document(snapshot)
+                try Task.checkCancellation()
+                // PDFKit object construction and all later viewer access stay MainActor-bound.
+                pdfDocument = PDFDocument(data:prepared.bytes)
+            } catch {
+                if !Task.isCancelled { initializationIssue=error.localizedDescription; render() }
+                return
+            }
             if let saved = placement?.draft ?? placement?.appearance?.configuration {
                 configuration = saved
                 configuration.visible = true
@@ -133,6 +143,16 @@ struct PAdESPlacementPane: View {
                 } catch { initializationIssue=error.localizedDescription }
             }
             render()
+        }
+        .task(id: imageURL) {
+            guard let url = imageURL else { return }
+            do {
+                let image = try await PDFPreviewPreparation.image(url)
+                try Task.checkCancellation()
+                guard isActive, imageURL == url else { return }
+                imageURL = nil
+                change { $0.image = image }
+            } catch { if !Task.isCancelled, isActive, imageURL == url { imageURL=nil; rendering=false; issue=error.localizedDescription } }
         }
         .onChange(of:configuration) { _ in render() }
         .onChange(of:certificateDER) { _ in render() }
@@ -189,6 +209,7 @@ struct PAdESPlacementPane: View {
     }
     private func render() {
         renderCoordinator.cancel(); renderID = UUID(); annotationReady = false
+        guard imageURL == nil else { rendering=true; previewReady(snapshot.identity.id,false); return }
         if let initializationIssue {
             issue=initializationIssue; rendered=nil; rendering=false; previewReady(snapshot.identity.id,false); return
         }
@@ -230,7 +251,9 @@ struct PAdESPlacementPane: View {
     private func chooseImage() {
         let chooser=NSOpenPanel(); chooser.allowedContentTypes=[.png,.jpeg]; chooser.allowsMultipleSelection=false
         guard chooser.runModal() == .OK, let url=chooser.url else { return }
-        do { let image = try PAdESAppearanceImage.load(url); change { $0.image = image } } catch { issue=error.localizedDescription }
+        renderCoordinator.cancel(); renderID=UUID(); annotationReady=false; rendering=true
+        previewReady(snapshot.identity.id,false)
+        imageURL = url
     }
 }
 

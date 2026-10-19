@@ -61,7 +61,9 @@
       "ProviderSelectionTests",
       "SecurePINBufferTests",
       "SignumFileOutputTests",
-      "VerificationDropLifecycleTests"
+      "VerificationDropLifecycleTests",
+      "SnapshotRetirementTests",
+      "PDFPreviewPreparationTests"
     ],
     "ui": [
       "DynamicFormatWorkspaceTests",

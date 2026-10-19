@@ -25,7 +25,13 @@ public final class DocumentSnapshot: @unchecked Sendable {
     public var approvedBytes: Data { bytes } // Value semantics, no mapped mutable file.
     private let bytes: Data
     private let lock = NSLock()
+    // lock protects logical lifetime only; never held during I/O or hashing.
+    // readLock serializes lseek/read on the retained descriptor. Readers retain
+    // self and a lease until their entire integrity check has completed.
+    private let readLock = NSLock()
     private var closed = false
+    private var readers = 0
+    private var cleanupClaimed = false
     private let root: Int32, directory: Int32, descriptor: Int32
     private let directoryName: String
     private let directoryIdentity: stat, fileIdentity: stat
@@ -169,23 +175,58 @@ public final class DocumentSnapshot: @unchecked Sendable {
     /// Revalidate both descriptor contents and the helper pathname. Always return
     /// the immutable bytes shown by the preview, never a new version of the source.
     public func verifiedBytes() throws -> Data {
-        lock.lock(); defer { lock.unlock() }
-        guard !closed, Self.same(in: root, name: directoryName, identity: directoryIdentity),
+        try verifiedBytes(isCancelled: { false })
+    }
+    public func verifiedBytes(isCancelled: () -> Bool) throws -> Data {
+        try verifiedBytes(isCancelled: isCancelled, reading: {})
+    }
+    // Barrier seam: invoked while the descriptor lease is held, before I/O.
+    func verifiedBytes(isCancelled: () -> Bool = { false }, reading: () throws -> Void) throws -> Data {
+        lock.lock()
+        guard !closed else { lock.unlock(); throw Self.error("Snapshot chiuso. Riseleziona il documento.") }
+        readers += 1; lock.unlock()
+        defer { endRead() }
+        readLock.lock(); defer { readLock.unlock() }
+        func check() throws {
+            self.lock.lock(); let invalid = self.closed; self.lock.unlock()
+            if invalid || isCancelled() { throw CancellationError() }
+        }
+        try check(); try reading(); try check()
+        guard Self.same(in: root, name: directoryName, identity: directoryIdentity),
               Self.same(in: directory, name: Self.payload, identity: fileIdentity) else {
             throw Self.error("Snapshot mancante o sostituito. Riseleziona il documento.")
         }
-        let check = try Self.readBounded(descriptor, maximum: format.maximumDocumentBytes)
-        guard check == bytes, Self.digest(check) == identity.sha256 else {
+        let current = try Self.readBounded(descriptor, maximum: format.maximumDocumentBytes, check: check)
+        guard current == bytes, Self.digest(current) == identity.sha256 else {
             throw Self.error("Snapshot corrotto. Nessuna firma autorizzata: riseleziona il documento.")
         }
+        try check()
         return bytes
     }
-
-    /// Idempotent, identity-bound unlink, with no recursion and no source writes.
-    /// This removes private copies, not a forensic/SSD secure-erasure guarantee.
-    public func close() {
-        lock.lock(); defer { lock.unlock() }
-        guard !closed else { return }; closed = true
+    private func endRead() {
+        lock.lock(); readers -= 1
+        let cleanup = closed && readers == 0 && !cleanupClaimed
+        if cleanup { cleanupClaimed = true }
+        lock.unlock()
+        if cleanup { removeResources() }
+    }
+    /// Logical invalidation never waits for a reader. The final reader owns
+    /// physical retirement if necessary. Idempotent, identity-bound unlink.
+    public var isRetired: Bool { lock.lock(); defer { lock.unlock() }; return closed }
+    public func close() { invalidate(asynchronously: false) }
+    /// UI callers always retire physical resources off-main, even without readers.
+    public func retire() { invalidate(asynchronously: true) }
+    private func invalidate(asynchronously: Bool) {
+        lock.lock(); closed = true
+        let cleanup = readers == 0 && !cleanupClaimed
+        if cleanup { cleanupClaimed = true }
+        lock.unlock()
+        guard cleanup else { return }
+        if asynchronously {
+            DispatchQueue.global(qos: .utility).async { [self] in removeResources() }
+        } else { removeResources() }
+    }
+    private func removeResources() {
         Self.remove(in: directory, name: Self.payload, identity: fileIdentity, flags: 0)
         Self.remove(in: root, name: directoryName, identity: directoryIdentity, flags: AT_REMOVEDIR)
         Darwin.close(descriptor); Darwin.close(directory); Darwin.close(root)
