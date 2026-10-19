@@ -706,6 +706,43 @@ int main(int argc, char** argv) {
                 expect(logins == 1 && signs == 1 && fileBytes(input) == source, "Helper retried PIN/sign or changed source");
             }
         });
+        test("read-only source policy accepts unsigned and supported incremental signatures", [&] {
+            requireSupportedSource(source); requireSupportedSource(valid);
+            const auto twice = signedPDF(valid, other); requireSupportedSource(twice);
+            verifyPDF(twice, valid, other.der);
+        });
+        test("source policy rejects unsupported prior signature dictionary", [&] {
+            auto unsupported = valid;
+            const auto offset = find(unsupported, "ETSI.CAdES.detached"); unsupported[offset] = 'X';
+            bool failed = false; try { requireSupportedSource(unsupported); } catch (...) { failed = true; }
+            expect(failed, "Unsupported previous signature accepted");
+        });
+        test("source policy rejects malformed and encrypted PDF", [&] {
+            charbuff buffer(reinterpret_cast<const char*>(source.data()), source.size());
+            auto device = std::make_shared<BufferStreamDevice>(buffer); PdfMemDocument doc(device);
+            doc.SetEncrypted("synthetic-user", "synthetic-owner");
+            charbuff encoded; BufferStreamDevice target(encoded); doc.Save(target);
+            for (const auto& candidate : {Bytes{'%', 'P', 'D', 'F', '-', 'x'}, Bytes(encoded.begin(), encoded.end())}) {
+                bool failed = false; try { requireSupportedSource(candidate); } catch (...) { failed = true; }
+                expect(failed, "Malformed/encrypted source accepted");
+            }
+        });
+        test("certified source rejected before provider authentication", [&] {
+            Folder f(fs::absolute(argv[0]).parent_path()); Identity signer(2048, true);
+            auto module = softwareProvider(f, signer), input = f.path / "certified.pdf", output = f.path / "signed.pdf";
+            charbuff buffer(reinterpret_cast<const char*>(source.data()), source.size());
+            auto device = std::make_shared<BufferStreamDevice>(buffer); PdfMemDocument doc(device);
+            doc.GetCatalog().GetDictionary().AddKey("Perms", PdfDictionary());
+            charbuff encoded; BufferStreamDevice target(encoded); doc.Save(target);
+            Bytes certified(encoded.begin(), encoded.end()); put(input, certified);
+            std::vector<std::string> args = {argv[2], input.string(), output.string(), module.string(), "7", "01", "--pin-stdin",
+                "--job-id", "11111111-1111-4111-8111-111111111111", "--snapshot-id", "22222222-2222-4222-8222-222222222222",
+                "--expected-document-sha256", sha256(certified), "--expected-cert-sha256", sha256(Bytes(signer.der.begin(), signer.der.end())), "--verified-output-v4"};
+            auto pid = spawnFixture(args, f.path / "helper.log", "synthetic-fixture\n");
+            waitFixture(pid);
+            expect(!fs::exists(f.path / "operations"), "Predictably unsupported source accessed the provider");
+            expect(!fs::exists(output), "Certified source published output");
+        });
         std::cout << checks << " native cases passed; no token or PIN used\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL after " << checks << " cases: " << error.what() << "\n"; return 1; }

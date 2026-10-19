@@ -16,7 +16,7 @@ import PDFKit
             // Replace an equal-length numeric token, preserving synthetic xref offsets.
             let original=unit >= 1 ? source:Data(String(decoding:source,as:UTF8.self).replacingOccurrences(of:"/UserUnit 1 /Contents",with:unit == 0.5 ? "/UserUnit .5/Contents":"/UserUnit .1/Contents").utf8)
             let file=root.appendingPathComponent("synthetic-\(rotation)-\(unit).pdf");try original.write(to:file)
-            let batch=BatchSigningCoordinator();defer{batch.reset()};await batch.addDocuments([file],format:.pades)
+            let batch=BatchSigningCoordinator(padesHelper: ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"].map { URL(fileURLWithPath: $0) });defer{batch.reset()};await batch.addDocuments([file],format:.pades)
             let snapshot=try XCTUnwrap(batch.documents.first?.snapshot)
             let g=try PAdESPageGeometry(mediaBox:media,cropBox:crop,rotation:rotation,userUnit:CGFloat(unit))
             var c=try g.defaultAppearance();c.showSigner=false;c.showLabel=false;c.image=try PAdESOrientationTests.marker()

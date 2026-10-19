@@ -12,6 +12,7 @@
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
+#include <iostream>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -340,19 +341,65 @@ Bytes readSource(const std::string& path) {
     return bytes;
 }
 
+void requireSupportedSource(const Bytes& source) {
+    require(!source.empty() && source.size() <= maxInput, "Invalid PDF input size");
+    require(source.size() >= 5 && std::memcmp(source.data(), "%PDF-", 5) == 0, "Input is not a PDF");
+    Document original(source);
+    const auto count = CGPDFDocumentGetNumberOfPages(original.value);
+    require(count > 0 && count <= 1000, "Unsupported PDF page count");
+    // Certification needs a separate DocMDP/FieldMDP policy. Even a malformed
+    // Perms entry cannot be interpreted as permission to add a signature.
+    CGPDFObjectRef permissions = nullptr;
+    require(!CGPDFDictionaryGetObject(CGPDFDocumentGetCatalog(original.value), "Perms", &permissions), "Certified PDFs are not supported");
+    // Exercise the same bounded page/resource/annotation reader used at commit.
+    comparePages(original, original);
+    const auto previous = signatures(original);
+    require(previous.size() < 32, "Too many PDF signatures to add another signature");
+    for (auto signature : previous)
+        require(verifySignature(signature, source, nullptr) <= source.size(), "Invalid source signature revision");
+}
+
+int sourcePreflightMain() {
+    try {
+        Bytes source; std::array<uint8_t, 65536> chunk{};
+        while (true) {
+            const auto n = read(STDIN_FILENO, chunk.data(), chunk.size());
+            if (n < 0 && errno == EINTR) continue;
+            require(n >= 0, "PDF source read error");
+            if (!n) break;
+            require(source.size() + static_cast<size_t>(n) <= maxInput, "Invalid PDF input size");
+            source.insert(source.end(), chunk.begin(), chunk.begin() + n);
+        }
+        std::array<unsigned char, 32> hash{}; unsigned int length = 0;
+        require(EVP_Digest(source.data(), source.size(), hash.data(), &length, EVP_sha256(), nullptr) == 1 && length == hash.size(), "Cannot hash source");
+        std::ostringstream fingerprint;
+        for (auto byte : hash) fingerprint << std::hex << std::setfill('0') << std::setw(2) << unsigned(byte);
+        std::string reason, status = "accepted";
+        try { requireSupportedSource(source); }
+        catch (const std::exception& error) { status = "rejected"; reason = error.what(); }
+        // Native policy diagnostics are bounded ASCII; escape before JSON.
+        std::string escaped;
+        for (unsigned char c : reason.substr(0, 1024)) {
+            if (c == '"' || c == '\\') escaped += '\\';
+            escaped += c >= 32 && c < 127 ? char(c) : ' ';
+        }
+        std::cout << "{\"version\":1,\"status\":\"" << status << "\",\"sha256\":\"" << fingerprint.str()
+                  << "\",\"reason\":\"" << escaped << "\"}";
+        return 0;
+    } catch (...) { return 2; }
+}
+
 void verifyPDF(const Bytes& pdf, const Bytes& source, const std::string& expectedCertificate) {
     require(!expectedCertificate.empty() && pdf.size() <= maxOutput && source.size() <= maxInput && !source.empty(), "Invalid verification input");
     require(pdf.size() > source.size() && std::equal(source.begin(), source.end(), pdf.begin()), "Signed PDF does not preserve source bytes");
     size_t eof = pdf.size();
     while (eof && whitespace(pdf[eof - 1])) --eof;
     require(eof >= 5 && std::memcmp(pdf.data() + eof - 5, "%%EOF", 5) == 0, "Truncated PDF or unexpected trailing data");
+    requireSupportedSource(source);
     Document original(source), result(pdf);
     require(CGPDFDocumentGetNumberOfPages(original.value) > 0 &&
             CGPDFDocumentGetNumberOfPages(original.value) == CGPDFDocumentGetNumberOfPages(result.value), "PDF page count changed");
     const auto addedWidgets = comparePages(original, result);
-    // Certification transforms require a separate DocMDP/FieldMDP policy (SG-11).
-    CGPDFDictionaryRef permissions = nullptr;
-    require(!CGPDFDictionaryGetDictionary(CGPDFDocumentGetCatalog(original.value), "Perms", &permissions), "Certified PDFs are not supported");
     const auto before = signatures(original), after = signatures(result);
     require(after.size() == before.size() + 1, "Expected one additional PDF signature");
     size_t finalCount = 0;

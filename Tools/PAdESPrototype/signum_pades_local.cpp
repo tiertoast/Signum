@@ -215,6 +215,7 @@ static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, co
 int main(int argc, char** argv) {
     if (sg_worker_watch_parent() != 0) return 2;
     if (argc == 2 && std::strcmp(argv[1], "--verify-stdin-v1") == 0) return signum::verificationMain();
+    if (argc == 2 && std::strcmp(argv[1], "--source-preflight-stdin-v1") == 0) return signum::sourcePreflightMain();
     const bool boundProtocol = argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v5") == 0;
     const bool statusProtocol = boundProtocol || (argc > 1 && std::strcmp(argv[argc - 1], "--verified-output-v4") == 0);
     // Reserve the only status descriptor before loading any vendor code. Vendor
@@ -301,6 +302,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Output conflicts with input");
         const auto source = signum::readSource(input.string());
         signum::requireExpectedDocument(source, expectedDocument);
+        signum::requireSupportedSource(source);
         require_driver_readonly(middleware);
         signum::TransactionalOutput transaction(output.string());
         // PoDoFo operates on the bounded source bytes, never on a public or

@@ -64,7 +64,7 @@ import ImageIO
             let media=CGRect(x:20,y:-50,width:1304,height:1843),crop=media.insetBy(dx:10,dy:20)
             let original=PAdESGeometryStabilizationTests.pdf(media:media,crop:crop,rotation:rotation,unit:rotation==270 ? 10:1,vectors:10000)
             let file=root.appendingPathComponent("synthetic-\(rotation)-\(orientation.rawValue).pdf");try original.write(to:file)
-            let batch=BatchSigningCoordinator();defer{batch.reset()}
+            let batch=BatchSigningCoordinator(padesHelper: ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"].map { URL(fileURLWithPath: $0) });defer{batch.reset()}
             await batch.addDocuments([file],format:.pades)
             let snapshot=try XCTUnwrap(batch.documents.first?.snapshot)
             let c=try PAdESOrientationTests.config(crop:crop,rotation:rotation,orientation:orientation)

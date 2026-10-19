@@ -21,7 +21,7 @@ import PDFKit
         try PAdESGeometryStabilizationTests.pdf(media:box,rotation:90).write(to:files[0])
         try PAdESGeometryStabilizationTests.pdf(media:box,rotation:0).write(to:files[1])
         try Data("Synthetic CAdES".utf8).write(to:files[2])
-        let batch=BatchSigningCoordinator();defer{batch.reset()}
+        let batch=BatchSigningCoordinator(padesHelper: ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"].map { URL(fileURLWithPath: $0) });defer{batch.reset()}
         await batch.addDocuments(Array(files.prefix(2)),format:.pades);await batch.addDocuments([files[2]],format:.cades)
         XCTAssertEqual(batch.documents.count,3)
         let der=signer.der,certificate=SignumCertificate(label:"Synthetic",identifier:Data([1]))

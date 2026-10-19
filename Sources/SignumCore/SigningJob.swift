@@ -20,12 +20,13 @@ public struct SigningJob: Sendable {
     public let destinationDirectoryIdentity: OutputDirectoryIdentity?
     /// nil explicitly denotes the legacy locator/DER-only API, never the GUI.
     public let providerContext: SigningProviderContext?
+    public let padesSourcePreflight: PAdESSourcePreflight?
     public let padesAppearance: RenderedPAdESAppearance?
 
     public init(snapshot: DocumentSnapshot, format: SigningFormat? = nil, providerPath: String, slot: UInt,
                 certificate: SignumCertificate, certificateDER: Data, destination: URL,
                 destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
-                padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil) throws {
+                padesSourcePreflight: PAdESSourcePreflight? = nil, padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil) throws {
         let effectiveFormat = format ?? snapshot.format
         if effectiveFormat == .pades, format != nil { try DocumentSigningConfiguration.requirePDF(snapshot) }
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
@@ -37,6 +38,8 @@ public struct SigningJob: Sendable {
         if let providerContext, !providerContext.matches(provider: providerPath, slot: slot, certificate: certificate, der: certificateDER) {
             throw SignumError.module("Contesto dispositivo non coerente con il job approvato.")
         }
+        if let padesSourcePreflight { try padesSourcePreflight.requireAccepted(for: snapshot) }
+        self.padesSourcePreflight = padesSourcePreflight
         self.providerContext = providerContext
         if let appearance = padesAppearance {
             guard effectiveFormat == .pades,

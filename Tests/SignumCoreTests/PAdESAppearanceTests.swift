@@ -175,7 +175,7 @@ final class PAdESAppearanceTests: XCTestCase {
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700]);defer{try?FileManager.default.removeItem(at:root)}
         let signer=try SoftwareSigner(folder:root),mock=try MockModule(certificate:signer.der,privateKey:signer.rsaPrivateDER(),audit:true)
         let files=try (0..<3).map { index -> URL in let url=root.appendingPathComponent("batch-\(index).pdf");try pdf(rotation:index*90).write(to:url);return url }
-        let batch=BatchSigningCoordinator();defer{batch.reset()};await batch.addDocuments(files,format:.pades)
+        let batch=BatchSigningCoordinator(padesHelper: ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"].map { URL(fileURLWithPath: $0) });defer{batch.reset()};await batch.addDocuments(files,format:.pades)
         let plan=try await batch.prepareApproval(provider:mock.path.path,slot:7,certificate:.init(label:"Synthetic",identifier:Data([1])),der:signer.der)
         let appearances=try plan.jobs.enumerated().map { index,job -> RenderedPAdESAppearance in
             var c=config();c.pageIndex=index%2;c.visible=index != 1;c.customText="Documento \(index)";return try PAdESAppearanceRenderer.render(c,certificateDER:job.certificateDER,cropBox:crop)

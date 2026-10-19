@@ -15,7 +15,7 @@ import CoreGraphics
         let mock = try MockModule(certificate: signer.der, privateKey: signer.rsaPrivateDER(), audit: true)
         let paths = (1...3).map { root.appendingPathComponent("synthetic-\($0).txt") }
         for (i, path) in paths.enumerated() { try Data("Approved synthetic document \(i)".utf8).write(to: path) }
-        let coordinator = BatchSigningCoordinator()
+        let coordinator = BatchSigningCoordinator(padesHelper: ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"].map { URL(fileURLWithPath: $0) })
         defer { coordinator.reset() }
         try await body(root, signer, mock, coordinator, paths)
     }

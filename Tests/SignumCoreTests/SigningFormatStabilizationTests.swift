@@ -14,7 +14,7 @@ import CoreGraphics
         let cg = try XCTUnwrap(CGContext(consumer: sink, mediaBox: &box, nil))
         cg.beginPDFPage(nil); cg.endPDFPage(); cg.closePDF()
         let file = root.appendingPathComponent("synthetic.pdf"); try (bytes as Data).write(to: file)
-        let batch = BatchSigningCoordinator(); defer { batch.reset() }
+        let batch = BatchSigningCoordinator(padesHelper: ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"].map { URL(fileURLWithPath: $0) }); defer { batch.reset() }
         try await body(root, batch, file)
     }
     func testChangingNewDocumentDefaultDoesNotConvertAcquiredSnapshotOrApprovedJob() async throws {

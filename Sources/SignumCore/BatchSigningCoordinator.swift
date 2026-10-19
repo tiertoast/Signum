@@ -70,8 +70,9 @@ public struct BatchApproval: Sendable {
     private var captureDocument: @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot = {
         url, format, operation in try DocumentSnapshot.capture(source: url, format: format, isCancelled: { operation.isCancellationRequested })
     }
-    public init() {}
-    init(capture: @escaping @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot) { captureDocument = capture }
+    private let padesHelper: URL?
+    public init(padesHelper: URL? = nil) { self.padesHelper = padesHelper }
+    init(capture: @escaping @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot) { captureDocument = capture; padesHelper = nil }
 
     /// Invalidates a displayed but unapproved plan. Approved jobs stay immutable.
     public func invalidateReview() {
@@ -104,7 +105,7 @@ public struct BatchApproval: Sendable {
                               isCancelled: @escaping @Sendable () -> Bool = { false }) async throws -> BatchApproval {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
         invalidateReview()
-        let request = reviewRequest, version = revision, selected = documents.map(\.snapshot)
+        let request = reviewRequest, version = revision, selected = documents.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
         let result = try await Task.detached(priority: .userInitiated) {
             if isCancelled() { throw CancellationError() }
@@ -118,6 +119,7 @@ public struct BatchApproval: Sendable {
             let jobs = try zip(selected, outputs).map { snapshot, output in
                 try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot, certificate: certificate,
                     certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity,
+                    padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper, isCancelled: isCancelled) : nil,
                     padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext)
             }
             return BatchApproval(id: UUID(), jobs: jobs)
@@ -215,7 +217,7 @@ public struct BatchApproval: Sendable {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
         isFrozen = true; isPreparing = true
         let request = UUID(); acquisitionID = request
-        let selected = documents.map(\.snapshot)
+        let selected = documents.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
         do {
             let prepared = try await Task.detached(priority: .userInitiated) {
@@ -225,7 +227,8 @@ public struct BatchApproval: Sendable {
                 let jobs = try zip(selected, outputs).map { snapshot, output in
                     try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot,
                         certificate: certificate, certificateDER: der, destination: output.url,
-                        destinationDirectoryIdentity: output.directoryIdentity)
+                        destinationDirectoryIdentity: output.directoryIdentity,
+                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil)
                 }
                 return BatchApproval(id: UUID(), jobs: jobs)
             }.value
@@ -235,6 +238,12 @@ public struct BatchApproval: Sendable {
             isPreparing = false
             return prepared
         } catch { isFrozen = false; isPreparing = false; throw error }
+    }
+
+    nonisolated private static func preflight(_ snapshot: DocumentSnapshot, helper: URL?, isCancelled: () -> Bool = { false }) throws -> PAdESSourcePreflight {
+        let result = try PAdESSourcePreflight.inspect(snapshot, helper: helper, isCancelled: isCancelled)
+        try result.requireAccepted(for: snapshot)
+        return result
     }
 
     public func confirm(_ value: BatchApproval) throws {
