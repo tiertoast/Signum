@@ -110,24 +110,16 @@ try:
         operations=post_audit.read_text().splitlines()
         assert reply['outcome']!='published' and not post_output.exists() and operations.count('8')==2 and '15' not in operations and '16' not in operations
         print('PASS',configuration,'packaged PAdES checks certificate after login before SignInit',flush=True)
-        worker_times={1:[],2:[]};pades_times={4:[],5:[]}
-        for sample in range(5):
-            for version in [1,2]:
-                measured=json.loads(json.dumps(request));measured['version']=version;measured['id']=uid()
-                if version==1:
-                    for field in ['providerContext','expectedModule','automaticModule']:measured.pop(field,None)
-                start=time.perf_counter();result=json.loads(run([worker],json.dumps(measured).encode()).stdout)
-                worker_times[version].append((time.perf_counter()-start)*1000)
-                assert result['succeeded'] and len(base64.b64decode(result['signature']))==256
-        for sample in range(3):
-            for version in [4,5]:
-                measured=arguments(root/(configuration+'-timing-'+str(version)+'-'+str(sample)+'.pdf'),context)
-                if version==4:
-                    index=measured.index('--provider-context-v1');del measured[index:index+2];measured[-1]='--verified-output-v4'
-                start=time.perf_counter();result=json.loads(run([helper]+measured,b'synthetic-fixture\n').stdout)
-                pades_times[version].append((time.perf_counter()-start)*1000)
-                assert result['outcome']=='published'
-        print('SYNTHETIC_BINDING_MEDIANS_MS',json.dumps(dict(configuration=configuration,workerLegacy=statistics.median(worker_times[1]),workerBound=statistics.median(worker_times[2]),padesLegacy=statistics.median(pades_times[4]),padesBound=statistics.median(pades_times[5]),workerSamples=5,padesSamples=3)),flush=True)
+        # Measure only the new read-only source check. These tiny synthetic
+        # samples are diagnostic, not a claim about large or real documents.
+        samples=[];before=count(8)
+        for _ in range(5):
+            start=time.perf_counter()
+            result=json.loads(run([helper,'--source-preflight-stdin-v1'],data).stdout)
+            samples.append((time.perf_counter()-start)*1000)
+            assert result['status']=='accepted' and result['sha256']==hashbytes(data)
+        assert count(8)==before
+        print('SOURCE_PREFLIGHT_MEDIAN_MS',json.dumps(dict(configuration=configuration,bytes=len(data),samples=5,median=statistics.median(samples))),flush=True)
 
     print('10 packaged contract checks passed; synthetic fixture/provider only',flush=True)
 finally:
