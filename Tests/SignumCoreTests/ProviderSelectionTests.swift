@@ -59,7 +59,7 @@ final class ProviderSelectionTests: XCTestCase {
     func testSlotChangeInvalidatesCertificateCacheAndPin() throws {
         var selection = try loaded()
         selection.selectedSlot = 8
-        selection.beginCertificateLoad()
+        _ = selection.beginCertificateLoad()
         XCTAssertEqual(selection.selectedSlot, 8)
         XCTAssertNil(selection.selectedCertificateID)
         XCTAssertTrue(selection.certificates.isEmpty && selection.certificateDERs.isEmpty && selection.pin.isEmpty)

@@ -27,7 +27,7 @@ import CoreGraphics
         let batch = BatchSigningCoordinator(); defer { batch.reset() }
         try await body(root, defaults, batch, devices, provider, der)
     }
-    private func render(_ view: SignumWindow, name: String, ready: (NSHostingView<SignumWindow>) -> Bool = { !$0.subviews.isEmpty }, verify: (NSHostingView<SignumWindow>) throws -> Void) async throws {
+    private func render(_ view: SignumWindow, name: String, ready: @MainActor (NSHostingView<SignumWindow>) -> Bool = { @MainActor in !$0.subviews.isEmpty }, verify: @MainActor (NSHostingView<SignumWindow>) throws -> Void) async throws {
         let frame = NSRect(x: 0, y: 0, width: 1100, height: 760)
         let window = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
