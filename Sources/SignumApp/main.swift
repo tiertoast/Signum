@@ -834,11 +834,17 @@ private enum SignumFormat: String, Hashable {
                         status = presentation.resultSummary
                     }
                 } else {
-                    session.requestStop(); authenticationSession = nil
-                    authenticationStatus = batch.documents.contains(where: { $0.state == .failed || $0.state == .uncertain })
-                        ? "Batch interrotto. Consulta i dettagli; nessun tentativo viene ripetuto."
-                        : "Riuso non verificabile per questa chiave o sessione: PIN esplicito per le firme restanti."
-                    status = presentation.resultSummary
+                    let retirement = batch.retireAuthenticatedSession(using: session)
+                    Task { @MainActor in
+                        await retirement.value
+                        authenticationSession = nil
+                        authenticationStatus = batch.authenticationNotice.isEmpty
+                            ? (batch.documents.contains(where: { $0.state == .failed || $0.state == .uncertain })
+                                ? "Batch interrotto. Consulta i dettagli; nessun tentativo viene ripetuto."
+                                : "Riuso non verificabile per questa chiave o sessione: PIN esplicito per le firme restanti.")
+                            : batch.authenticationNotice
+                        status = presentation.resultSummary
+                    }
                 }
             } else {
                 switch result {

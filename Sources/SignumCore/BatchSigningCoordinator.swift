@@ -274,6 +274,23 @@ public struct BatchApproval: Sendable {
         await executeNext(expectedDocumentID: expectedDocumentID) { job, operation in try execute(job, pin, operation) }
     }
 
+    /// Retire an attempted session even when its first document failed locally.
+    @discardableResult public func retireAuthenticatedSession(using session: BatchCAdESSession) -> Task<Void, Never> {
+        let belongsToApproval = approval?.id == session.approvalID
+        let wasContinuing = isContinuingAuthenticated
+        if belongsToApproval { isContinuingAuthenticated = true }
+        session.requestStop()
+        return Task { @MainActor in
+            await session.stopAndWait()
+            guard belongsToApproval, approval?.id == session.approvalID else { return }
+            if session.cleanupUncertain {
+                needsOutcomeReview = true
+                authenticationNotice = "Chiusura della sessione non confermata. Verifica il dispositivo prima di continuare."
+            }
+            isContinuingAuthenticated = wasContinuing
+        }
+    }
+
     /// No PIN argument or stored secret. Only a capability bound to this exact
     /// approved batch can continue; each job is verified/committed before next.
     public func continueAuthenticatedBatch(using session: BatchCAdESSession) async {
@@ -283,8 +300,7 @@ public struct BatchApproval: Sendable {
             await executeNext(expectedDocumentID: next.id) { job, operation in try session.signCAdES(job: job, pin: nil, operation: operation) }
             guard documents.first(where: { $0.id == next.id })?.state == .completed else { break }
         }
-        await session.stopAndWait()
-        if session.cleanupUncertain { needsOutcomeReview = true; authenticationNotice = "Chiusura della sessione non confermata. Verifica il dispositivo prima di continuare." }
+        await retireAuthenticatedSession(using: session).value
         isContinuingAuthenticated = false
     }
 
