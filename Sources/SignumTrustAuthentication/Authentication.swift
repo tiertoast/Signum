@@ -26,6 +26,13 @@ public struct AuthenticatedTL: Sendable {
 public enum TLAuthenticator {
     // xmlsec initialization/verification serialized; no process-global parser callbacks changed.
     private static let lock = NSLock()
+    static func schemeURIs(in xml: Data) throws -> [String] {
+        let fields = AuthenticationFields()
+        let parser = XMLParser(data: xml)
+        parser.shouldProcessNamespaces = true; parser.shouldResolveExternalEntities = false; parser.delegate = fields
+        guard parser.parse() else { throw TLAuthenticationError.rejected("invalid pivot discovery XML") }
+        return fields.uris
+    }
     public static func sha256(_ data: Data) -> Data { Data(SHA256.hash(data: data)) }
 
     /// Anchors are supplied by a trusted policy, never derived from this document.

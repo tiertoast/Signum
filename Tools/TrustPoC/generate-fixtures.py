@@ -15,13 +15,18 @@ def run(*args):
     if result.returncode: raise RuntimeError(result.stderr.decode()+result.stdout.decode())
 with tempfile.TemporaryDirectory(prefix='signum-test-') as temp:
     temp=pathlib.Path(temp); certs={}
-    for key in ['a','b']:
+    for key in ['a','b','c']:
         run('openssl','req','-x509','-newkey','rsa:2048','-nodes','-subj',f'/CN=SIGNUM SYNTHETIC TEST {key} ONLY','-days','3650','-keyout',str(temp/f'{key}.key'),'-out',str(temp/f'{key}.pem'))
         run('openssl','x509','-in',str(temp/f'{key}.pem'),'-outform','DER','-out',str(OUT/f'test-{key}.der'))
         certs[key]=(OUT/f'test-{key}.der').read_bytes()
     for name,key,seq,uris in [
         ('synthetic-a','a',400,[]),
-        ('synthetic-pivot','a',401,[]),
+        ('synthetic-old','a',399,[]),
+        ('synthetic-it','b',400,[]),
+        ('synthetic-it-new','b',403,[]),
+        ('synthetic-pivot2','b',403,['https://ec.europa.eu/tools/lotl/eu-lotl-pivot-403.xml','https://ec.europa.eu/tools/lotl/eu-lotl-pivot-401.xml']),
+        ('synthetic-c','c',404,['https://ec.europa.eu/tools/lotl/eu-lotl-pivot-403.xml','https://ec.europa.eu/tools/lotl/eu-lotl-pivot-401.xml']),
+        ('synthetic-pivot','a',401,['https://ec.europa.eu/tools/lotl/eu-lotl-pivot-401.xml']),
         ('synthetic-wrong-cert-binding','a',400,[]),
         ('synthetic-wrong-format','a',400,[]),
         ('synthetic-b','b',402,['https://ec.europa.eu/tools/lotl/eu-lotl-pivot-401.xml'])]:
@@ -34,10 +39,18 @@ with tempfile.TemporaryDirectory(prefix='signum-test-') as temp:
             e=ET.SubElement(uri,f'{{{T}}}URI',{'{http://www.w3.org/XML/1998/namespace}lang':'en'});e.text=u
         pointers=si.find('t:PointersToOtherTSL',ns)
         eu=next(p for p in pointers if any(n.text=='EU' for n in p.iter(f'{{{T}}}SchemeTerritory')))
-        pointers.clear(); pointers.append(eu)
+        it=next(p for p in pointers if any(n.text=='IT' for n in p.iter(f'{{{T}}}SchemeTerritory')) and p.find('t:TSLLocation',ns).text=='https://eidas.agid.gov.it/TL/TSL-IT.xml')
+        pointers.clear(); pointers.append(eu); pointers.append(it)
         identities=eu.find('t:ServiceDigitalIdentities',ns);identities.clear()
         identity=ET.SubElement(identities,f'{{{T}}}ServiceDigitalIdentity');di=ET.SubElement(identity,f'{{{T}}}DigitalId')
+        ET.SubElement(di,f'{{{T}}}X509Certificate').text=base64.b64encode(certs['c' if name in ['synthetic-pivot2','synthetic-c'] else ('b' if name in ['synthetic-pivot','synthetic-b'] else 'a')]).decode()
+        identities=it.find('t:ServiceDigitalIdentities',ns); identities.clear()
+        identity=ET.SubElement(identities,f'{{{T}}}ServiceDigitalIdentity'); di=ET.SubElement(identity,f'{{{T}}}DigitalId')
         ET.SubElement(di,f'{{{T}}}X509Certificate').text=base64.b64encode(certs['b']).decode()
+        if name.startswith('synthetic-it'):
+            si.find('t:SchemeTerritory',ns).text='IT'
+            si.find('t:TSLType',ns).text='http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric'
+        if name=='synthetic-pivot2': si.find('t:NextUpdate/t:dateTime',ns).text='2026-10-13T11:00:00Z'
         if name=='synthetic-pivot': si.find('t:NextUpdate/t:dateTime',ns).text='2026-10-11T11:00:00Z'
         sig=r.find('d:Signature',ns)
         sig.find('d:SignatureValue',ns).text=None

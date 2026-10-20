@@ -4,12 +4,18 @@
   "sha256": {
     "eu-lotl.xml": "a36d0053df1afa96c88ede817a585b3168afeba84c1984a0e6cc5642453e70e6",
     "it.xml": "4dc43dc5ee19c23d1b65262b8df65ac7c4f16f12727e59175fa76e092e0a6889",
-    "synthetic-a.xml": "6f09ab4523ecfcd1423fc1079ac4789046b8a4201857527bca7dd4b00ca83538",
-    "synthetic-b.xml": "56b4980025dfa6f652c42f4cd21342ca890c205b6fd81c6c4db997ce66991b99",
-    "synthetic-pivot.xml": "8c058dd355e0c8372272410f3be3aed5d1939e8e8746a07720cfc8e8badb7228",
-    "synthetic-wrong-cert-binding.xml": "59be0459198c59e59166c8ece002508ef7194eb12d156ec567be6d94d901bda3",
-    "synthetic-wrong-format.xml": "f4b807a8cf7ff3027880ad42a698d50122313759f08d3455b9754591e4a9cb61",
-    "test-a.der": "6c165192a767a9038bb8205232354e6e5d7fcab1965ee7a6233f6f48aedd4247",
-    "test-b.der": "8edded2b1adb6a895fdafac06490c1ea1d23eb2c9e363c7f0371b4b6e028ee69"
+    "synthetic-a.xml": "d411e9bf74b8ab638080a65524f0dc6bd6cd2f9833764f4631b312a34e481b22",
+    "synthetic-b.xml": "3efc6be1b20eaf8b1663526119b92f3934bb0387777054d41c5e89b4bb76c1cf",
+    "synthetic-c.xml": "638403e887c29b5fec872ee9a8c0d77ae76909cd7342b1bbb1708a55b02781f5",
+    "synthetic-it-new.xml": "3759b40884d047c80d604c84b3fc48e12fefa811379158a9cfc61b9596ff5007",
+    "synthetic-it.xml": "2e40bb3d9945a41a2fe576b114a44f9d264e5ff57f0cfea2f376da54d005eaa7",
+    "synthetic-old.xml": "2511d7361c2979b42e16807eb2b38233556de56663b97bf3c9add93e806b2817",
+    "synthetic-pivot.xml": "6c38fcd5a6a659e6ca464fe51dacdbb14825fd2eae73f833fed1d792fcda3933",
+    "synthetic-pivot2.xml": "dc60c36d580efc0126fc6fc8c59b6d139c987775a621646bc6e4f16ff6ac4b1b",
+    "synthetic-wrong-cert-binding.xml": "b03907a44e26b64e57847523979449f571ee9d02d1ce2d3fcb095e516cb2e410",
+    "synthetic-wrong-format.xml": "8b356132272f0fdf49a54d955de544c9cf2e584831355ae954dbe55d4f4184c6",
+    "test-a.der": "1d4979c57db235446c8cfc7ff8f6857f6cb6bebd2d8cbac76ed44cd5b4ee453c",
+    "test-b.der": "ff8cd0126564fd79c4446616699dff9ec9c7a0ab7bae2682326ffaefe0036ed5",
+    "test-c.der": "bf5d203a9566fb85b81c24874f236201d0520b9c62c6887e08be457fca900495"
   }
 }

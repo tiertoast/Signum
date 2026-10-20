@@ -1,5 +1,8 @@
 # Signum 0.5-A — Local LOTL / Italy authentication proof
 
+Historical A.1 report. For the extended cache, automatic refresh and official
+pivot self-references, see [A.2 consolidation](SIGNUM_0.5A2_CONSOLIDATION.md).
+
 20 October 2026. Branch: `feature/signum-0.5a-trusted-lists-foundation`.
 Base: `6249309`. Status: locally verified, isolated proof; no GUI integration.
 

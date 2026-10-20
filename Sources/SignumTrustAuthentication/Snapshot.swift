@@ -1,39 +1,105 @@
 import Foundation
+import Darwin
 import SignumTrustCore
 
-/// A single atomic file holds the exact signed bytes. Reload always reauthenticates.
-/// Expired/offline bytes cannot produce a current result by bypassing verification.
+/// Raw signed bytes, never a trust assertion. Legacy A.1 envelopes decode with zero pivots.
+public struct TLBundle: Codable, Sendable {
+    public let lotl: Data
+    public let italy: Data
+    public let pivots: [LOTLPivotChain.Pivot]
+    public let refreshedAt: Date?
+    public init(lotl: Data, italy: Data, pivots: [LOTLPivotChain.Pivot] = [], refreshedAt: Date? = nil) {
+        self.lotl = lotl; self.italy = italy; self.pivots = pivots; self.refreshedAt = refreshedAt
+    }
+    enum CodingKeys: String, CodingKey { case lotl, italy, pivots, refreshedAt }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lotl = try c.decode(Data.self, forKey: .lotl); italy = try c.decode(Data.self, forKey: .italy)
+        pivots = try c.decodeIfPresent([LOTLPivotChain.Pivot].self, forKey: .pivots) ?? []
+        refreshedAt = try c.decodeIfPresent(Date.self, forKey: .refreshedAt)
+    }
+}
+
+struct VerifiedSnapshot: Sendable {
+    let bundle: TLBundle
+    let europe: AuthenticatedTL
+    let italy: AuthenticatedTL
+    let expired: Bool
+}
+
+/// Exact signed XML is reauthenticated on every read. One atomic envelope binds
+/// the EU list, complete pivot history and Italy; flock serializes local writers.
 public enum TLSnapshot {
-    private struct Envelope: Codable { let lotl: Data; let italy: Data }
     public static func save(lotl: Data, italy: Data, to url: URL, now: Date) throws {
-        let current = try verify(lotl: lotl, italy: italy, now: now)
+        try save(TLBundle(lotl: lotl, italy: italy, refreshedAt: now), to: url, now: now)
+    }
+    public static func save(_ bundle: TLBundle, to url: URL, now: Date) throws {
+        try save(bundle, to: url, now: now, anchors: EUTrustPolicy.journalAnchors)
+    }
+    static func save(_ bundle: TLBundle, to url: URL, now: Date, anchors: Set<Data>, currentTime: (() -> Date)? = nil) throws {
+        let current = try verify(bundle, now: now, allowExpired: false, anchors: anchors)
+        // Stable sidecar lock, never the inode replaced by atomic rename.
+        let fd = open(url.path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        guard fd >= 0 else { throw TLAuthenticationError.rejected("cache lock open: \(errno)") }
+        defer { close(fd) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw TLAuthenticationError.rejected("cache writer busy") }
+        defer { _ = flock(fd, LOCK_UN) }
         if FileManager.default.fileExists(atPath: url.path) {
-            let old = try read(url)
-            let e = try UntrustedTLParser.parse(old.lotl), i = try UntrustedTLParser.parse(old.italy)
-            let historicalDate = max(e.issuedAt, i.issuedAt)
-            guard historicalDate <= now else { throw TLAuthenticationError.rejected("future saved revision") }
-            let previous = try verify(lotl: old.lotl, italy: old.italy, now: historicalDate)
-            for (candidate, accepted) in [(current.0, previous.0), (current.1, previous.1)] {
-                if case .rejected(let reason) = TLContinuityPolicy.assess(previous: accepted.revision, candidate: candidate.revision, now: now) {
+            let old = try readVerified(url, now: currentTime?() ?? now, anchors: anchors)
+            for (candidate, previous) in [(current.europe, old.europe), (current.italy, old.italy)] {
+                if case .rejected(let reason) = TLContinuityPolicy.assess(previous: previous.revision, candidate: candidate.revision, now: currentTime?() ?? now) {
                     throw TLAuthenticationError.rejected("saved snapshot rollback: \(reason)")
                 }
             }
+            // The authenticated post-reset pivot history must never be shortened.
+            let oldURLs = old.bundle.pivots.map(\.location)
+            guard Array(bundle.pivots.prefix(oldURLs.count).map(\.location)) == oldURLs else {
+                throw TLAuthenticationError.rejected("pivot history rollback")
+            }
         }
-        try JSONEncoder().encode(Envelope(lotl: lotl, italy: italy)).write(to: url, options: .atomic)
+        let encoded = try JSONEncoder().encode(bundle)
+        guard encoded.count <= maximumEnvelopeBytes else { throw TLAuthenticationError.rejected("cache bounds") }
+        let commitTime = currentTime?() ?? now
+        guard min(current.europe.document.nextUpdate, current.italy.document.nextUpdate) > commitTime,
+              max(current.europe.document.issuedAt, current.italy.document.issuedAt) <= commitTime.addingTimeInterval(300) else {
+            throw TLAuthenticationError.rejected("snapshot no longer current at commit")
+        }
+        // A.1 Foundation atomic replacement: failures leave the previous file intact.
+        try encoded.write(to: url, options: .atomic)
     }
     public static func load(from url: URL, now: Date) throws -> (AuthenticatedTL, AuthenticatedTL) {
-        let e = try read(url)
-        return try verify(lotl: e.lotl, italy: e.italy, now: now)
+        let verified = try readVerified(url, now: now)
+        guard !verified.expired else { throw TLAuthenticationError.rejected("cache expired") }
+        return (verified.europe, verified.italy)
     }
-    private static func read(_ url: URL) throws -> Envelope {
-        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max
-        guard size <= 180 * 1024 * 1024 else { throw TLAuthenticationError.rejected("snapshot bounds") }
-        return try JSONDecoder().decode(Envelope.self, from: Data(contentsOf: url))
+    static let maximumEnvelopeBytes = 180 * 1024 * 1024
+    static func readVerified(_ url: URL, now: Date, anchors: Set<Data> = EUTrustPolicy.journalAnchors) throws -> VerifiedSnapshot {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        // Bound the actual read, including a file changed after stat.
+        var data = Data()
+        while let chunk = try handle.read(upToCount: min(1024 * 1024, maximumEnvelopeBytes + 1 - data.count)), !chunk.isEmpty {
+            data.append(chunk)
+            guard data.count <= maximumEnvelopeBytes else { throw TLAuthenticationError.rejected("cache bounds") }
+        }
+        return try verify(JSONDecoder().decode(TLBundle.self, from: data), now: now, allowExpired: true, anchors: anchors)
     }
-    private static func verify(lotl: Data, italy: Data, now: Date) throws -> (AuthenticatedTL, AuthenticatedTL) {
-        // This PoC snapshot format supports the current reset with zero pivots.
-        // A later rotation requires explicit pivot inputs; fail closed until supplied.
-        let eu = try LOTLPivotChain.authenticate(current: lotl, pivotsOldestFirst: [], now: now)
-        return (eu, try TLAuthenticator.authenticateItaly(italy, lotl: eu, now: now))
+    static func verify(_ bundle: TLBundle, now: Date, allowExpired: Bool, anchors: Set<Data>) throws -> VerifiedSnapshot {
+        guard bundle.pivots.count <= 16,
+              bundle.lotl.count <= UntrustedTLParser.maximumInputBytes,
+              bundle.italy.count <= UntrustedTLParser.maximumInputBytes,
+              bundle.pivots.reduce(bundle.lotl.count + bundle.italy.count, { $0 + $1.xml.count }) <= 128 * 1024 * 1024 else {
+            throw TLAuthenticationError.rejected("bundle bounds")
+        }
+        let euRaw = try UntrustedTLParser.parse(bundle.lotl), itRaw = try UntrustedTLParser.parse(bundle.italy)
+        let historicalDate = max(euRaw.issuedAt, itRaw.issuedAt)
+        guard historicalDate <= now.addingTimeInterval(300) else { throw TLAuthenticationError.rejected("future cache") }
+        let expired = min(euRaw.nextUpdate, itRaw.nextUpdate) <= now
+        guard allowExpired || !expired else { throw TLAuthenticationError.rejected("cache expired") }
+        // Historical evaluation verifies provenance, never promotes an expired pair to current.
+        let evaluationDate = expired ? historicalDate : now
+        let eu = try LOTLPivotChain.validate(current: bundle.lotl, pivotsOldestFirst: bundle.pivots, now: evaluationDate, initialAnchors: anchors)
+        let it = try TLAuthenticator.authenticateItaly(bundle.italy, lotl: eu, now: evaluationDate)
+        return VerifiedSnapshot(bundle: bundle, europe: eu, italy: it, expired: expired)
     }
 }

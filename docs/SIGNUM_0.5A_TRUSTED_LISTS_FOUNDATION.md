@@ -1,5 +1,7 @@
 # Signum 0.5-A — Trusted Lists Foundation (initial increment)
 
+Current consolidation: [0.5-A.2 refresh/cache/pivots](SIGNUM_0.5A2_CONSOLIDATION.md).
+
 **Status:** initial ingestion history below. An isolated native authentication proof is now locally verified; see [authentication PoC report](SIGNUM_0.5A_LOTL_AUTHENTICATION_POC.md) for results and remaining gates. No GUI integration or qualification verdict.
 
 ## Isolation
