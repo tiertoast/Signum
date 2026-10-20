@@ -7,3 +7,10 @@ Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE -whitespace
 Tests/SignumTrustIntegrationTests/Fixtures/*.xml -text -diff -whitespace
 
 Tests/SignumCertificateValidationTests/Fixtures/*.xml -text -diff -whitespace
+
+# Public revocation and RFC 3161 fixtures must retain exact DER bytes.
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.der -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.ocsp -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.crl -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.tst -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.bin -text -diff
