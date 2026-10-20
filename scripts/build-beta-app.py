@@ -110,7 +110,7 @@ def private_dependency(ref, prefix):
     return path
 
 
-def build(output, configuration, native_prefix, cmake, preview=False):
+def build(output, configuration, native_prefix, cmake, preview=False, preview_build=3):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise ValueError("This local recipe currently requires macOS arm64")
     output = output.absolute()
@@ -121,8 +121,11 @@ def build(output, configuration, native_prefix, cmake, preview=False):
     if native_metadata.get("recipe") != 1 or native_metadata.get("architecture") != "arm64":
         raise ValueError("Expected the private beta native recipe")
     info = plistlib.loads((REPO / "Resources/Info.plist").read_bytes())
+    preview_id = "io.github.tiertoast.Signum.DevelopmentPreview" + (".B4" if preview_build == 4 else "")
     if preview:
-        info.update(CFBundleIdentifier="io.github.tiertoast.Signum.DevelopmentPreview", CFBundleName="Signum 0.5 Development Preview", CFBundleDisplayName="Signum 0.5 Development Preview", CFBundleShortVersionString="0.5.0", CFBundleVersion="3")
+        info.update(CFBundleIdentifier=preview_id, CFBundleName="Signum 0.5 Development Preview", CFBundleDisplayName="Signum 0.5 Development Preview", CFBundleShortVersionString="0.5.0", CFBundleVersion=str(preview_build))
+    if preview and preview_build == 4:
+        info.update(CFBundleName="Signum 0.5 Development Preview — Build 4", CFBundleDisplayName="Signum 0.5 Development Preview — Build 4")
     declared_target = info["LSMinimumSystemVersion"]
     if version_key(native_metadata["deploymentTarget"]) > version_key(declared_target):
         raise ValueError("Native prefix requires a newer OS; rebuild it for " + declared_target)
@@ -228,8 +231,8 @@ def build(output, configuration, native_prefix, cmake, preview=False):
             if len(resources) != 1: raise ValueError("Missing or ambiguous Trusted Lists schema bundle")
             shutil.copytree(resources[0], app / "Contents/Resources" / resources[0].name)
             os.symlink("../Resources/" + resources[0].name, app / "Contents/Helpers" / resources[0].name, target_is_directory=True)
-        info.update(CFBundleIdentifier=("io.github.tiertoast.Signum.DevelopmentPreview" if preview else "io.github.tiertoast.Signum.BetaFoundation"),
-                    CFBundleName=("Signum 0.5 Development Preview" if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
+        info.update(CFBundleIdentifier=(preview_id if preview else "io.github.tiertoast.Signum.BetaFoundation"),
+                    CFBundleName=(("Signum 0.5 Development Preview — Build 4" if preview_build == 4 else "Signum 0.5 Development Preview") if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
         shutil.copytree(prefix / "share/signum-notices", app / "Contents/Resources/Notices")
         manifest = {"configuration": configuration, "architecture": "arm64",

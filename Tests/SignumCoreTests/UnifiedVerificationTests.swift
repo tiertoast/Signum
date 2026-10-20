@@ -1,5 +1,6 @@
 #if os(macOS)
 import XCTest
+import SignumCertificateValidation
 import PDFKit
 import Darwin
 import UniformTypeIdentifiers
@@ -24,6 +25,12 @@ final class UnifiedVerificationTests: XCTestCase {
         try process.run(); try FixtureProcess.wait(process); XCTAssertEqual(process.terminationStatus,0)
     }
     private func assertUnassessed(_ report: VerificationReport, file: StaticString = #filePath, line: UInt = #line) {
+        for signature in report.signatures {
+            if let der = signature.signerDER {
+                XCTAssertEqual(DocumentSnapshot.digest(der), signature.certificate?.sha256, file:file,line:line)
+                XCTAssertEqual(CertificatePathValidator.evaluate(signer:der, intermediates:signature.embeddedCertificateDERs, authenticatedLists:[]).state,.notVerifiable,file:file,line:line)
+            }
+        }
         XCTAssertEqual(report.trust,.notChecked,file:file,line:line); XCTAssertEqual(report.revocation,.notChecked,file:file,line:line); XCTAssertEqual(report.qualification,.notChecked,file:file,line:line)
     }
     func testAttachedCAdESContentBasedDetectionCertificateMetadataAndIndependentReference() throws {

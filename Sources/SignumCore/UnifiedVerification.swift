@@ -25,6 +25,8 @@ public struct SignatureVerificationResult: Identifiable, Equatable, Sendable {
     public let signedRevisionEnd: Int?
     public let laterChanges: Bool
     public let cmsLayer: Int
+    public var signerDER: Data? = nil
+    public var embeddedCertificateDERs: [Data] = []
     public let trust = UnassessedValidation.notChecked
     public let revocation = UnassessedValidation.notChecked
     public let qualification = UnassessedValidation.notChecked
@@ -87,6 +89,8 @@ public enum SignumVerificationService {
         let reason, subject, issuer, fingerprint, algorithm, declaredTime: String
         let revisionEnd, layer: Int
         let laterChanges: Bool
+        let signerDER: String?
+        let certificateDERs: [String]?
     }
     private struct WireReport: Decodable {
         let version: Int
@@ -110,13 +114,13 @@ public enum SignumVerificationService {
         }
         var input = data
         let output = try SupervisedProcess.run(executable: engine, arguments: ["--verify-stdin-v1"], input: &input,
-            maximumInput: maximumInputBytes, maximumOutput: maximumInputBytes + 256*1024 + 8,
+            maximumInput: maximumInputBytes, maximumOutput: maximumInputBytes + 8*1024*1024 + 8,
             maximumResidentBytes: 1024*1024*1024,
             timeout: timeout, isCancelled: isCancelled)
         guard output.count >= 8 else { throw SupervisedProcess.Failure.protocolViolation }
         func count(_ offset: Int) -> Int { output[offset..<offset+4].reduce(0) { ($0 << 8) | Int($1) } }
         let metadataLength = count(0), contentLength = count(4)
-        guard metadataLength > 0, metadataLength <= 256*1024, contentLength <= maximumInputBytes,
+        guard metadataLength > 0, metadataLength <= 8*1024*1024, contentLength <= maximumInputBytes,
               output.count == 8 + metadataLength + contentLength else { throw SupervisedProcess.Failure.protocolViolation }
         let wire = try JSONDecoder().decode(WireReport.self, from: output.subdata(in: 8..<8+metadataLength))
         guard wire.version == 1, ["signed","unsigned","damaged","unsupported"].contains(wire.state),
@@ -126,11 +130,22 @@ public enum SignumVerificationService {
                   [$0.reason,$0.subject,$0.issuer,$0.algorithm,$0.declaredTime].allSatisfy({ $0.utf8.count <= 8192 }) &&
                   ($0.fingerprint.isEmpty || ($0.fingerprint.count == 64 && $0.fingerprint.allSatisfy { $0.isHexDigit })) &&
                   ($0.integrity != .verified || !$0.fingerprint.isEmpty) }) else { throw SupervisedProcess.Failure.protocolViolation }
-        let records = wire.signatures.enumerated().map { i, s in
-            SignatureVerificationResult(id: i, integrity: s.integrity,
+        let records = try wire.signatures.enumerated().map { i, s in
+            var record = SignatureVerificationResult(id: i, integrity: s.integrity,
                 certificate: s.fingerprint.isEmpty ? nil : .init(subject: s.subject, issuer: s.issuer, sha256: s.fingerprint),
                 algorithm: s.algorithm, declaredTime: s.declaredTime, reason: s.reason,
                 signedRevisionEnd: s.revisionEnd == 0 ? nil : s.revisionEnd, laterChanges: s.laterChanges, cmsLayer: s.layer)
+            if let encoded = s.signerDER, !encoded.isEmpty {
+                guard let der = Data(base64Encoded: encoded), der.count <= 65536,
+                      DocumentSnapshot.digest(der) == s.fingerprint else { throw SupervisedProcess.Failure.protocolViolation }
+                record.signerDER = der
+            }
+            guard (s.certificateDERs?.count ?? 0) <= 64 else { throw SupervisedProcess.Failure.protocolViolation }
+            record.embeddedCertificateDERs = try (s.certificateDERs ?? []).map {
+                guard let der = Data(base64Encoded: $0), !der.isEmpty, der.count <= 65536 else { throw SupervisedProcess.Failure.protocolViolation }
+                return der
+            }
+            return record
         }
         var preview: Data?, original: Data?
         if wire.format == .pades && ["signed","unsigned"].contains(wire.state) { preview = data }

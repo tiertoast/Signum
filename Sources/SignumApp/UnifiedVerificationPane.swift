@@ -4,6 +4,9 @@ import PDFKit
 import AppKit
 import UniformTypeIdentifiers
 import SignumCore
+import SignumTrustIntegration
+import SignumTrustAuthentication
+import SignumCertificateValidation
 
 enum VerificationDropLoader {
     @MainActor static func urls(from providers: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
@@ -17,8 +20,11 @@ enum VerificationDropLoader {
         let id = UUID()
         let name: String
         var report: VerificationReport?
+        var paths: [Int: CertificatePathResult] = [:]
         var issue = ""
     }
+    private let catalog: (any TrustedListCatalogProviding)?
+    init(catalog: (any TrustedListCatalogProviding)? = nil) { self.catalog = catalog }
     @Published private(set) var rows: [Row] = []
     @Published private(set) var busy = false
     @Published private(set) var acquiring = false
@@ -73,6 +79,8 @@ enum VerificationDropLoader {
         let control = SigningOperation(); operation = control; issue = ""
         rows = urls.map { Row(name: $0.lastPathComponent) }
         var retainedPreviewBytes = 0
+        let list = try? await catalog?.currentCatalog()
+        guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
         for (index, url) in urls.enumerated() {
             guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
             let work = Task.detached(priority: .userInitiated) { Result { try verifier(url, control) } }
@@ -87,6 +95,21 @@ enum VerificationDropLoader {
                     rows[index].issue = "Contenuto non conservato: limite memoria della sessione. Il risultato di verifica è disponibile."
                 } else { retainedPreviewBytes += count }
                 rows[index].report = report
+                guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+                let signatures = report.signatures
+                let paths = await Task.detached(priority: .utility) {
+                    var paths: [Int: CertificatePathResult] = [:]
+                    for signature in signatures {
+                        if control.isCancellationRequested { break }
+                        if let signer = signature.signerDER {
+                            paths[signature.id] = CertificatePathValidator.evaluate(signer: signer, intermediates: signature.embeddedCertificateDERs,
+                                authenticatedLists: list.map { [$0] } ?? [], isCancelled: { control.isCancellationRequested })
+                        } else { paths[signature.id] = .unavailable("Certificato DER del firmatario non disponibile.") }
+                    }
+                    return paths
+                }.value
+                guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+                rows[index].paths = paths
             case .failure(let error): rows[index].issue = error.localizedDescription
             }
         }
@@ -94,7 +117,8 @@ enum VerificationDropLoader {
 }
 
 struct UnifiedVerificationPane: View {
-    @StateObject private var workspace = VerificationWorkspace()
+    @StateObject private var workspace: VerificationWorkspace
+    init(catalog: (any TrustedListCatalogProviding)? = nil) { _workspace = StateObject(wrappedValue: VerificationWorkspace(catalog: catalog)) }
     @State private var targeted = false
     @State private var preview: VerificationReport?
     @State private var extractionIssue = ""
@@ -127,6 +151,16 @@ struct UnifiedVerificationPane: View {
                                     Text("\(format(report.format)) · \(report.signatures.count) firme")
                                         .font(.caption).foregroundStyle(.secondary)
                                     Text(report.summary)
+                                    ForEach(report.signatures) { signature in
+                                        if let path = row.paths[signature.id] {
+                                            Text("Firma \(signature.id + 1) · " + pathLabel(path.state)).fontWeight(.medium)
+                                            if let service = path.service {
+                                                Text((path.state == .verified ? "Prestatore: " : "Servizio candidato: ") + service.provider + " · " + service.country + " · " + service.service).font(.caption)
+                                            }
+                                            if path.state != .verified { Text(path.reason).font(.caption) }
+                                        } else { Text("Catena X.509: in attesa di valutazione").font(.caption) }
+                                    }
+                                    Text("Revoca: non ancora verificata · Qualificazione eIDAS: non ancora determinata").font(.caption).foregroundStyle(.secondary)
                                     if report.signatures.contains(where: \.laterChanges) {
                                         Text("Modifiche successive presenti · accettabilità non valutata").font(.caption)
                                     }
@@ -141,6 +175,16 @@ struct UnifiedVerificationPane: View {
                                                         Text(cert.subject); Text("Emittente: " + cert.issuer)
                                                         Text("Certificato SHA-256: " + cert.sha256).textSelection(.enabled)
                                                     } else { Text("Certificato non disponibile") }
+                                                    if let path = row.paths[signature.id] {
+                                                        Text("Catena X.509: " + pathLabel(path.state)).fontWeight(.medium)
+                                                        if let service = path.service { Text("Prestatore: \(service.provider) · \(service.country)\nServizio: \(service.service)\nTL: \(service.listSequence) · stato: \(service.status)") }
+                                                        Text(path.reason)
+                                                        Text("Valutata al: " + path.evaluatedAt.formatted(date: .abbreviated, time: .shortened))
+                                                        ForEach(Array(path.path.enumerated()), id: \.offset) { i, certificate in
+                                                            Text("\(i + 1). \(certificate.subject) · \(certificate.sha256)").textSelection(.enabled)
+                                                        }
+                                                    } else { Text("Catena X.509: in attesa di valutazione") }
+                                                    Text("Revoca: non ancora verificata · Qualificazione eIDAS: non ancora determinata")
                                                     Text("Algoritmo: " + signature.algorithm)
                                                     if !signature.declaredTime.isEmpty { Text("Data dichiarata, non qualificata: " + signature.declaredTime) }
                                                     if let end = signature.signedRevisionEnd { Text("Revisione firmata: byte 0…\(end) · " + (signature.laterChanges ? "byte successivi presenti" : "nessun byte successivo")) }
@@ -160,12 +204,15 @@ struct UnifiedVerificationPane: View {
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(minHeight: 180)
-                Text(VerificationReport.scope).font(.caption).foregroundStyle(.secondary)
+                Text("La verifica della catena non stabilisce da sola l’attendibilità completa o la qualificazione della firma. Revoca e validazione temporale avanzata non valutate.").font(.caption).foregroundStyle(.secondary)
                 Text("XML/XAdES: supporto futuro. Nessun file estratto viene salvato automaticamente.").font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
         .sheet(item: $preview) { report in VerificationPDFPreview(report: report) }
         .onDisappear { workspace.cancel() }
+    }
+    private func pathLabel(_ state: CertificatePathState) -> String {
+        switch state { case .verified: return "Catena verificata"; case .invalid: return "Catena non valida"; case .notVerifiable: return "Non verificabile" }
     }
     private func format(_ format: VerifiedDocumentFormat) -> String {
         switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML"; case .unknown: return "Sconosciuto" }

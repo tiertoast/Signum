@@ -7,12 +7,14 @@ packager = importlib.util.module_from_spec(spec); spec.loader.exec_module(packag
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--bundle', type=Path, required=True)
 parser.add_argument('--output-root', type=Path, required=True)
+parser.add_argument('--build-number', type=int, choices=(3,4), default=4)
 args = parser.parse_args(); root = args.output_root.resolve(); root.mkdir(parents=True, exist_ok=True)
 app = root / 'Relocated' / args.bundle.name
 app.parent.mkdir(parents=True, exist_ok=True)
 shutil.copytree(args.bundle.resolve(), app, symlinks=True)
 info = plistlib.loads((app/'Contents/Info.plist').read_bytes())
-assert info['CFBundleIdentifier'] == 'io.github.tiertoast.Signum.DevelopmentPreview'
+assert info['CFBundleIdentifier'] == 'io.github.tiertoast.Signum.DevelopmentPreview' + ('.B4' if args.build_number == 4 else '')
+assert info['CFBundleVersion'] == str(args.build_number)
 assert info['CFBundleShortVersionString'] == '0.5.0' and info['LSMinimumSystemVersion'] == '13.0'
 subprocess.run(['/usr/bin/codesign','--verify','--deep','--strict',str(app)], check=True)
 files = [app/'Contents/MacOS/Signum'] + list((app/'Contents/Helpers').glob('*')) + list((app/'Contents/Frameworks').glob('*'))
@@ -41,6 +43,14 @@ for mode in ['refresh','offline']:
     assert b'freshness=current' in r.stdout and (b'source=network' if mode=='refresh' else b'source=cache') in r.stdout
     packager.audit_loaded(r.stderr.decode(errors='replace'),app)
     outputs[mode] = r.stdout.decode().strip()
+if args.build_number == 4:
+    fixture = Path(__file__).resolve().parents[1]/'Tests/SignumCertificateValidationTests/Fixtures/valid-untrusted.cms'
+    r = subprocess.run([str(probe),'path',str(cache),str(fixture)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    (root/'untrusted-path.stdout.log').write_bytes(r.stdout); (root/'untrusted-path.dyld.log').write_bytes(r.stderr)
+    assert r.returncode == 0, r.stderr.decode(errors='replace')[-1000:]
+    assert b'integrity=verified chain=notVerifiable revocation=notChecked qualification=notChecked' in r.stdout
+    packager.audit_loaded(r.stderr.decode(errors='replace'),app)
+    outputs['untrustedPath'] = r.stdout.decode().strip()
 # Main executable startup is independent of the developer environment. No UI actions or signing.
 process = subprocess.Popen([str(app/'Contents/MacOS/Signum')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 try:

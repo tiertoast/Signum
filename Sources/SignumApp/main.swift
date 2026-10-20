@@ -199,7 +199,7 @@ private enum SignumFormat: String, Hashable {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if operation == .verify {
-                            UnifiedVerificationPane()
+                            UnifiedVerificationPane(catalog: trustedLists?.catalogProvider)
                         } else {
                             Button("Configura dispositivo…") { showDeviceConfiguration = true }
                             Picker("Autenticazione nella firma multipla", selection: $authenticationModeRaw) {

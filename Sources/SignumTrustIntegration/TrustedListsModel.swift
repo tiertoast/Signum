@@ -35,11 +35,13 @@ extension TLRefreshService: TrustedListsRefreshing, TrustedListCatalogProviding 
         self.service = service; self.directory = directory
     }
     public static func developmentPreview() throws -> TrustedListsModel {
+        let identity = Bundle.main.bundleIdentifier.flatMap { $0.hasPrefix("io.github.tiertoast.Signum.DevelopmentPreview") ? $0 : nil } ?? "io.github.tiertoast.Signum.DevelopmentPreview.B4"
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-            .appendingPathComponent("io.github.tiertoast.Signum.DevelopmentPreview/TrustedLists", isDirectory: true)
+            .appendingPathComponent(identity + "/TrustedLists", isDirectory: true)
         return TrustedListsModel(service: try TLRefreshService(cacheURL: directory.appendingPathComponent("verified.json")), directory: directory)
     }
     /// Construction does no disk/network work. Lifecycle work is cancellable and never awaited by signing.
+    public var catalogProvider: (any TrustedListCatalogProviding)? { service as? any TrustedListCatalogProviding }
     public func start() {
         guard lifecycle == nil else { return }
         let token = generation, service = service, directory = directory

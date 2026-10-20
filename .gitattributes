@@ -5,3 +5,5 @@ Sources/SignumTrustAuthentication/Schemas/*.xsd -whitespace
 Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE -whitespace
 
 Tests/SignumTrustIntegrationTests/Fixtures/*.xml -text -diff -whitespace
+
+Tests/SignumCertificateValidationTests/Fixtures/*.xml -text -diff -whitespace

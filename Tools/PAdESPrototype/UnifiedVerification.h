@@ -3,6 +3,8 @@
 namespace signum {
 struct InspectedSignature {
     std::string integrity = "notVerifiable", reason, subject, issuer, fingerprint, algorithm, declaredTime;
+    std::string signerDER;
+    std::vector<std::string> certificateDERs;
     size_t revisionEnd = 0, layer = 1;
     bool laterChanges = false;
 };

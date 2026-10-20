@@ -1,7 +1,9 @@
 import Foundation
 import SignumTrustAuthentication
+import SignumCertificateValidation
+import SignumCore
 
-// Offline by design. Fetch LOTL first, authenticate it, then obtain the authorized IT URL.
+// Diagnostic entry points reuse the production validators and authenticated cache.
 let args = CommandLine.arguments
 func show(_ value: AuthenticatedTL) {
     let d = value.document
@@ -15,7 +17,17 @@ func show(_ view: TLRefreshView) {
     fflush(stdout)
 }
 do {
-    if args.count == 3, ["refresh", "offline", "watch"].contains(args[1]) {
+    if args.count == 4, args[1] == "path" {
+        let view = try? await TLRefreshService(cacheURL: URL(fileURLWithPath: args[2])).cached()
+        let report = try SignumVerificationService.verify(file: URL(fileURLWithPath: args[3]))
+        for signature in report.signatures {
+            let result = signature.signerDER.map { CertificatePathValidator.evaluate(signer: $0, intermediates: signature.embeddedCertificateDERs, authenticatedLists: view?.currentItaly.map { [$0] } ?? []) } ?? .unavailable("Certificato DER assente")
+            print("signature=\(signature.id) integrity=\(signature.integrity.rawValue) chain=\(result.state.rawValue) revocation=notChecked qualification=notChecked")
+            print("reason=\(result.reason)")
+            if let service = result.service { print("provider=\(service.provider) service=\(service.service) country=\(service.country) TL=\(service.listSequence)") }
+            for certificate in result.path { print("certificate=\(certificate.sha256) \(certificate.subject)") }
+        }
+    } else if args.count == 3, ["refresh", "offline", "watch"].contains(args[1]) {
         let cache = URL(fileURLWithPath: args[2])
         try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
         let service = try TLRefreshService(cacheURL: cache)

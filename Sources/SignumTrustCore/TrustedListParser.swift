@@ -32,6 +32,7 @@ public struct TLService: Sendable {
 }
 
 public struct TLServiceHistory: Sendable {
+    public let certificateDERs: [Data]
     public let typeURI: String
     public let statusURI: String
     public let statusSince: Date
@@ -98,6 +99,7 @@ private final class Collector: NSObject, XMLParserDelegate {
         var history: [TLServiceHistory] = []
     }
     struct HistoryDraft {
+        var certs: [Data] = []
         var type = ""
         var status = ""
         var date = ""
@@ -194,13 +196,14 @@ private final class Collector: NSObject, XMLParserDelegate {
                     appendCertificate(value, toPointer: false)
                 }
                 if history != nil {
+                    if matches(["ServiceHistoryInstance", "ServiceDigitalIdentity", "DigitalId", "X509Certificate"]) { appendCertificate(value, toPointer: false, toHistory: true) }
                     if matches(["ServiceHistoryInstance", "ServiceTypeIdentifier"]) { history?.type = value }
                     if matches(["ServiceHistoryInstance", "ServiceStatus"]) { history?.status = value }
                     if matches(["ServiceHistoryInstance", "StatusStartingTime"]) { history?.date = value }
                 }
                 if matches(["ServiceHistory", "ServiceHistoryInstance"]) {
                     if let h = history, let date = Self.date(h.date), !h.type.isEmpty, !h.status.isEmpty {
-                        service?.history.append(TLServiceHistory(typeURI: h.type, statusURI: h.status, statusSince: date))
+                        service?.history.append(TLServiceHistory(certificateDERs: h.certs, typeURI: h.type, statusURI: h.status, statusSince: date))
                     } else { failure = .invalidStructure }
                     history = nil
                 }
@@ -252,7 +255,7 @@ private final class Collector: NSObject, XMLParserDelegate {
 
     }
 
-    private func appendCertificate(_ raw: String, toPointer: Bool) {
+    private func appendCertificate(_ raw: String, toPointer: Bool, toHistory: Bool = false) {
         let compact = raw.filter { !$0.isWhitespace }
         guard !compact.isEmpty, compact.utf8.count <= 128 * 1024,
               let cert = Data(base64Encoded: compact), cert.count <= 96 * 1024 else {
@@ -260,6 +263,7 @@ private final class Collector: NSObject, XMLParserDelegate {
             return
         }
         if toPointer { pointer?.certs.append(cert) }
+        else if toHistory { history?.certs.append(cert) }
         else { service?.certs.append(cert) }
     }
 

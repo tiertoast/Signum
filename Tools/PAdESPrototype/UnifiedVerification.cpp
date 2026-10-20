@@ -51,6 +51,13 @@ std::string quoted(const std::string& value) {
     }
     out << '"';return out.str();
 }
+std::string der64(X509 *cert) {
+    unsigned char *der=nullptr;int n=i2d_X509(cert,&der);
+    if(n<=0||n>65536){OPENSSL_free(der);throw std::runtime_error("Certificato DER oltre i limiti");}
+    std::string encoded(4*((n+2)/3)+1,'\0');
+    int count=EVP_EncodeBlock(reinterpret_cast<unsigned char*>(encoded.data()),der,n);
+    OPENSSL_free(der);encoded.resize(count);return encoded;
+}
 std::string json(const Inspection& r) {
     std::ostringstream out;
     out << "{\"version\":1,\"format\":" << quoted(r.format) << ",\"state\":" << quoted(r.state)
@@ -62,7 +69,12 @@ std::string json(const Inspection& r) {
             << ",\"subject\":" << quoted(s.subject) << ",\"issuer\":" << quoted(s.issuer)
             << ",\"fingerprint\":" << quoted(s.fingerprint) << ",\"algorithm\":" << quoted(s.algorithm)
             << ",\"declaredTime\":" << quoted(s.declaredTime) << ",\"revisionEnd\":" << s.revisionEnd
-            << ",\"layer\":" << s.layer << ",\"laterChanges\":" << (s.laterChanges?"true":"false") << '}';
+            << ",\"layer\":" << s.layer << ",\"laterChanges\":" << (s.laterChanges?"true":"false")
+            << ",\"signerDER\":" << quoted(s.signerDER) << ",\"certificateDERs\":[";
+        bool firstCert=true;
+        for(const auto& cert:s.certificateDERs){if(!firstCert)out<<',';firstCert=false;out<<quoted(cert);}
+        out << "]}";
+        if(out.tellp()>8*1024*1024)throw std::runtime_error("Metadati certificati oltre il limite");
     }
     out << "]}";return out.str();
 }
@@ -80,7 +92,12 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
     if(count<1||count>32) throw std::runtime_error("Numero firmatari CMS non supportato (1–32)");
     auto certs=CMS_get1_certs(cms.get());
     int certificates=certs?sk_X509_num(certs):0;
-    if(certs)sk_X509_pop_free(certs,X509_free);
+    std::vector<std::string> publicCertificates;
+    if(certs) {
+        try { for(int j=0;j<certificates&&j<64;j++) publicCertificates.push_back(der64(sk_X509_value(certs,j))); }
+        catch(...) {sk_X509_pop_free(certs,X509_free);throw;}
+        sk_X509_pop_free(certs,X509_free);
+    }
     if(certificates>64) throw std::runtime_error("Troppi certificati CMS");
     CMS_set1_signers_certs(cms.get(),nullptr,0);
     bool needsContent=CMS_is_detached(cms.get())==1 && !detached;
@@ -107,6 +124,7 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
         CMS_SignerInfo_get0_algs(info,nullptr,&cert,&digest,&algorithm);
         s.algorithm=oid(algorithm?algorithm->algorithm:nullptr)+" / "+oid(digest?digest->algorithm:nullptr);
         if(cert) {
+            s.signerDER=der64(cert);s.certificateDERs=publicCertificates;
             s.subject=name(X509_get_subject_name(cert));s.issuer=name(X509_get_issuer_name(cert));
             unsigned char hash[EVP_MAX_MD_SIZE];unsigned int length=0;
             if(X509_digest(cert,EVP_sha256(),hash,&length)) {std::ostringstream h;for(unsigned int j=0;j<length;++j)h<<std::hex<<std::setw(2)<<std::setfill('0')<<unsigned(hash[j]);s.fingerprint=h.str();}
@@ -186,8 +204,8 @@ int verificationMain() {
         if(report.reason.find("Tipo CMS non supportato")==0)report.format="unknown";
         report.content.clear();
     }
-    auto metadata=json(report);
-    if(metadata.size()>256*1024)return 2;
+    std::string metadata;try { metadata=json(report); } catch(...) { return 2; }
+    if(metadata.size()>8*1024*1024)return 2;
     return writeCount(metadata.size())&&writeCount(report.content.size())&&writeAll(metadata.data(),metadata.size())&&writeAll(report.content.data(),report.content.size())?0:2;
 }
 }
