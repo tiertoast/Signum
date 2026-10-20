@@ -260,7 +260,7 @@ private final class Collector: NSObject, XMLParserDelegate {
     func document() throws -> UntrustedTLDocument {
         if let failure { throw failure }
         guard let v = version, (v == 5 || v == 6) else { throw TLParseError.unsupportedVersion }
-        guard let s = sequence, s >= 0, let t = territory, t.count == 2,
+        guard let s = sequence, s > 0, let t = territory, t.count == 2,
               let i = issue.flatMap(Self.date), let n = next.flatMap(Self.date),
               n > i else { throw TLParseError.invalidStructure }
         return UntrustedTLDocument(version: v, sequenceNumber: s, territory: t,
