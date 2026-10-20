@@ -181,94 +181,97 @@ enum CMSDescription {
     static func isSignedData(_ data: Data) -> Bool {
         // Detect the ContentInfo OID even when the nested signer set is
         // malformed. It should not silently be treated as original content.
-        let bytes = [UInt8](data)
-        guard bytes.count >= 16 && bytes.count <= CAdESVerifier.maximumInputBytes else {
-            return false
-        }
-        do {
-            var cursor = 0
-            let outer = try DER.read(bytes, at: &cursor, limit: bytes.count)
-            guard outer.tag == 0x30, cursor == bytes.count else { return false }
-            cursor = outer.contents.lowerBound
-            let type = try DER.read(bytes, at: &cursor, limit: outer.contents.upperBound)
-            return type.tag == 0x06 &&
-                   Data(bytes[type.full]) == DER.signedDataOID
-        } catch {
-            return false
+        guard data.count >= 16 && data.count <= CAdESVerifier.maximumInputBytes else { return false }
+        return data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            do {
+                var cursor = 0
+                let outer = try DER.read(bytes, at: &cursor, limit: bytes.count)
+                guard outer.tag == 0x30, cursor == bytes.count else { return false }
+                cursor = outer.contents.lowerBound
+                let type = try DER.read(bytes, at: &cursor, limit: outer.contents.upperBound)
+                return type.tag == 0x06 &&
+                       Data(bytes[type.full]) == DER.signedDataOID
+            } catch {
+                return false
+            }
         }
     }
 
     static func signers(in data: Data) throws -> [String] {
-        let bytes = [UInt8](data)
-        guard bytes.count >= 16, bytes.count <= CAdESVerifier.maximumInputBytes else {
+        guard data.count >= 16, data.count <= CAdESVerifier.maximumInputBytes else {
             throw SignumError.module("Struttura CMS non supportata.")
         }
-        var cursor = 0
-        let outer = try DER.read(bytes, at: &cursor, limit: bytes.count)
-        guard outer.tag == 0x30, cursor == bytes.count else { throw invalid() }
-        cursor = outer.contents.lowerBound
-        let contentType = try DER.read(bytes, at: &cursor, limit: outer.contents.upperBound)
-        guard contentType.tag == 0x06,
-              Data(bytes[contentType.full]) == DER.signedDataOID else { throw invalid() }
-        let tagged = try DER.read(bytes, at: &cursor, limit: outer.contents.upperBound)
-        guard tagged.tag == 0xA0, cursor == outer.contents.upperBound else { throw invalid() }
-        cursor = tagged.contents.lowerBound
-        let signed = try DER.read(bytes, at: &cursor, limit: tagged.contents.upperBound)
-        guard signed.tag == 0x30, cursor == tagged.contents.upperBound else { throw invalid() }
-        cursor = signed.contents.lowerBound
+        // The contiguous view is borrowed only for this synchronous scope. No
+        // pointer or slice escapes: certificate/identifier fields are copied to
+        // bounded owned Data and the result contains strings only.
+        return try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            var cursor = 0
+            let outer = try DER.read(bytes, at: &cursor, limit: bytes.count)
+            guard outer.tag == 0x30, cursor == bytes.count else { throw invalid() }
+            cursor = outer.contents.lowerBound
+            let contentType = try DER.read(bytes, at: &cursor, limit: outer.contents.upperBound)
+            guard contentType.tag == 0x06,
+                  Data(bytes[contentType.full]) == DER.signedDataOID else { throw invalid() }
+            let tagged = try DER.read(bytes, at: &cursor, limit: outer.contents.upperBound)
+            guard tagged.tag == 0xA0, cursor == outer.contents.upperBound else { throw invalid() }
+            cursor = tagged.contents.lowerBound
+            let signed = try DER.read(bytes, at: &cursor, limit: tagged.contents.upperBound)
+            guard signed.tag == 0x30, cursor == tagged.contents.upperBound else { throw invalid() }
+            cursor = signed.contents.lowerBound
 
-        let version = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
-        let algorithms = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
-        let encapsulated = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
-        guard version.tag == 0x02, algorithms.tag == 0x31, encapsulated.tag == 0x30 else {
-            throw invalid()
-        }
-
-        var embedded: [Data: String] = [:]
-        var signerSet: DER.Node?
-        while cursor < signed.contents.upperBound {
-            let node = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
-            if node.tag == 0xA0 {
-                var certificateCursor = node.contents.lowerBound
-                while certificateCursor < node.contents.upperBound {
-                    guard embedded.count < maximumCertificates else { throw invalid() }
-                    let certificate = try DER.read(bytes, at: &certificateCursor, limit: node.contents.upperBound)
-                    guard certificate.tag == 0x30 else { continue }
-                    let der = Data(bytes[certificate.full])
-                    if let id = try? DER.certificateIdentity(der) {
-                        let key = DER.sequence([id.issuer, id.serial])
-                        embedded[key] = (try? CertificateIdentityReader.read(der))?.title
-                            ?? "Firmatario (certificato non leggibile)"
-                    }
-                }
-            } else if node.tag == 0xA1 {
-                continue // Optional CRLs
-            } else if node.tag == 0x31 {
-                guard signerSet == nil else { throw invalid() }
-                signerSet = node
-            } else {
+            let version = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
+            let algorithms = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
+            let encapsulated = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
+            guard version.tag == 0x02, algorithms.tag == 0x31, encapsulated.tag == 0x30 else {
                 throw invalid()
             }
-        }
 
-        guard let signerSet else { throw invalid() }
-        var signers: [String] = []
-        var position = signerSet.contents.lowerBound
-        while position < signerSet.contents.upperBound {
-            guard signers.count < maximumSigners else { throw invalid() }
-            let signer = try DER.read(bytes, at: &position, limit: signerSet.contents.upperBound)
-            guard signer.tag == 0x30 else { throw invalid() }
-            var inside = signer.contents.lowerBound
-            let signerVersion = try DER.read(bytes, at: &inside, limit: signer.contents.upperBound)
-            let identifier = try DER.read(bytes, at: &inside, limit: signer.contents.upperBound)
-            guard signerVersion.tag == 0x02 else { throw invalid() }
-            signers.append(embedded[Data(bytes[identifier.full])]
-                           ?? "Firmatario (certificato non identificato)")
+            var embedded: [Data: String] = [:]
+            var signerSet: DER.Node?
+            while cursor < signed.contents.upperBound {
+                let node = try DER.read(bytes, at: &cursor, limit: signed.contents.upperBound)
+                if node.tag == 0xA0 {
+                    var certificateCursor = node.contents.lowerBound
+                    while certificateCursor < node.contents.upperBound {
+                        guard embedded.count < maximumCertificates else { throw invalid() }
+                        let certificate = try DER.read(bytes, at: &certificateCursor, limit: node.contents.upperBound)
+                        guard certificate.tag == 0x30 else { continue }
+                        let der = Data(bytes[certificate.full])
+                        if let id = try? DER.certificateIdentity(der) {
+                            let key = DER.sequence([id.issuer, id.serial])
+                            embedded[key] = (try? CertificateIdentityReader.read(der))?.title
+                                ?? "Firmatario (certificato non leggibile)"
+                        }
+                    }
+                } else if node.tag == 0xA1 {
+                    continue // Optional CRLs
+                } else if node.tag == 0x31 {
+                    guard signerSet == nil else { throw invalid() }
+                    signerSet = node
+                } else {
+                    throw invalid()
+                }
+            }
+
+            guard let signerSet else { throw invalid() }
+            var signers: [String] = []
+            var position = signerSet.contents.lowerBound
+            while position < signerSet.contents.upperBound {
+                guard signers.count < maximumSigners else { throw invalid() }
+                let signer = try DER.read(bytes, at: &position, limit: signerSet.contents.upperBound)
+                guard signer.tag == 0x30 else { throw invalid() }
+                var inside = signer.contents.lowerBound
+                let signerVersion = try DER.read(bytes, at: &inside, limit: signer.contents.upperBound)
+                let identifier = try DER.read(bytes, at: &inside, limit: signer.contents.upperBound)
+                guard signerVersion.tag == 0x02 else { throw invalid() }
+                signers.append(embedded[Data(bytes[identifier.full])]
+                               ?? "Firmatario (certificato non identificato)")
+            }
+            guard !signers.isEmpty else {
+                throw SignumError.module("La busta CMS non contiene firmatari.")
+            }
+            return signers
         }
-        guard !signers.isEmpty else {
-            throw SignumError.module("La busta CMS non contiene firmatari.")
-        }
-        return signers
     }
 
     private static func invalid() -> SignumError {

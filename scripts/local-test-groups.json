@@ -5,6 +5,7 @@
       "BatchWorkspaceSummaryTests",
       "CAdESInputTests",
       "CAdESTests",
+      "CAdESMemoryContractTests",
       "CertificateIdentityTests",
       "MiddlewareRegistryTests",
       "PAdESInputContractTests",
