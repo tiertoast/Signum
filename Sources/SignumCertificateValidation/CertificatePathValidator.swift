@@ -73,7 +73,7 @@ public enum CertificatePathValidator {
                         identities: authenticatedLists.flatMap { identities($0.document, now: now) }, now: now, isCancelled: isCancelled)
     }
     // Internal synthetic identities bypass only TL acquisition, never X.509 validation.
-    static func evaluate(signer: Data, intermediates: [Data], identities: [Identity], now: Date, isCancelled: @Sendable () -> Bool = { false }) -> CertificatePathResult {
+    static func evaluate(signer: Data, intermediates: [Data], identities: [Identity], now: Date, timestampPurpose: Bool = false, isCancelled: @Sendable () -> Bool = { false }) -> CertificatePathResult {
         guard !signer.isEmpty, signer.count <= 65536, intermediates.count <= 64, identities.count <= 2048 else {
             return .unavailable("Limiti dei certificati o delle identità TL superati.", now: now)
         }
@@ -101,8 +101,8 @@ public enum CertificatePathValidator {
             if ProcessInfo.processInfo.systemUptime > deadline { unsupported = "Limite di tempo della ricerca raggiunto."; limited = true; break }
             var hashes = [CChar](repeating: 0, count: 1024), message = [CChar](repeating: 0, count: 512)
             let state = packed.withUnsafeBytes { bytes in identity.der.withUnsafeBytes { anchor in
-                signum_path_validate(bytes.bindMemory(to: UInt8.self).baseAddress, packed.count,
-                    anchor.bindMemory(to: UInt8.self).baseAddress, identity.der.count, Int64(now.timeIntervalSince1970),
+                signum_path_validate_purpose(bytes.bindMemory(to: UInt8.self).baseAddress, packed.count,
+                    anchor.bindMemory(to: UInt8.self).baseAddress, identity.der.count, Int64(now.timeIntervalSince1970), timestampPurpose ? 1 : 0,
                     &hashes, hashes.count, &message, message.count)
             }}
             let reason = String(cString: message)
@@ -123,7 +123,7 @@ public enum CertificatePathValidator {
         if let first = successes.first {
             return .init(state: .verified, evaluatedAt: now, path: first.1, service: first.0,
                          alternativeServices: Array(successes.dropFirst().map { $0.0 }),
-                         reason: "Percorso crittografico valido fino al servizio CA/QC autenticato. Revoca e qualificazione non valutate.")
+                         reason: timestampPurpose ? "Percorso TSA verificato verso l’identità del servizio autenticato; revoca separata." : "Percorso crittografico valido fino al servizio CA/QC autenticato. Revoca e qualificazione non valutate.")
         }
         if limited { return .unavailable(unsupported!, now: now) }
         if let inactive { return .init(state: .notVerifiable, evaluatedAt: now, path: [], service: inactive, alternativeServices: [], reason: inactive.historical ? "Identità del servizio individuata solo in un periodo storico. Non si attribuisce attendibilità alla data dichiarata dal firmatario." : "Servizio individuato, ma stato TL non ammesso nel periodo valutato (ritirato o non supportato).") }

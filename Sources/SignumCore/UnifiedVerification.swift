@@ -25,6 +25,7 @@ public struct SignatureVerificationResult: Identifiable, Equatable, Sendable {
     public let signedRevisionEnd: Int?
     public let laterChanges: Bool
     public let cmsLayer: Int
+    public var evidence: SignatureEvidenceEnvelope? = nil
     public var signerDER: Data? = nil
     public var embeddedCertificateDERs: [Data] = []
     public let trust = UnassessedValidation.notChecked
@@ -44,6 +45,7 @@ public struct VerificationReport: Identifiable, Sendable {
     public let trust = UnassessedValidation.notChecked
     public let revocation = UnassessedValidation.notChecked
     public let qualification = UnassessedValidation.notChecked
+    public var unassociatedEvidence: [EmbeddedValidationEvidence] = []
     public static let scope = "Attendibilità del certificato non ancora verificata. Revoca, qualificazione eIDAS, marche temporali e LTV non valutate."
     public static let revisionScope = "Le modifiche successive sono rilevate come byte aggiunti: conformità DocMDP/FieldMDP e accettabilità delle revisioni non valutate. Sono esaminate le firme raggiungibili dall'AcroForm corrente, fino a 32."
     public var integrity: CryptographicIntegrity {
@@ -60,8 +62,10 @@ public struct VerificationReport: Identifiable, Sendable {
         return integrity.description
     }
     public func withoutPreview() -> Self {
-        .init(id: id, documentName: documentName, sha256: sha256, format: format,
+        var copy = Self(id: id, documentName: documentName, sha256: sha256, format: format,
               signatures: signatures, documentState: documentState, issue: issue, previewPDF: nil, originalContent: nil)
+        copy.unassociatedEvidence = unassociatedEvidence
+        return copy
     }
 }
 
@@ -91,6 +95,11 @@ public enum SignumVerificationService {
         let laterChanges: Bool
         let signerDER: String?
         let certificateDERs: [String]?
+        let signatureValue, signatureKey, evidenceIssue: String?
+        let signerIndex: Int?
+        let signedAttributes, unsignedAttributes: [ExtractedCMSAttribute]?
+        let timestampTokens: [Data]?
+        let evidence: [EmbeddedValidationEvidence]?
     }
     private struct WireReport: Decodable {
         let version: Int
@@ -98,6 +107,12 @@ public enum SignumVerificationService {
         let state, reason: String
         let signatures: [WireSignature]
         let previewablePDF: Bool
+        let unassociatedEvidence: [EmbeddedValidationEvidence]?
+    }
+    private static func validEvidence(_ e: EmbeddedValidationEvidence, inputSize: Int) -> Bool {
+        !e.der.isEmpty && e.der.count <= 1024*1024 && e.source.utf8.count <= 128 &&
+        (e.signatureKey.isEmpty || (e.signatureKey.count == 64 && e.signatureKey.allSatisfy { $0.isHexDigit })) &&
+        (0...inputSize).contains(e.signatureRevisionEnd) && (0...inputSize).contains(e.sourceRevisionEnd)
     }
     public static func verify(file: URL, helper: URL? = nil, timeout: TimeInterval = 30,
                               isCancelled: () -> Bool = { false }) throws -> VerificationReport {
@@ -145,6 +160,19 @@ public enum SignumVerificationService {
                 guard let der = Data(base64Encoded: $0), !der.isEmpty, der.count <= 65536 else { throw SupervisedProcess.Failure.protocolViolation }
                 return der
             }
+            if let encoded = s.signatureValue, !encoded.isEmpty {
+                guard let value = Data(base64Encoded: encoded), !value.isEmpty, value.count <= 16384,
+                      s.signatureKey == DocumentSnapshot.digest(value), let signerIndex = s.signerIndex, (0..<32).contains(signerIndex),
+                      (s.signedAttributes?.count ?? 0) <= 64, (s.unsignedAttributes?.count ?? 0) <= 64,
+                      (s.timestampTokens?.count ?? 0) <= 4, (s.evidence?.count ?? 0) <= 64,
+                      (s.evidenceIssue?.utf8.count ?? 0) <= 8192,
+                      ((s.signedAttributes ?? []) + (s.unsignedAttributes ?? [])).allSatisfy({ !$0.der.isEmpty && $0.der.count <= 1024*1024 && $0.oid.utf8.count <= 128 }),
+                      (s.timestampTokens ?? []).allSatisfy({ !$0.isEmpty && $0.count <= 1024*1024 }),
+                      (s.evidence ?? []).allSatisfy({ validEvidence($0, inputSize: data.count) }) else { throw SupervisedProcess.Failure.protocolViolation }
+                record.evidence = .init(signatureValue: value, signatureKey: s.signatureKey!, signerIndex: signerIndex,
+                    signedAttributes: s.signedAttributes ?? [], unsignedAttributes: s.unsignedAttributes ?? [],
+                    timestampTokens: s.timestampTokens ?? [], embedded: s.evidence ?? [], issue: s.evidenceIssue ?? "")
+            }
             return record
         }
         var preview: Data?, original: Data?
@@ -154,8 +182,12 @@ public enum SignumVerificationService {
             original = content
             if wire.previewablePDF && SignatureFormatDetector.candidate(content) == .pades { preview = content }
         }
-        return .init(id: UUID(), documentName: name, sha256: DocumentSnapshot.digest(data), format: wire.format,
+        guard (wire.unassociatedEvidence?.count ?? 0) <= 64,
+              (wire.unassociatedEvidence ?? []).allSatisfy({ validEvidence($0, inputSize: data.count) && $0.association == .unassociated }) else { throw SupervisedProcess.Failure.protocolViolation }
+        var result = VerificationReport(id: UUID(), documentName: name, sha256: DocumentSnapshot.digest(data), format: wire.format,
             signatures: records, documentState: wire.state, issue: wire.reason, previewPDF: preview, originalContent: original)
+        result.unassociatedEvidence = wire.unassociatedEvidence ?? []
+        return result
     }
 }
 #endif

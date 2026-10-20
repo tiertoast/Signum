@@ -22,4 +22,14 @@ int signum_timestamp_token(const uint8_t *token, size_t token_size,
     const uint8_t *data, size_t data_size,
     const uint8_t *anchor, size_t anchor_size, int64_t observed_at,
     int64_t *generated_at, char *reason, size_t reason_size);
+// Untrusted token metadata and imprint match, not TSA authorization.
+int signum_timestamp_inspect(const uint8_t *token, size_t token_size,
+    const uint8_t *value, size_t value_size, int64_t *time, int64_t *accuracy_microseconds,
+    uint8_t *certificates, size_t capacity, size_t *used);
+int signum_certificate_issued_by(const uint8_t *cert, size_t size, const uint8_t *issuer, size_t issuer_size);
+int signum_revocation_locations(const uint8_t *cert, size_t size, char *locations, size_t capacity);
+int signum_ocsp_request(const uint8_t *cert, size_t size, const uint8_t *issuer, size_t issuer_size,
+    uint8_t *out, size_t capacity, size_t *used);
+int signum_revocation_targets(int kind, const uint8_t *evidence, size_t evidence_size,
+    const uint8_t *cert, size_t cert_size, const uint8_t *issuer, size_t issuer_size);
 #endif

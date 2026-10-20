@@ -1,5 +1,8 @@
 # Signum 0.5-C — Evidenze di revoca e tempo: gate non superato
 
+> Documento storico della baseline b05ff5d. Per l’integrazione successiva vedere
+> [Binding SignerInfo e revisione](SIGNUM_0.5C_EVIDENCE_BINDING.md).
+
 Baseline: `da1fbd466e8ab7684f73967994d184dab957218b`.
 Branch: `feature/signum-0.5cd-complete-validation`.
 

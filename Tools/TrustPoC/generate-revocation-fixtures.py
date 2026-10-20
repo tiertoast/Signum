@@ -16,7 +16,7 @@ from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID, ObjectIdentifier
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 os.environ['OPENSSL_CONF']='/etc/ssl/openssl.cnf'
-OUT = Path(__file__).resolve().parents[2] / 'Tests/SignumCertificateValidationTests/Fixtures/Revocation'
+OUT = Path(os.environ.get('SIGNUM_FIXTURE_OUTPUT', str(Path(__file__).resolve().parents[2] / 'Tests/SignumCertificateValidationTests/Fixtures/Revocation')))
 OUT.mkdir(parents=True, exist_ok=True)
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 DAY = timedelta(days=1)

@@ -1,4 +1,5 @@
 #include "UnifiedVerification.h"
+#include "EvidenceExtraction.h"
 #include <openssl/cms.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
@@ -58,6 +59,13 @@ std::string der64(X509 *cert) {
     int count=EVP_EncodeBlock(reinterpret_cast<unsigned char*>(encoded.data()),der,n);
     OPENSSL_free(der);encoded.resize(count);return encoded;
 }
+void evidenceJSON(std::ostream& out,const std::vector<InspectedEvidence>& values) {
+ out<<'[';bool first=true;for(const auto& e:values){if(!first)out<<',';first=false;
+ out<<"{\"kind\":"<<quoted(e.kind)<<",\"source\":"<<quoted(e.source)<<",\"association\":"<<quoted(e.association)<<",\"der\":"<<quoted(e.der)<<",\"signatureKey\":"<<quoted(e.signatureKey)<<",\"signatureRevisionEnd\":"<<e.signatureRevisionEnd<<",\"sourceRevisionEnd\":"<<e.sourceRevisionEnd<<'}';}out<<']';
+}
+void attributesJSON(std::ostream& out,const std::vector<InspectedAttribute>& values) {
+ out<<'[';bool first=true;for(const auto& a:values){if(!first)out<<',';first=false;out<<"{\"oid\":"<<quoted(a.oid)<<",\"der\":"<<quoted(a.der)<<'}';}out<<']';
+}
 std::string json(const Inspection& r) {
     std::ostringstream out;
     out << "{\"version\":1,\"format\":" << quoted(r.format) << ",\"state\":" << quoted(r.state)
@@ -73,10 +81,12 @@ std::string json(const Inspection& r) {
             << ",\"signerDER\":" << quoted(s.signerDER) << ",\"certificateDERs\":[";
         bool firstCert=true;
         for(const auto& cert:s.certificateDERs){if(!firstCert)out<<',';firstCert=false;out<<quoted(cert);}
-        out << "]}";
+        out << "],\"signatureValue\":"<<quoted(s.signatureValue)<<",\"signatureKey\":"<<quoted(s.signatureKey)<<",\"signerIndex\":"<<s.signerIndex<<",\"evidenceIssue\":"<<quoted(s.evidenceIssue)<<",\"signedAttributes\":";
+        attributesJSON(out,s.signedAttributes);out<<",\"unsignedAttributes\":";attributesJSON(out,s.unsignedAttributes);
+        out<<",\"timestampTokens\":[";bool firstToken=true;for(const auto& t:s.timestampTokens){if(!firstToken)out<<',';firstToken=false;out<<quoted(t);}out<<"],\"evidence\":";evidenceJSON(out,s.evidence);out<<'}';
         if(out.tellp()>8*1024*1024)throw std::runtime_error("Metadati certificati oltre il limite");
     }
-    out << "]}";return out.str();
+    out << "],\"unassociatedEvidence\":";evidenceJSON(out,r.unassociatedEvidence);out<<'}';return out.str();
 }
 bool writeAll(const void* data,size_t n) {
     auto p=static_cast<const uint8_t*>(data);
@@ -119,7 +129,8 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
     } else if(input)BIO_free(input);
     std::vector<InspectedSignature> result;
     for(int i=0;i<count;++i) {
-        auto info=sk_CMS_SignerInfo_value(infos,i);InspectedSignature s;
+        auto info=sk_CMS_SignerInfo_value(infos,i);InspectedSignature s;s.signerIndex=i;
+        try {inspectSignerEvidence(info,s);}catch(const std::exception& e){s.evidenceIssue=e.what();s.timestampTokens.clear();s.evidence.clear();}
         X509* cert=nullptr;X509_ALGOR *digest=nullptr,*algorithm=nullptr;
         CMS_SignerInfo_get0_algs(info,nullptr,&cert,&digest,&algorithm);
         s.algorithm=oid(algorithm?algorithm->algorithm:nullptr)+" / "+oid(digest?digest->algorithm:nullptr);
@@ -180,6 +191,7 @@ int verificationMain() {
             report.format="cades";report.state="signed";Bytes current=bytes;
             for(size_t layer=1;layer<=5;++layer) {
                 Bytes payload;auto entries=inspectCMS(current,nullptr,&payload);
+                {auto parsed=decode(current,false);inspectCMSEvidence(parsed.get(),report);}
                 if(entries.size()+report.signatures.size()>32)throw std::runtime_error("Troppi firmatari annidati");
                 for(auto& s:entries){s.layer=layer;report.signatures.push_back(std::move(s));}
                 const bool allVerified=std::all_of(report.signatures.begin(),report.signatures.end(),[](const auto& s){return s.integrity=="verified";});

@@ -22,7 +22,7 @@ let package = Package(
         .target(name: "CPKCS11", dependencies: ["CCertificatePolicy"], publicHeadersPath: "include"),
         .target(name: "SignumTrustCore"),
         .target(name: "CCertificatePath", dependencies: ["CXMLSec"], publicHeadersPath: "include"),
-        .target(name: "SignumCertificateValidation", dependencies: ["CCertificatePath", "SignumTrustAuthentication"]),
+        .target(name: "SignumCertificateValidation", dependencies: ["CCertificatePath", "SignumTrustAuthentication", "SignumCore"]),
         .testTarget(name: "SignumCertificateValidationTests", dependencies: ["SignumCertificateValidation", "SignumCore", "SignumApp", "SignumTrustIntegration"], resources: [.copy("Fixtures")]),
         .systemLibrary(name: "CXMLSec", pkgConfig: "xmlsec1-openssl", providers: [.brew(["libxmlsec1"])]),
         .target(name: "CXMLSecurity", dependencies: ["CXMLSec"], publicHeadersPath: "include"),

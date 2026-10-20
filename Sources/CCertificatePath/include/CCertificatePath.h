@@ -7,3 +7,7 @@ int signum_path_validate(const uint8_t *packed, size_t packed_length,
                          const uint8_t *anchor, size_t anchor_length, int64_t when,
                          char *path_hashes, size_t path_capacity, char *reason, size_t reason_capacity);
 #include "CRevocationEvidence.h"
+
+int signum_path_validate_purpose(const uint8_t *packed, size_t packed_length,
+    const uint8_t *anchor, size_t anchor_length, int64_t when, int timestamp_purpose,
+    char *path_hashes, size_t path_capacity, char *reason, size_t reason_capacity);

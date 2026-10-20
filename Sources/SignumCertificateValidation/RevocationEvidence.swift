@@ -71,10 +71,12 @@ public actor RevocationEvidenceCache {
         guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw CacheError.writerBusy }
         defer { _ = flock(lock, LOCK_UN) }
         if let old = try load(evidence.kind, certificate: certificate, issuer: issuer, now: now), old.result.authenticated {
-            // Conflicting current signed statements must not turn into a
-            // positive cache result, even if one has a newer thisUpdate.
-            if old.result.state != result.state { throw CacheError.conflictingEvidence }
-            if let oldDate = old.result.thisUpdate, let newDate = result.thisUpdate, oldDate > newDate { return old.result }
+            // Never erase an authenticated revocation with a good response.
+            // A newly observed revocation must persist for subsequent offline
+            // checks, even if an overlapping good statement is still current.
+            if old.result.state == .revoked && result.state == .good { throw CacheError.conflictingEvidence }
+            if old.result.state == result.state, let oldDate = old.result.thisUpdate,
+               let newDate = result.thisUpdate, oldDate > newDate { return old.result }
         }
         let bytes = try JSONEncoder().encode(Entry(version: 1, certificate: certificate, issuer: issuer, evidence: evidence))
         try bytes.write(to: url, options: .atomic)

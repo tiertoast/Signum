@@ -17,7 +17,19 @@ func show(_ view: TLRefreshView) {
     fflush(stdout)
 }
 do {
-    if args.count == 4, args[1] == "path" {
+    if (args.count == 4 || args.count == 5 && args[4] == "--online"), args[1] == "evidence" {
+        let cache = URL(fileURLWithPath: args[2])
+        let view = try? await TLRefreshService(cacheURL: cache).cached()
+        let report = try SignumVerificationService.verify(file: URL(fileURLWithPath: args[3]))
+        let service = SignatureEvidenceValidationService(cache: RevocationEvidenceCache(directory: cache.deletingLastPathComponent().appendingPathComponent("Revocation")))
+        let values = await service.validate(report,authenticatedLists: view?.currentItaly.map { [$0] } ?? [],mode: args.count == 5 ? .online : .offline)
+        for value in values {
+            print("signature=\(value.signatureID) revocation=\(value.revocation.state.rawValue) time=\(value.time.state.rawValue) qualification=notChecked")
+            print("revocationReason=\(value.revocation.reason)\ntimeReason=\(value.time.reason)")
+            print("signingTimeDeclared=\(value.time.declaredSigningTime) provedUpperBound=\(value.time.provenTime?.ISO8601Format() ?? "none")")
+            for item in value.associations { print("evidence=\(item.sha256) source=\(item.source) binding=\(item.state.rawValue) reason=\(item.reason)") }
+        }
+    } else if args.count == 4, args[1] == "path" {
         let view = try? await TLRefreshService(cacheURL: URL(fileURLWithPath: args[2])).cached()
         let report = try SignumVerificationService.verify(file: URL(fileURLWithPath: args[3]))
         for signature in report.signatures {

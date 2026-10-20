@@ -14,3 +14,13 @@ Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.ocsp -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.crl -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.tst -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.bin -text -diff
+
+# Signed integration corpus, exact bytes.
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.xml -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.der -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.cms -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.pdf -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.ocsp -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.crl -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.tst -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.bin -text -diff

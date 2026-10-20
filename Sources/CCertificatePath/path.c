@@ -14,7 +14,7 @@ static X509 *decode(const uint8_t *p, size_t n) {
     const unsigned char *q=p; X509 *x=d2i_X509(NULL,&q,(long)n);
     if(x && q!=p+n) { X509_free(x); return NULL; } return x;
 }
-static int policy(X509 *x, int leaf, time_t when, const char **reason) {
+static int policy(X509 *x, int leaf, time_t when, int tsa, const char **reason) {
     int before=X509_cmp_time(X509_get0_notBefore(x),&when), after=X509_cmp_time(X509_get0_notAfter(x),&when);
     if(!before||!after||before>0||after<0) { *reason="Certificato scaduto, non ancora valido o data malformata"; return -1; }
     for(int i=0;i<X509_get_ext_count(x);i++) {
@@ -46,6 +46,7 @@ static int policy(X509 *x, int leaf, time_t when, const char **reason) {
     int permitted=leaf ? (!ku||ASN1_BIT_STRING_get_bit(ku,0)||ASN1_BIT_STRING_get_bit(ku,1)) : (ku&&ASN1_BIT_STRING_get_bit(ku,5));
     ASN1_BIT_STRING_free(ku);
     if(!permitted) { *reason="Key Usage incompatibile";return -1; }
+    if(tsa)return 1; // Dedicated OpenSSL timestamp purpose checks EKU.
     EXTENDED_KEY_USAGE *eku=X509_get_ext_d2i(x,NID_ext_key_usage,&critical,NULL);
     if(critical==-2) { *reason="Extended Key Usage duplicato";return -1; }
     permitted=!eku;
@@ -59,6 +60,7 @@ static int policy(X509 *x, int leaf, time_t when, const char **reason) {
 }
 struct search {
     X509 *certs[MAX_CERTS], *anchor;
+    int tsa;
     int count, chosen[MAX_DEPTH], used[MAX_CERTS], visits, paths, invalid, unsupported, success, exhausted;
     time_t when; char *hashes;size_t capacity;char message[256], invalid_message[256], invalid_hashes[1024];
 };
@@ -83,6 +85,7 @@ static void check(struct search *s,int length) {
     X509_VERIFY_PARAM_set_time(param,s->when); X509_VERIFY_PARAM_set_depth(param,MAX_DEPTH);
     X509_VERIFY_PARAM_set_auth_level(param,2);
     X509_VERIFY_PARAM_set_flags(param,X509_V_FLAG_PARTIAL_CHAIN|X509_V_FLAG_X509_STRICT|X509_V_FLAG_CHECK_SS_SIGNATURE|X509_V_FLAG_POLICY_CHECK);
+    if(s->tsa)X509_STORE_CTX_set_purpose(ctx,X509_PURPOSE_TIMESTAMP_SIGN);
     int ok=X509_verify_cert(ctx);
     STACK_OF(X509) *attempt=X509_STORE_CTX_get0_chain(ctx);
     size_t used=0;
@@ -96,9 +99,9 @@ static void check(struct search *s,int length) {
     if(ok==1) {
         STACK_OF(X509) *chain=X509_STORE_CTX_get0_chain(ctx);
         int n=sk_X509_num(chain);const char *why=NULL;int acceptable=1;
-        if(n<2||n>MAX_DEPTH+1||X509_cmp(sk_X509_value(chain,n-1),s->anchor)) acceptable=0;
+        if(n<(s->tsa?1:2)||n>MAX_DEPTH+1||X509_cmp(sk_X509_value(chain,n-1),s->anchor)) acceptable=0;
         for(int i=0;i<n&&acceptable;i++) {
-            int p=policy(sk_X509_value(chain,i),i==0,s->when,&why);
+            int p=policy(sk_X509_value(chain,i),i==0,s->when,s->tsa,&why);
             if(p!=1) {acceptable=0;if(p<0)s->invalid=1;else s->unsupported=1;snprintf(s->message,sizeof(s->message),"%s",why);}
         }
         if(acceptable) {
@@ -124,6 +127,7 @@ static void walk(struct search *s,int length) {
     if(s->success)return;
     if(++s->visits>MAX_VISITS) {s->unsupported=1;s->exhausted=1;return;}
     X509 *last=s->certs[s->chosen[length-1]];
+    if(s->tsa&&!X509_cmp(last,s->anchor)){check(s,length-1);return;}
     if(!X509_NAME_cmp(X509_get_issuer_name(last),X509_get_subject_name(s->anchor))) {
         int was_invalid=s->invalid;check(s,length);
         if(!was_invalid&&s->invalid) {
@@ -138,8 +142,8 @@ static void walk(struct search *s,int length) {
         }
     }
 }
-int signum_path_validate(const uint8_t *packed,size_t size,const uint8_t *anchor,size_t anchor_size,int64_t when,char *hashes,size_t capacity,char *reason,size_t reason_capacity) {
-    struct search s;memset(&s,0,sizeof(s));s.when=(time_t)when;s.hashes=hashes;s.capacity=capacity;
+int signum_path_validate_purpose(const uint8_t *packed,size_t size,const uint8_t *anchor,size_t anchor_size,int64_t when,int tsa,char *hashes,size_t capacity,char *reason,size_t reason_capacity) {
+    struct search s;memset(&s,0,sizeof(s));s.when=(time_t)when;s.tsa=tsa==1;s.hashes=hashes;s.capacity=capacity;
     if(capacity)hashes[0]=0;
     const char *why="Percorso verso il servizio TL non ricostruibile con i certificati disponibili";
     int result=0;
@@ -179,4 +183,8 @@ int signum_path_validate(const uint8_t *packed,size_t size,const uint8_t *anchor
 done:
     snprintf(reason,reason_capacity,"%s",why);
     for(int i=0;i<s.count;i++)X509_free(s.certs[i]);X509_free(s.anchor);ERR_clear_error();return result;
+}
+
+int signum_path_validate(const uint8_t *p,size_t n,const uint8_t *a,size_t z,int64_t when,char *h,size_t hc,char *r,size_t rc) {
+ return signum_path_validate_purpose(p,n,a,z,when,0,h,hc,r,rc);
 }
