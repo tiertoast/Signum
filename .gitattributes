@@ -24,3 +24,13 @@ Tests/SignumCertificateValidationTests/Fixtures/Binding/*.ocsp -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Binding/*.crl -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Binding/*.tst -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Binding/*.bin -text -diff
+
+# Exact signed qualification fixtures.
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.xml -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.der -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.cms -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.pdf -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.ocsp -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.crl -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.tst -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.bin -text -diff

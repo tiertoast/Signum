@@ -11,6 +11,6 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--native-prefix', type=Path, required=True)
     parser.add_argument('--cmake', type=Path, required=True)
-    parser.add_argument('--build-number', type=int, choices=(3,4), default=4)
+    parser.add_argument('--build-number', type=int, choices=(3,4,5), default=4)
     args = parser.parse_args()
     recipe.build(args.output.resolve(), 'release', args.native_prefix, args.cmake.absolute(), preview=True, preview_build=args.build_number)

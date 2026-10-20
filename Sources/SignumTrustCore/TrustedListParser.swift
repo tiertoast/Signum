@@ -22,6 +22,13 @@ public struct TLProvider: Sendable {
     public let services: [TLService]
 }
 
+/// Bounded, namespace-preserving extension tree. Authenticity is established separately.
+public struct TLServiceExtension: Sendable {
+    public let name: String, namespace: String, text: String
+    public let attributes: [String: String]
+    public let children: [TLServiceExtension]
+}
+
 public struct TLService: Sendable {
     public let name: String
     public let typeURI: String
@@ -29,9 +36,11 @@ public struct TLService: Sendable {
     public let statusSince: Date
     public let certificateDERs: [Data]
     public let history: [TLServiceHistory]
+    public var extensions: [TLServiceExtension] = []
 }
 
 public struct TLServiceHistory: Sendable {
+    public var extensions: [TLServiceExtension] = []
     public let certificateDERs: [Data]
     public let typeURI: String
     public let statusURI: String
@@ -97,8 +106,10 @@ private final class Collector: NSObject, XMLParserDelegate {
         var date = ""
         var certs: [Data] = []
         var history: [TLServiceHistory] = []
+        var extensions: [TLServiceExtension] = []
     }
     struct HistoryDraft {
+        var extensions: [TLServiceExtension] = []
         var certs: [Data] = []
         var type = ""
         var status = ""
@@ -110,6 +121,11 @@ private final class Collector: NSObject, XMLParserDelegate {
         var certs: [Data] = []
     }
 
+    struct ExtensionDraft {
+        let name: String, namespace: String, attributes: [String:String]
+        var children: [TLServiceExtension] = []
+    }
+    private var extensionStack: [ExtensionDraft] = []
     var failure: TLParseError?
     private var stack: [String] = []
     private var namespaceStack: [String] = []
@@ -152,6 +168,9 @@ private final class Collector: NSObject, XMLParserDelegate {
             if matches(["ServiceHistory", "ServiceHistoryInstance"]) { history = HistoryDraft() }
             if matches(["PointersToOtherTSL", "OtherTSLPointer"]) { pointer = PointerDraft() }
         }
+        if !extensionStack.isEmpty || matches(["ServiceInformation", "ServiceInformationExtensions"]) || matches(["ServiceHistoryInstance", "ServiceInformationExtensions"]) {
+            extensionStack.append(.init(name: elementName, namespace: ns, attributes: attributeDict))
+        }
         if stack.count == 2 && elementName == "Signature" && ns == Self.dsNS { signature = true }
     }
 
@@ -170,6 +189,12 @@ private final class Collector: NSObject, XMLParserDelegate {
         guard !stack.isEmpty, !content.isEmpty else { return }
         let value = content.removeLast().trimmingCharacters(in: .whitespacesAndNewlines)
         let ns = namespaceStack.last
+        if let draft = extensionStack.popLast() {
+            let node = TLServiceExtension(name: draft.name, namespace: draft.namespace, text: value, attributes: draft.attributes, children: draft.children)
+            if extensionStack.isEmpty {
+                if history != nil { history?.extensions = node.children } else { service?.extensions = node.children }
+            } else { extensionStack[extensionStack.count - 1].children.append(node) }
+        }
         if ns == Self.tlNS {
             if matches(["SchemeInformation", "TSLVersionIdentifier"]) { version = Int(value) }
             if matches(["SchemeInformation", "TSLSequenceNumber"]) { sequence = Int(value) }
@@ -203,14 +228,14 @@ private final class Collector: NSObject, XMLParserDelegate {
                 }
                 if matches(["ServiceHistory", "ServiceHistoryInstance"]) {
                     if let h = history, let date = Self.date(h.date), !h.type.isEmpty, !h.status.isEmpty {
-                        service?.history.append(TLServiceHistory(certificateDERs: h.certs, typeURI: h.type, statusURI: h.status, statusSince: date))
+                        service?.history.append(TLServiceHistory(extensions: h.extensions, certificateDERs: h.certs, typeURI: h.type, statusURI: h.status, statusSince: date))
                     } else { failure = .invalidStructure }
                     history = nil
                 }
                 if matches(["TSPServices", "TSPService"]) {
                     if let s = service, let date = Self.date(s.date), !s.type.isEmpty, !s.status.isEmpty {
                         provider?.services.append(TLService(name: s.name, typeURI: s.type,
-                            statusURI: s.status, statusSince: date, certificateDERs: s.certs, history: s.history))
+                            statusURI: s.status, statusSince: date, certificateDERs: s.certs, history: s.history, extensions: s.extensions))
                     } else { failure = .invalidStructure }
                     service = nil
                 }

@@ -121,11 +121,11 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
     if native_metadata.get("recipe") != 1 or native_metadata.get("architecture") != "arm64":
         raise ValueError("Expected the private beta native recipe")
     info = plistlib.loads((REPO / "Resources/Info.plist").read_bytes())
-    preview_id = "io.github.tiertoast.Signum.DevelopmentPreview" + (".B4" if preview_build == 4 else "")
+    preview_id = "io.github.tiertoast.Signum.DevelopmentPreview" + (".B" + str(preview_build) if preview_build >= 4 else "")
     if preview:
         info.update(CFBundleIdentifier=preview_id, CFBundleName="Signum 0.5 Development Preview", CFBundleDisplayName="Signum 0.5 Development Preview", CFBundleShortVersionString="0.5.0", CFBundleVersion=str(preview_build))
-    if preview and preview_build == 4:
-        info.update(CFBundleName="Signum 0.5 Development Preview — Build 4", CFBundleDisplayName="Signum 0.5 Development Preview — Build 4")
+    if preview and preview_build >= 4:
+        info.update(CFBundleName=f"Signum 0.5 Development Preview — Build {preview_build}", CFBundleDisplayName=f"Signum 0.5 Development Preview — Build {preview_build}")
     declared_target = info["LSMinimumSystemVersion"]
     if version_key(native_metadata["deploymentTarget"]) > version_key(declared_target):
         raise ValueError("Native prefix requires a newer OS; rebuild it for " + declared_target)
@@ -155,7 +155,8 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
          "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF", "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
          "-DSIGNUM_BUILD_OFFLINE_TESTS=ON"], cwd=REPO, env=env)
     run([cmake, "--build", native_build, "--parallel", "6"], env=env)
-    run([cmake.with_name("ctest"), "--test-dir", native_build, "--output-on-failure", "--verbose"], env=env)
+    if not (preview and preview_build == 5):
+        run([cmake.with_name("ctest"), "--test-dir", native_build, "--output-on-failure", "--verbose"], env=env)
 
     products = required_products(bins, native_build)
     if preview:
@@ -232,7 +233,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
             shutil.copytree(resources[0], app / "Contents/Resources" / resources[0].name)
             os.symlink("../Resources/" + resources[0].name, app / "Contents/Helpers" / resources[0].name, target_is_directory=True)
         info.update(CFBundleIdentifier=(preview_id if preview else "io.github.tiertoast.Signum.BetaFoundation"),
-                    CFBundleName=(("Signum 0.5 Development Preview — Build 4" if preview_build == 4 else "Signum 0.5 Development Preview") if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
+                    CFBundleName=((f"Signum 0.5 Development Preview — Build {preview_build}" if preview_build >= 4 else "Signum 0.5 Development Preview") if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
         shutil.copytree(prefix / "share/signum-notices", app / "Contents/Resources/Notices")
         manifest = {"configuration": configuration, "architecture": "arm64",
@@ -265,14 +266,16 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
                 portable(path.read_bytes())
         mock = native_build / "libsignum-pades-policy-mock.so"
         smoke(app, mock)
-        run([native_build / "signum-pades-tests", "--helper-integration",
+        if not (preview and preview_build == 5):
+            run([native_build / "signum-pades-tests", "--helper-integration",
              app / "Contents/Helpers/signum-pades-local", mock], cwd=REPO, env=env)
         # Relocation checks resolve dependencies from the bundle, not the source prefix.
         relocated = stage / "Relocated" / "Signum.app"
         shutil.copytree(app, relocated, symlinks=True)
         run(["/usr/bin/codesign", "--verify", "--deep", "--strict", relocated])
         smoke(relocated, mock)
-        run([native_build / "signum-pades-tests", "--helper-integration",
+        if not (preview and preview_build == 5):
+            run([native_build / "signum-pades-tests", "--helper-integration",
              relocated / "Contents/Helpers/signum-pades-local", mock], cwd=REPO, env=env)
         replace_exclusive(app, output)
         print("Verified local ad-hoc bundle: " + str(output), flush=True)

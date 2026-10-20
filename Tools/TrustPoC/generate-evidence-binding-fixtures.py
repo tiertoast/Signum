@@ -10,11 +10,35 @@ from cryptography.x509 import ocsp
 from cryptography.hazmat.primitives import hashes,serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import AuthorityInformationAccessOID
-ROOT=Path(__file__).resolve().parents[2];OUT=ROOT/'Tests/SignumCertificateValidationTests/Fixtures/Binding';OUT.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[2];OUT=Path(os.environ.get('SIGNUM_BINDING_FIXTURE_OUTPUT',str(ROOT/'Tests/SignumCertificateValidationTests/Fixtures/Binding')));OUT.mkdir(exist_ok=True)
+qualification=os.environ.get('SIGNUM_QUALIFICATION_FIXTURES')=='1'
 os.environ['SIGNUM_FIXTURE_OUTPUT']=str(OUT)
 g=runpy.run_path(str(ROOT/'Tools/TrustPoC/generate-revocation-fixtures.py'))
 keys,certs,now,der=g['keys'],g['certs'],g['NOW'],serialization.Encoding.DER
 keys['leaf-two']=rsa.generate_private_key(public_exponent=65537,key_size=2048);g['cert']('leaf-two',20,issuer='other')
+if qualification:
+ # QC DER is test data only; native path validation remains unchanged.
+ def tlv(t,b):
+  n=len(b);return bytes([t])+(bytes([n]) if n<128 else bytes([0x82])+n.to_bytes(2,'big') if n>255 else bytes([0x81,n]))+b
+ def seq(*v):return tlv(48,b''.join(v))
+ def oid(n):
+  parts=list(map(int,n.split('.')));raw=bytes([parts[0]*40+parts[1]])
+  for v in parts[2:]:
+   chunks=[v&127];v>>=7
+   while v:chunks.insert(0,(v&127)|128);v>>=7
+   raw+=bytes(chunks)
+  return tlv(6,raw)
+ qctype=seq(oid('0.4.0.1862.1.6'),seq(oid('0.4.0.1862.1.6.1')))
+ for n in ['leaf','leaf-two']:
+  old=certs[n];b=x509.CertificateBuilder().subject_name(old.subject).issuer_name(old.issuer).serial_number(old.serial_number).public_key(keys[n].public_key()).not_valid_before(now-timedelta(days=10)).not_valid_after(old.not_valid_after_utc)
+  for ext in old.extensions:
+   v=ext.value
+   if isinstance(v,x509.KeyUsage):v=x509.KeyUsage(True,True,False,False,False,False,False,None,None)
+   b=b.add_extension(v,ext.critical)
+  if n=='leaf':
+   qc=seq(seq(oid('0.4.0.1862.1.1')),qctype,seq(oid('0.4.0.1862.1.4')),seq(oid('0.4.0.1862.1.2'),seq(tlv(19,b'EUR'),tlv(2,b'\x64'),tlv(2,b'\x00'))),seq(oid('0.4.0.1862.1.3'),tlv(2,b'\x0a')),seq(oid('0.4.0.1862.1.5'),seq(seq(tlv(22,b'https://pds.example/'),tlv(19,b'it')))))
+   b=b.add_extension(x509.UnrecognizedExtension(x509.ObjectIdentifier('1.3.6.1.5.5.7.1.3'),qc),False)
+  certs[n]=b.sign(keys['issuer' if n=='leaf' else 'other'],hashes.SHA256())
 for name,issuer in [('leaf','issuer'),('leaf-two','other'),('tsa','issuer')]:
  old=certs[name];b=x509.CertificateBuilder().subject_name(old.subject).issuer_name(old.issuer).serial_number(old.serial_number).public_key(keys[name].public_key()).not_valid_before(old.not_valid_before_utc).not_valid_after(old.not_valid_after_utc)
  for ext in old.extensions:b=b.add_extension(ext.value,ext.critical)
@@ -24,7 +48,7 @@ for name,issuer in [('leaf','issuer'),('leaf-two','other'),('tsa','issuer')]:
 def response(name,certificate,issuer,status=ocsp.OCSPCertStatus.GOOD):
  b=ocsp.OCSPResponseBuilder().add_response(cert=certs[certificate],issuer=certs[issuer],algorithm=hashes.SHA256(),cert_status=status,this_update=now-timedelta(hours=1),next_update=now+timedelta(days=1),revocation_time=now-timedelta(days=2) if status==ocsp.OCSPCertStatus.REVOKED else None,revocation_reason=None).responder_id(ocsp.OCSPResponderEncoding.HASH,certs[issuer])
  (OUT/(name+'.ocsp')).write_bytes(b.sign(keys[issuer],hashes.SHA256()).public_bytes(der))
-response('leaf-good','leaf','issuer');response('leaf-two-revoked','leaf-two','other',ocsp.OCSPCertStatus.REVOKED);response('tsa-good','tsa','issuer')
+response('leaf-good','leaf','issuer');response('leaf-two-revoked','leaf-two','other',ocsp.OCSPCertStatus.GOOD if qualification else ocsp.OCSPCertStatus.REVOKED);response('tsa-good','tsa','issuer')
 # Full CRL for second issuer, with its own leaf revoked.
 b=x509.CertificateRevocationListBuilder().issuer_name(certs['other'].subject).last_update(now-timedelta(hours=1)).next_update(now+timedelta(days=1)).add_revoked_certificate(x509.RevokedCertificateBuilder().serial_number(20).revocation_date(now-timedelta(days=2)).build())
 (OUT/'other-revoked.crl').write_bytes(b.sign(keys['other'],hashes.SHA256()).public_bytes(der))
@@ -69,10 +93,22 @@ ess_cert_id_alg=sha256
   if wrong:value=OUT/'signature.bin'
   run(openssl,'ts','-query','-data',value,'-sha256','-cert','-out',tmp/'request.tsq')
   run(openssl,'ts','-reply','-config',tmp/'tsa.cnf','-queryfile',tmp/'request.tsq','-token_out','-out',tmp/'token.tst')
-  run(tmp/'compose','attach',path,output,fingerprints[name],tmp/'token.tst',OUT/(ocspname+'.ocsp'),OUT/'tsa-good.ocsp',OUT/('good.crl' if name=='leaf' else 'other-revoked.crl'))
+  run(tmp/'compose','attach',path,output,fingerprints[name],tmp/'token.tst',OUT/(ocspname+'.ocsp'),OUT/'tsa-good.ocsp',*([OUT/'good.crl'] if name=='leaf' else ([] if qualification else [OUT/'other-revoked.crl'])))
  signed(b'SIGNUM MULTISIGNER EVIDENCE FIXTURE\n',tmp/'multi.cms',['leaf','leaf-two'])
  attach(tmp/'multi.cms','leaf','leaf-good',tmp/'first.cms');attach(tmp/'first.cms','leaf-two','leaf-two-revoked',OUT/'multi.cms')
  attach(tmp/'multi.cms','leaf','leaf-good',OUT/'wrong-imprint.cms',wrong=True)
+ if qualification:
+  # A third actual CMS signature: QC for eSig, with no QcSSCD.
+  old=certs['leaf'];keys['leaf-noqscd']=keys['leaf']
+  b=x509.CertificateBuilder().subject_name(old.subject).issuer_name(old.issuer).serial_number(42).public_key(keys['leaf'].public_key()).not_valid_before(old.not_valid_before_utc).not_valid_after(old.not_valid_after_utc)
+  for ext in old.extensions:
+   if ext.oid.dotted_string!='1.3.6.1.5.5.7.1.3':b=b.add_extension(ext.value,ext.critical)
+  b=b.add_extension(x509.UnrecognizedExtension(x509.ObjectIdentifier('1.3.6.1.5.5.7.1.3'),seq(seq(oid('0.4.0.1862.1.1')),qctype)),False)
+  certs['leaf-noqscd']=b.sign(keys['issuer'],hashes.SHA256())
+  (OUT/'leaf-noqscd.der').write_bytes(certs['leaf-noqscd'].public_bytes(der));(tmp/'leaf-noqscd.pem').write_bytes(certs['leaf-noqscd'].public_bytes(serialization.Encoding.PEM));(tmp/'leaf-noqscd.key').write_bytes((tmp/'leaf.key').read_bytes())
+  fingerprints['leaf-noqscd']=hashlib.sha256(certs['leaf-noqscd'].public_bytes(der)).hexdigest()
+  response('noqscd-good','leaf-noqscd','issuer')
+  signed(b'SIGNUM QC WITHOUT QSCD',tmp/'noqscd.cms',['leaf-noqscd']);attach(tmp/'noqscd.cms','leaf-noqscd','noqscd-good',OUT/'noqscd.cms')
  # Detached PDF signatures composed around fixed-size ByteRange/Contents slots.
  def basepdf():
   objects={1:b'<< /Type /Catalog /Pages 2 0 R >>',2:b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',3:b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> >>'}
@@ -104,13 +140,29 @@ ess_cert_id_alg=sha256
  # Independently authenticated TL with two CA/QC identities and one TSA identity.
  T='http://uri.etsi.org/02231/v2#';D='http://www.w3.org/2000/09/xmldsig#';X='http://uri.etsi.org/01903/v1.3.2#';ns={'t':T,'d':D,'x':X}
  ET.register_namespace('',T);ET.register_namespace('ds',D);ET.register_namespace('xades',X)
- for filename,tsa_authorized in [('authorized',True),('no-tsa',False)]:
+ for filename,tsa_authorized in ([('authorized',True),('no-tsa',False)]+([(n,True) for n in ['withdrawn','historical','tl-qscd','wrong-policy','unsupported','conflict']] if qualification else [])):
   root=ET.parse(ROOT/'Tests/SignumCertificateValidationTests/Fixtures/trusted.xml').getroot();info=root.find('t:SchemeInformation',ns)
   info.find('t:ListIssueDateTime',ns).text=(now-timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ');info.find('t:NextUpdate/t:dateTime',ns).text=(now+timedelta(days=180)).strftime('%Y-%m-%dT%H:%M:%SZ')
   provider=root.find('t:TrustServiceProviderList/t:TrustServiceProvider',ns);services=provider.find('t:TSPServices',ns);template=copy.deepcopy(list(services)[0]);services.clear()
   for n,typ in [('issuer','CA/QC'),('other','CA/QC')]+([('tsa','TSA/QTST')] if tsa_authorized else []):
    service=copy.deepcopy(template);si=service.find('t:ServiceInformation',ns);si.find('t:ServiceName/t:Name',ns).text='SYNTHETIC '+n;si.find('t:ServiceTypeIdentifier',ns).text='http://uri.etsi.org/TrstSvc/Svctype/'+typ
    si.find('t:StatusStartingTime',ns).text=(now-timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ');identity=si.find('t:ServiceDigitalIdentity',ns);identity.clear();di=ET.SubElement(identity,'{'+T+'}DigitalId');ET.SubElement(di,'{'+T+'}X509Certificate').text=base64.b64encode(certs[n].public_bytes(der)).decode();services.append(service)
+   if qualification and typ=='CA/QC':
+    if filename=='withdrawn':si.find('t:ServiceStatus',ns).text='http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/withdrawn'
+    if filename=='historical':
+     history=ET.SubElement(service,'{'+T+'}ServiceHistory');hi=ET.SubElement(history,'{'+T+'}ServiceHistoryInstance')
+     for tag in ['ServiceTypeIdentifier','ServiceName','ServiceDigitalIdentity','ServiceStatus','StatusStartingTime']:
+      hi.append(copy.deepcopy(si.find('t:'+tag,ns)))
+     si.find('t:ServiceStatus',ns).text='http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/withdrawn';si.find('t:StatusStartingTime',ns).text=(now+timedelta(seconds=60)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    if filename in ['tl-qscd','wrong-policy','unsupported','conflict']:
+     S='http://uri.etsi.org/TrstSvc/SvcInfoExt/eSigDir-1999-93-EC-TrustedList/#';ext=si.find('t:ServiceInformationExtensions',ns);qe=ET.SubElement(ET.SubElement(ET.SubElement(ext,'{'+T+'}Extension',{'Critical':'true'}),'{'+S+'}Qualifications'),'{'+S+'}QualificationElement');qs=ET.SubElement(qe,'{'+S+'}Qualifiers')
+     for qualifier in (['QCNoQSCD'] if filename=='conflict' else ['QCWithQSCD']):ET.SubElement(qs,'{'+S+'}Qualifier',{'uri':'http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/'+qualifier})
+     criteria=ET.SubElement(qe,'{'+S+'}CriteriaList',{'assert':'all'})
+     if filename=='wrong-policy':
+      ps=ET.SubElement(ET.SubElement(criteria,'{'+S+'}PolicySet'),'{'+S+'}PolicyIdentifier');ET.SubElement(ps,'{'+X+'}Identifier',{'Qualifier':'OIDAsURI'}).text='urn:oid:1.2.3.999'
+     elif filename=='unsupported':ET.SubElement(criteria,'{'+S+'}otherCriteriaList')
+     else:ET.SubElement(ET.SubElement(criteria,'{'+S+'}KeyUsage'),'{'+S+'}KeyUsageBit',{'name':'nonRepudiation'}).text='true'
+  if qualification and filename=='historical':info.find('t:ListIssueDateTime',ns).text=(now+timedelta(seconds=90)).strftime('%Y-%m-%dT%H:%M:%SZ')
   sig=root.find('d:Signature',ns);sig.find('d:SignatureValue',ns).text=None
   for digest in sig.findall('d:SignedInfo/d:Reference/d:DigestValue',ns):digest.text=None
   signer=certs['issuer'].public_bytes(der);sc=sig.find('.//x:SigningCertificateV2/x:Cert',ns);sc.find('x:CertDigest/d:DigestValue',ns).text=base64.b64encode(hashlib.sha512(signer).digest()).decode()

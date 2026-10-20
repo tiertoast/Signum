@@ -94,7 +94,15 @@ static int criticalVocabulary(xmlXPathContextPtr xp) {
       "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForLegalPerson",
       "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCQSCDManagedOnBehalf",
       "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCWithQSCD",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCWithSSCD"};
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCWithSSCD",
+      /* Qualification vocabulary interpreted fail-closed by the D evaluator. */
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCNoQSCD",
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCQSCDStatusAsInCert",
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForESig",
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForESeal",
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForWSA",
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCStatement",
+      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/NotQualified"};
     int ok=1;
     for(int i=0;i<o->nodesetval->nodeNr;i++) {
         xmlChar *v=xmlNodeGetContent(o->nodesetval->nodeTab[i]); int found=0;
