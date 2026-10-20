@@ -1,0 +1,15 @@
+{
+  "captured": "2026-10-20",
+  "testClockUTC": "2026-10-20T12:00:00Z",
+  "sha256": {
+    "eu-lotl.xml": "a36d0053df1afa96c88ede817a585b3168afeba84c1984a0e6cc5642453e70e6",
+    "it.xml": "4dc43dc5ee19c23d1b65262b8df65ac7c4f16f12727e59175fa76e092e0a6889",
+    "synthetic-a.xml": "6f09ab4523ecfcd1423fc1079ac4789046b8a4201857527bca7dd4b00ca83538",
+    "synthetic-b.xml": "56b4980025dfa6f652c42f4cd21342ca890c205b6fd81c6c4db997ce66991b99",
+    "synthetic-pivot.xml": "8c058dd355e0c8372272410f3be3aed5d1939e8e8746a07720cfc8e8badb7228",
+    "synthetic-wrong-cert-binding.xml": "59be0459198c59e59166c8ece002508ef7194eb12d156ec567be6d94d901bda3",
+    "synthetic-wrong-format.xml": "f4b807a8cf7ff3027880ad42a698d50122313759f08d3455b9754591e4a9cb61",
+    "test-a.der": "6c165192a767a9038bb8205232354e6e5d7fcab1965ee7a6233f6f48aedd4247",
+    "test-b.der": "8edded2b1adb6a895fdafac06490c1ea1d23eb2c9e363c7f0371b4b6e028ee69"
+  }
+}

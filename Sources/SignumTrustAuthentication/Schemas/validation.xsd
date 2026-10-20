@@ -1,0 +1,6 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xs:import namespace="http://uri.etsi.org/02231/v2#" schemaLocation="19612_xsd.xsd"/>
+<xs:import namespace="http://uri.etsi.org/01903/v1.3.2#" schemaLocation="xades.xsd"/>
+<xs:import namespace="http://uri.etsi.org/02231/v2/additionaltypes#" schemaLocation="19612_additionaltypes_xsd.xsd"/>
+<xs:import namespace="http://uri.etsi.org/TrstSvc/SvcInfoExt/eSigDir-1999-93-EC-TrustedList/#" schemaLocation="19612_sie_xsd.xsd"/>
+</xs:schema>

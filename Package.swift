@@ -7,6 +7,8 @@ let package = Package(
     products: [
         .library(name: "SignumCore", targets: ["SignumCore"]),
         .library(name: "SignumTrustCore", targets: ["SignumTrustCore"]),
+        .library(name: "SignumTrustAuthentication", targets: ["SignumTrustAuthentication"]),
+        .executable(name: "SignumTrustProbe", targets: ["SignumTrustProbe"]),
         .executable(name: "SignumPKCS11Worker", targets: ["SignumPKCS11Worker"]),
         .executable(name: "SignumCLI", targets: ["SignumCLI"]),
         .executable(name: "SignumApp", targets: ["SignumApp"])
@@ -19,6 +21,11 @@ let package = Package(
         .target(name: "CSecurePIN", publicHeadersPath: "include"),
         .target(name: "CPKCS11", dependencies: ["CCertificatePolicy"], publicHeadersPath: "include"),
         .target(name: "SignumTrustCore"),
+        .systemLibrary(name: "CXMLSec", pkgConfig: "xmlsec1-openssl", providers: [.brew(["libxmlsec1"])]),
+        .target(name: "CXMLSecurity", dependencies: ["CXMLSec"], publicHeadersPath: "include"),
+        .target(name: "SignumTrustAuthentication", dependencies: ["SignumTrustCore", "CXMLSecurity"], resources: [.copy("Schemas")]),
+        .executableTarget(name: "SignumTrustProbe", dependencies: ["SignumTrustAuthentication"]),
+        .testTarget(name: "SignumTrustAuthenticationTests", dependencies: ["SignumTrustAuthentication"], resources: [.copy("Fixtures")]),
         .testTarget(name: "SignumTrustCoreTests", dependencies: ["SignumTrustCore"]),
         .target(name: "SignumCore", dependencies: ["CPKCS11", "CCertificatePolicy", "COutputPermissions", "CProcessCoordination", "CSecurePIN"]),
         .executableTarget(name: "SignumPKCS11Worker", dependencies: ["SignumCore"]),

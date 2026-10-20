@@ -232,10 +232,24 @@ private final class Collector: NSObject, XMLParserDelegate {
     }
 
     private func matches(_ path: [String]) -> Bool {
-        guard stack.count >= path.count else { return false }
-        let names = stack.suffix(path.count)
-        let namespaces = namespaceStack.suffix(path.count)
-        return Array(names) == path && namespaces.allSatisfy { $0 == Self.tlNS }
+        // Absolute paths are essential: ds:Signature/ds:Object is excluded
+        // from an enveloped root signature and can contain attacker-controlled
+        // XML. Never let suffix matches in that subtree overwrite TL records.
+        let root = ["TrustServiceStatusList"]
+        let provider = root + ["TrustServiceProviderList", "TrustServiceProvider"]
+        let service = provider + ["TSPServices", "TSPService"]
+        let prefix: [String]
+        switch path.first {
+        case "SchemeInformation", "TrustServiceProviderList": prefix = root
+        case "TSPInformation", "TSPServices": prefix = provider
+        case "ServiceInformation", "ServiceHistory": prefix = service
+        case "ServiceHistoryInstance": prefix = service + ["ServiceHistory"]
+        case "PointersToOtherTSL": prefix = root + ["SchemeInformation"]
+        case "OtherTSLPointer": prefix = root + ["SchemeInformation", "PointersToOtherTSL"]
+        default: return false
+        }
+        return stack == prefix + path && namespaceStack.allSatisfy { $0 == Self.tlNS }
+
     }
 
     private func appendCertificate(_ raw: String, toPointer: Bool) {

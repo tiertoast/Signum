@@ -1,0 +1,5 @@
+# Signed fixtures must retain exact bytes, including whitespace and CRLF.
+Tests/SignumTrustAuthenticationTests/Fixtures/*.xml -text -diff -whitespace
+# Preserve upstream schema/license formatting.
+Sources/SignumTrustAuthentication/Schemas/*.xsd -whitespace
+Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE -whitespace
