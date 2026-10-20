@@ -40,3 +40,25 @@ Only after authentication is complete should 0.5-B certificate-chain validation,
 - EU TL browser: https://eidas.ec.europa.eu/efda/trust-services/browse/eidas/tls
 
 No user document, smart-card PIN, token or PKCS#11 provider is involved in the ingestion component.
+
+## Additional preparation increment — continuity and negative cases (20 October 2026)
+
+A second isolated component, TLContinuityPolicy.swift, now compares two **untrusted revision observations**. It provides initial / unchanged / newer *candidates* or rejection for expired data, implausible future issue time, changed territory, version downgrade, sequence rollback, changed document under a reused sequence number, and issue-time rollback. It consumes a caller-supplied 32-byte XML SHA-256 value. It does NOT calculate that hash, authenticate the input, fetch a URL or authorize publishing to an authenticated cache. The eventual signature-verification pipeline MUST authenticate both the candidate and the previously accepted revision before acting on the comparison.
+
+Tests added: 7 TLContinuityPolicy XCTest methods and 3 parser negative cases (missing signature is still parsed strictly as untrusted data; foreign-namespace status spoofing; malformed Base64 identity). Total target source contains 17 XCTest methods, subject to independent macOS execution. Local Swift 6.2.1 Linux compiler smoke-tested the standalone continuity model with strict-concurrency diagnostics; this is **not** a run of the whole package test target.
+
+### Next Codex-only task: authenticated LOTL/TL ingestion
+
+This is the highest-risk portion and should be handled on macOS using native builds and tests, without changing the established signing engine.
+
+1. Establish the actual current Official Journal anchor (OJ C/2026/1944), signing certificate digests, LOTL URL, and official pivot history; verify their bytes and effective periods against the notice rather than treating downloaded XML as an anchor.
+2. Prototype a native XMLDSig/XAdES verification component (evaluate xmlsec + libxml2 + the existing OpenSSL). Verify *all* signed references, canonicalization and enveloped-signature transforms, SignedProperties, expected signature profile, signed document root, unique IDs, authorized signer identity, and schema/critical extensions. In TLv6 the published profile is XAdES-BASELINE-B (ETSI EN 319 132-1), whereas historical TLv5 uses XAdES BES. Reject algorithm/digest downgrade, wrapping attacks, external references, ambiguous roots and unauthenticated nested pointers.
+3. Authenticate EU LOTL independently; only then use authenticated LOTL pointers and signer identities to retrieve and authenticate the AgID national TL. Do not turn arbitrary TLLocation fields into outbound network access. Define URL, redirects, size and timeout bounds.
+4. Enforce publication policy: validate signature and source first, then apply version/sequence/issue/next-update continuity and preserve an atomic last-known-good authenticated snapshot. An offline or stale snapshot must be labeled as such, never silently become a current qualification verdict. Review TLContinuityPolicy against real-world rotation cases; enhance/restrict if necessary.
+5. Verify independent results against the European Commission DSS and eIDAS Trusted List Browser, including historical, malformed, expired, replayed and intentionally altered fixtures.
+6. Build/test arm64 macOS 13+ and package only the new isolated trust component. No claim of certificate trust, OCSP/CRL or qualified signatures yet; these belong to 0.5-B/C/D.
+
+**Hard scope:** no editing 0.4 release/tag, no GitHub Actions, no HalleyMac, no PIN/hardware, no PR merge/release, no automatic GUI switch-on. Provide reproducible local test commands and independent evidence before integration.
+
+Relevant 2026 normative notice: https://eur-lex.europa.eu/eli/C/2026/1944/oj/eng
+European Commission TLv6 migration: https://ec.europa.eu/digital-building-blocks/sites/spaces/DIGITAL/pages/967116974/Critical+Updates+Migration+to+TLv6+and+new+OJEU+Notice+for+the+EU+LOTL
