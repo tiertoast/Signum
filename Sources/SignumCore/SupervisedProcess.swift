@@ -1,13 +1,14 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import CProcessCoordination
 
 /// One-shot, off-main transport. No shell, credential argv/env, or child logs.
 /// Both pipe directions are nonblocking; a noisy/nonreading child cannot extend
 /// the monotonic deadline. Cancellation never retries a private operation.
 public enum SupervisedProcess {
     public enum Failure: Error, LocalizedError, Equatable {
-        case launch, timeout, cancelled, abnormalExit, protocolViolation, capacity, terminationPending
+        case launch, timeout, cancelled, abnormalExit, protocolViolation, capacity, terminationPending, resourceLimit, memoryMonitoringUnavailable
         public var errorDescription: String? {
             switch self {
             case .launch: return "Impossibile avviare il processo di lavoro."
@@ -17,19 +18,33 @@ public enum SupervisedProcess {
             case .protocolViolation: return "Risposta del processo di lavoro non valida."
             case .capacity: return "Troppi processi di lavoro ancora attivi."
             case .terminationPending: return "Terminazione del processo ancora in attesa del sistema."
+            case .resourceLimit: return "Il processo ha superato il limite di memoria della verifica."
+            case .memoryMonitoringUnavailable: return "Impossibile controllare la memoria del processo di verifica."
             }
         }
     }
-    private static let lock = NSLock()
-    private static var active = 0
-    private static func acquire() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard active < 8 else { return false }; active += 1; return true
+    /// The process slot lives until observed reaping, including deferred reaping.
+    /// The only mutable field is private and every access holds lock. No callbacks
+    /// or process waits run under it; static storage retains only this owner.
+    private final class Capacity: @unchecked Sendable {
+        private let lock = NSLock()
+        private var active = 0
+        func acquire() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard active < 8 else { return false }; active += 1; return true
+        }
+        func release() {
+            lock.lock(); defer { lock.unlock() }
+            precondition(active > 0); active -= 1
+        }
     }
-    private static func release() { lock.lock(); active -= 1; lock.unlock() }
+    private static let capacity = Capacity()
+    static func acquire() -> Bool { capacity.acquire() }
+    static func release() { capacity.release() }
 
     public static func run(executable: URL, arguments: [String] = [], input: inout Data,
                            maximumInput: Int = 131072, maximumOutput: Int = 2 * 1024 * 1024,
+                           maximumResidentBytes: UInt64? = nil,
                            timeout: TimeInterval = 30,
                            isCancelled: () -> Bool = { false }) throws -> Data {
         defer { input.resetBytes(in: 0..<input.count) }
@@ -60,7 +75,8 @@ public enum SupervisedProcess {
         // Close the parent's copies of the child's ends (including on early exit).
         try? incoming.fileHandleForReading.close(); try? outgoing.fileHandleForWriting.close()
         var result = Data(), sent = 0, writerClosed = false, failure: Failure?
-        var stopAt: TimeInterval?, killed = false
+        var stopAt: TimeInterval?, killed = false, unavailableRSSCount = 0
+        var nextRSSSample: TimeInterval = 0
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         var chunk = [UInt8](repeating: 0, count: 16384)
         func drain() {
@@ -75,6 +91,23 @@ public enum SupervisedProcess {
         }
         while process.isRunning {
             let now = ProcessInfo.processInfo.systemUptime
+            if failure == nil, let maximumResidentBytes, now >= nextRSSSample {
+                nextRSSSample = now + 0.005
+                var resident: UInt64 = 0
+                let sample = sg_process_resident_bytes(process.processIdentifier, &resident)
+                if sample == 0 {
+                    unavailableRSSCount = 0
+                    if resident > maximumResidentBytes {
+                    failure = .resourceLimit; stopAt = now; killed = true
+                    _ = kill(process.processIdentifier, SIGKILL)
+                    }
+                } else if sample < 0 {
+                    unavailableRSSCount += 1
+                    // Allow exit/reaping races; fail closed if a live child
+                    // remains unobservable across successive samples.
+                    if unavailableRSSCount >= 3 && process.isRunning { failure = .memoryMonitoringUnavailable }
+                } else { unavailableRSSCount = 0 }
+            }
             if failure == nil {
                 if isCancelled() { failure = .cancelled }
                 else if now >= deadline { failure = .timeout }
@@ -101,7 +134,13 @@ public enum SupervisedProcess {
                     throw Failure.terminationPending
                 }
             }
-            Thread.sleep(forTimeInterval: 0.005)
+            if failure == nil {
+                // Wake on pipe capacity/data rather than throttling every
+                // 16 KiB write by 5 ms (100 MiB otherwise exceeds 30 seconds).
+                var descriptors = [pollfd(fd: reader.fileDescriptor, events: Int16(POLLIN), revents: 0)]
+                if !writerClosed { descriptors.append(pollfd(fd: writer.fileDescriptor, events: Int16(POLLOUT), revents: 0)) }
+                _ = descriptors.withUnsafeMutableBufferPointer { poll($0.baseAddress, nfds_t($0.count), 5) }
+            } else { Thread.sleep(forTimeInterval: 0.005) }
         }
         process.waitUntilExit(); drain()
         if let failure { throw failure }

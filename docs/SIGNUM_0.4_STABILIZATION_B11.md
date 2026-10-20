@@ -1,0 +1,110 @@
+# Signum 0.4 — Stabilizzazione build 11
+
+## M1 — Baseline
+
+Branch `codex/signum-0.4-stabilization-b11` dall’HEAD effettivo `718406a` della build 10 (sorgente candidato `6e3c4ce`). Letti rapporto build 10 e diagnosi, preservati snapshot, consenso e ottimizzazioni del drag. Main e i branch precedenti non vengono modificati; hash iniziali dei bundle/manifest e dei due documenti non tracciati in `.build/04stabilization-b11/evidence/baseline.json`.
+
+**P0 riproducibile per costruzione:** il menu della build 10 modifica soltanto il default di acquisizione; lo snapshot conserva `format` e il coordinatore non espone una mutazione per il documento corrente. La nuova richiesta cambia esplicitamente questa semantica: byte immutabili, configurazione pre-consenso modificabile, job approvato immutabile.
+
+**P1:** il collaudo dell’utente riferisce ancora timbro assente con modalità visibile. Fit, readiness e conteggio annotazioni della build 10 non sono una prova di pixel nel viewport. Si predisporrà una riproduzione separata e un prototipo overlay prima di cambiare il percorso live.
+
+Ricerca locale nei nomi degli allegati Codex e nel mirror di progetto: PDF/video citati non accessibili; l’allegato corrente contiene soltanto le istruzioni. Nessuna analisi dichiarata del video o del documento reale, nessuna ricerca Internet o copia in Git. Fixture sintetiche per tutte le nuove prove; eventuale corrispondenza alla tavola reale resta un limite esplicito.
+
+Baseline locale mirata: `SigningFormatStabilizationTests|PAdESGeometryStabilizationTests|PAdESPlacementPerformanceTests` **9/9**, zero skip/fallimenti. I 333 test storici non sono assunti validi dopo le modifiche: saranno rieseguiti sul codice finale.
+
+## M2 — Configurazione dinamica
+
+Aggiunta `DocumentSigningConfiguration` per documento, distinta dallo snapshot immutabile. `setFormat` modifica soltanto la preparazione, invalida sincronicamente revisione/preflight e ricalcola i nomi con la convenzione esistente; i job copiano il formato esplicito e lo congelano. `DocumentSnapshot.format` resta un hint immutabile di acquisizione/limiti per i chiamanti legacy, non è più la sorgente del formato del batch. Nessuna nuova copia/lettura dell’originale per cambiare formato. PDF non strutturalmente leggibili/protetti sono rifiutati prima del consenso PAdES.
+
+Riprodotto inoltre un caso asincrono: se la revisione cambiava durante la validazione provider, un vecchio `SigningReviewContext` poteva avviare una preparazione con configurazioni nuove. Aggiunto il controllo di revisione anche dopo quella attesa. Test iniziale con due assert falliti, poi **27/27** pertinenti, zero skip/fallimenti. Inclusi cambi ripetuti, batch misto, collisioni, revisione durante preflight, blocco dopo approvazione/conclusione, snapshot invariato e firme CAdES/PAdES effettive con formato diverso dall’hint di acquisizione. Verificati CMS/PDF reali sintetici e assenza dell’output del vecchio formato.
+
+## M3 — Workflow GUI
+
+Menu principale «Formato firma» collegato al documento corrente, scelta separata per i prossimi documenti e menu per riga nei batch. Il cambio modifica soltanto il documento indicato, mostra il nuovo nome previsto (distinto dalla destinazione già riservata dal preflight), azzera l’appearance del vecchio formato e revoca il contesto grafico. PAdES apre la preview; CAdES torna all’elenco. Il workspace legge la configurazione corrente, mai l’hint di acquisizione. Nessuna rimozione/riacquisizione del file richiesta.
+
+Prima di iniziare M4/M5: **12/12** test pertinenti, zero skip/fallimenti. Incluso hosting nativo della GUI: stesso snapshot CAdES→PAdES→CAdES ripetuto, PDFView presente/assente coerentemente, vecchie generazioni non accettate. Confermate le cinque regressioni Core del formato dinamico e i test workspace precedenti.
+
+## M4 — Riproduzione e gate del prototipo
+
+Prototipo isolato riproducibile in Tools/PlacementPrototype/: due PDFView native affiancate, a sinistra il percorso annotazione esatto di 718406a, a destra una NSView trasparente che disegna lo **stesso PDF artwork**, senza nuovo layout. Nessuna modifica applicativa in questa milestone. Il runner utilizza gli oggetti Core della build Release locale e non esegue discovery/firma.
+
+**Fatti dimostrati nel viewport reale** (cattura finestra locale, non thumbnail):
+- Fixture vettoriale 10.000 segmenti, 3370×2384 pt, origine zero o traslata, rotazione 0: entrambe visibili.
+- Stessa fixture, CropBox traslato e rotazione 90: annotazione assente (0 pixel scuri nel ROI del timbro), overlay presente (1683). Durante il callback nativo il clip dopo la trasformazione dell’annotazione è (-72,468,100,240), disgiunto dal box artwork (0,0,240,100). L’ulteriore trasformazione dell’intera pagina applicata dall’annotazione non è valida nel percorso live ruotato. Le prove thumbnail precedenti non esercitavano questo percorso.
+- **Aggiornamento evidenza fornita successivamente dall’utente:** tavola reale ora accessibile, letta soltanto localmente e mai firmata. 140893 byte, una pagina non cifrata, MediaBox=CropBox (0,0,1304,1843), Rotate=90, UserUnit=1. Anche qui, al centro del viewport, callback annotazione con clip artwork (-826,-323,100,240) disgiunto dal box AP. Il confronto delle due metà mostra solo nell’overlay il timbro e il suo fondo opaco. Riprodotto quindi il difetto sul documento effettivo; il peso elevato non è necessario per questo caso. Originale non modificato, nessuna risorsa personale in Git.
+- Cambio zoom 25% esercitato nel prototipo sul documento reale. Validazione sistematica di zoom/scroll e performance nel percorso integrato prevista in M5/M7.
+- Riferimento finale già rieseguito: PAdESStabilizationSigningTests **1/1**, quattro rotazioni, AP/Rect, integrità crittografica, confronto indipendente Poppler e originale sintetico invariato. La geometria dell’overlay deriva dalle conversioni PDFKit degli stessi tre punti del rettangolo grezzo usato da questi job.
+
+**Decisione:** gate soddisfatto per procedere all’overlay live. Conservare il renderer esistente e il binding immutabile; sostituire soltanto la presentazione nel viewport. I dati di prova/catture rimangono ignorati in .build/04stabilization-b11/. La registrazione video non è stata esaminata. L’esito sul prototipo non equivale ancora alla consegna di P1 nell’app.
+
+## M5 — Overlay live
+
+Introdotta SignaturePlacementOverlay, NSView trasparente e non intercettante sopra il viewport, ritagliata all’area di scorrimento. Il rettangolo del job resta in coordinate PDF grezze: tre conversioni PDFKit determinano la trasformazione dell’artwork, comprese rotazioni/box/origini/UserUnit. Zoom, scroll, layout e cambio pagina aggiornano solo la geometria. Nessun parser o renderer del documento aggiuntivo; nessuna annotazione temporanea nel PDF live. L’annotazione legacy rimane esclusivamente per confronti offline e regressioni preesistenti.
+
+Lo stesso PDF artwork è conservato e presentato tramite una cache dei suoi soli pixel (dimensione massima 4096 per asse). La prova iniziale ha mostrato che AppKit può ridisegnare una NSView anche per cambi di origine: il solo backing layer non bastava (201 disegni su 200 spostamenti). Aggiunta quindi cache esplicita CGImage; ora 200 spostamenti non richiamano drawPDFPage né decodificano PNG/JPEG. Zoom/resize invalidano la piccola cache, mai l’intera tavola. Bordo di selezione separato dal contenuto firmato.
+
+Readiness visibile solo dopo il disegno effettivo; callback differiti e vincolati all’identità corrente, consenso invalido durante il gesto come prima. Errori artwork espliciti, cancellazione/documento sostituito eliminano le risorse precedenti. Firma invisibile non richiede disegno.
+
+**8/8 test** pertinenti, zero skip/fallimenti: hosting GUI e cambio formato, precedenti prove offline, pixel della NSView overlay e rettangoli live per A1/A0/>A0/geometria equivalente alla tavola, quattro rotazioni, origini/box traslati, UserUnit, zoom 25/100/200, riuso della cache su 200 movimenti, notifiche scroll, errori/invisibile/reset. La prova precedente fallita è conservata nei log. Avviso PDFKit durante teardown di documenti sintetici, senza assert falliti; nessun errore ignorato di approvazione.
+
+## M6 — Consenso e output finale
+
+Estesa la regressione di firma effettiva alle quattro rotazioni: prima del consenso presenta lo stesso artwork nell’overlay nativo, controlla pixel rossi, rettangolo convertito e uguaglianza dei byte AP; dopo il freeze modifica/chiude la presentazione e verifica che il job e il PDF finale conservino i valori approvati. Il helper continua a ricevere i byte AP congelati, mai una posizione ricavata dalla vista durante la firma.
+
+**17/17** test pertinenti, zero skip/fallimenti, inclusi formati dinamici con firme effettive, revisioni/preflight e output PAdES. Per ciascuna rotazione: AP/N e Rect presenti, originale invariato, verifica crittografica valida e centroidi Poppler coincidenti entro 2 pixel con il riferimento che incorpora gli stessi byte in page content. Nessuna modifica alle primitive o alla pubblicazione.
+
+## M7 — Regressioni grafiche e prestazioni
+
+**13/13** mirati, zero skip/fallimenti. Rafforzata la prova del pannello SwiftUI reale: ora misura i contatori overlay/raster effettivi (non quelli dell’annotazione dismessa). Aggiunti 40 immagini sintetiche nel documento, gesti nativi click/drag/Option-resize con round-trip coordinate, pagine miste, cambio pagina, rigenerazione al resize, notifiche zoom/scroll. Errori allocazione espliciti e invalidazione cache su cambio backing scale.
+
+Misure Debug non sanitizzate sul Mac corrente; tre esecuzioni con immagini assenti/1024/2800, 120 movimenti:
+| Misura (ms) | Testo | PNG 1024 | PNG 2800 |
+|---|---:|---:|---:|
+| Generazione artwork (renderer esistente) | 0,69 | 9,30 | 65,89 |
+| Prima presentazione/cache nativa | 0,73 | 2,93 | 17,35 |
+| Movimento overlay p95, incluso display | 0,088 | 0,070 | 0,091 |
+| Resize incluso renderer | 1,34 | 12,66 | 84,71 |
+| Zoom/raster della sola AP | 1,52 | 3,95 | 17,84 |
+
+Nel pannello SwiftUI, input schedulato a 60 eventi/s (30 e 120 eventi), latenza evento→binding mediana 2,99–3,20 ms, p95 3,41–3,99 ms, **zero render/nuovi artwork/rasterizzazioni durante drag**, readiness soltanto al rilascio. Non è una misura dei frame presentati: nessuna dichiarazione di 60 fps. RSS di picco dell’intero processo test 182–257 MB; non attribuibile alla sola cache (include fixture, PNG, PDFKit, test precedenti). La prima presentazione/zoom PNG grande resta circa 17–18 ms sincrona sul MainActor; il render/resize viene eseguito dal coordinatore asincrono nell’app. Cache massima 4096²×4 byte per artwork; limite della sola rappresentazione a schermo, AP finale vettoriale invariata.
+
+Runner A/B aggiornato con opzione --integrated per usare a destra il codice live effettivo, mantenendo a sinistra 718406a. Riesaminata la tavola reale localmente, senza firma: pixel del timbro presenti nel codice integrato, assenti nel percorso precedente; esercitati clic e zoom 25/100/200. Catture ignorate, nessun documento personale nel commit. I test automatici usano esclusivamente fixture sintetiche. Ulteriori tavole dell’utente non ancora disponibili restano da collaudare.
+
+ASAN e TSAN mirati sul codice corrente: **17/17 ciascuno**, zero skip/fallimenti e nessuna segnalazione sanitizer nei log. Comprendono formati, GUI, overlay, cancellazione/render/preflight e output firmato sintetico.
+
+## M8 — Candidata build 11
+
+Sorgente avanzata a **0.4.0 / build 11** dopo i test: Swift completa **345/345**, PKCS#11 **40/40**, PAdES Debug/Release **63/63 ciascuna**, packaging unit **10/10**, ASAN/TSAN mirati **17/17 ciascuno**. Zero skip/fallimenti finali. Suite completa include protezioni snapshot/consenso, atomicità/no-overwrite, Secure Batch PIN, worker, discovery e verifica unificata; nessun dispositivo/PIN reale.
+
+Bundle nuovi consegnati in .build/04stabilization-b11/final-debug/Signum.app e final-release/Signum.app. Build, audit dipendenze/minimo OS, codesign strict, helper/rilocazione e integrazioni con helper impacchettati tutti completati. Stato prima del packaging: tutte le modifiche applicative committate; i due documenti preesistenti non tracciati restano esclusi.
+
+### Commit milestone
+- M1 dd5b047 — baseline.
+- M2 a094998 — configurazione formato.
+- M3 2871c67 — workflow GUI.
+- M4 b27206f — riproduzione/prototipo.
+- M5 23d23ac — overlay live.
+- M6 1b8c98c — binding/output verificato.
+- M7 f980b58 — regressioni/prestazioni.
+- M8 3a2e1dd — sorgente build 11; successivo commit solo documentale per esiti dei bundle.
+
+### Collaudo manuale rimanente
+Aprire la candidata Release nuova, caricare la tavola e scegliere CAdES/PAdES più volte senza riacquisizione. In PAdES attivare il timbro, cliccare/trascinare/ridimensionare con Option, provare zoom e scroll, poi altre tavole e un batch misto. Verificare nomi/destinazioni prima del consenso e firma invisibile. Il collaudo di sola anteprima non richiede PIN. Firma hardware e documenti reali richiedono istruzioni esplicite e non sono stati eseguiti qui. Runtime macOS 13/14 non disponibile: compatibilità di deployment/packaging verificabile, comportamento runtime ancora da collaudare.
+
+
+### Esito finale e bundle consegnati
+
+Sorgente dei due bundle: **3a2e1dd40702a833c14c3871fa8fea7ce4cd0351**, manifest con sourceTrackedDirty=false. Release e Debug ad hoc arm64; versione 0.4.0/build 11, minimo dichiarato e misurato in tutti i Mach-O **13.0**. Dipendenze interne, avvio CLI/worker/helper sintetici, caricamento PoDoFo, notices, firma strict e rilocazione verificati dalla ricetta locale. Nessun Developer ID/notarizzazione/distribuzione pubblica.
+
+| Bundle | SHA-256 eseguibile principale |
+|---|---|
+| final-release/Signum.app | 9ddf741b692d4db9dbc18598911222e3e590ff7c2534d4fb0b8dc9f7ada62fe4 |
+| final-debug/Signum.app | 693c2306f845febd7fdc32213a8723363e13e36022dc6242afbf1d9b1538b830 |
+
+Integrazioni con gli helper realmente impacchettati: **45/45 Debug, 45/45 Release**, zero skip/fallimenti; include i nuovi cambi formato con output effettivi e confronto Poppler. Ricetta packaging: 63 casi helper prima e dopo rilocazione per configurazione. Verificati di nuovo hash del codice annidato e codesign dopo la costruzione.
+
+Log e manifest delle prove locali: .build/04stabilization-b11/evidence/ (final-swift, final-pkcs11, final-pades-debug/release, final-packaging-tests, final-asan/tsan, bundle-debug/release, bundle-debug/release-integration, final-bundles.json, preservation.json). Non si assumono validi test storici al posto di quelli eseguiti.
+
+**Stato funzionale:** P0 implementato e verificato con GUI nativa e firme software effettive; P1 riprodotto sul PDF fornito e corretto nel percorso overlay integrato, verificato nel viewport reale e con fixture/output sintetici. Le altre tavole simili non sono state esaminate: il collaudo dell’utente rimane necessario, così come runtime macOS 13/14 e hardware eventualmente autorizzato in seguito. Nessuna firma della tavola reale, nessun PIN/token reale. La prima rasterizzazione di immagini grandi e il rendering PDFKit del documento restano costi da distinguere dalla geometria del drag; non sono stati misurati fps reali.
+
+Confronto finale con baseline.json: **zero differenze** per tutti i ref protetti e gli hash dei file/bundle censiti, inclusi build 9/10 e i due documenti non tracciati. SHA-256 della tavola invariato dopo le prove. Working tree applicativo pulito al checkpoint; rimangono soltanto i due file già non tracciati. Main, PR #3, Alpha e build precedenti preservati; nessun push/merge/tag/release/Actions o accesso a HalleyMac/altri repository. Prototipo locale chiuso al termine.

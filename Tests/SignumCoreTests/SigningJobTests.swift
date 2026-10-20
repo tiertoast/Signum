@@ -40,7 +40,7 @@ final class SoftwareSigner {
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
         process.arguments = args; process.currentDirectoryURL = folder
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
-        try process.run(); process.waitUntilExit()
+        try process.run(); try FixtureProcess.wait(process)
         guard process.terminationStatus == 0 else { throw SignumError.module("Synthetic software CMS fixture failed") }
     }
 }
@@ -65,6 +65,26 @@ final class SigningJobTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: job.snapshot.fileURL.deletingLastPathComponent().path), file: file, line: line)
         let entries = try FileManager.default.contentsOfDirectory(atPath: job.destination.deletingLastPathComponent().path)
         XCTAssertFalse(entries.contains(where: { $0.hasPrefix(".signum-staging-") }), file: file, line: line)
+    }
+    func testDirectoryReplacedAfterApprovalBeforeWriterCreatesNoWrongPayload() throws {
+        try withJob { old, signer, _ in
+            let root = old.destination.deletingLastPathComponent()
+            let directory = root.appendingPathComponent("approved")
+            try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+            let planned = try OutputDirectoryIdentity.inspect(directory)
+            let expected = planned.1
+            let job = try SigningJob(snapshot:old.snapshot,providerPath:old.providerPath,slot:old.slot,certificate:old.certificate,
+                certificateDER:old.certificateDER,destination:planned.0.appendingPathComponent("result.p7m"),destinationDirectoryIdentity:expected)
+            let moved = root.appendingPathComponent("moved")
+            XCTAssertThrowsError(try job.executeCAdES { bytes in
+                let cms = try signer.cms(for:bytes)
+                try FileManager.default.moveItem(at:directory,to:moved)
+                try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+                return cms
+            })
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath:directory.path),[])
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath:moved.path),[])
+        }
     }
     func testImmutableRequestContainsAllApprovedIdentities() throws {
         try withJob { job, signer, _ in
@@ -143,6 +163,10 @@ final class SigningJobTests: XCTestCase {
     func testCertificateChangedDuringJobBlocksBeforeLogin() throws {
         try withJob { old, _, _ in
             let mock = try MockModule(), module = try PKCS11Module(path: mock.path.path)
+            // This test owns one synchronous raw module. Complete checked
+            // disposal before releasing its fixture loader handle. Async deinit
+            // remains exercised separately by PKCS11LifecycleIntegrationTests.
+            defer { XCTAssertNoThrow(try module.closeInWorker()) }
             let job = try SigningJob(snapshot: old.snapshot, providerPath: module.modulePath, slot: old.slot,
                                     certificate: old.certificate, certificateDER: old.certificateDER, destination: old.destination)
             let replacement = try CertificateEligibilityTests.fixtures.get().der("replaced")
@@ -155,6 +179,10 @@ final class SigningJobTests: XCTestCase {
     func testWrongProviderIsRejectedBeforeLogin() throws {
         try withJob { job, _, _ in
             let mock = try MockModule(), module = try PKCS11Module(path: mock.path.path)
+            // This test owns one synchronous raw module. Complete checked
+            // disposal before releasing its fixture loader handle. Async deinit
+            // remains exercised separately by PKCS11LifecycleIntegrationTests.
+            defer { XCTAssertNoThrow(try module.closeInWorker()) }
             XCTAssertThrowsError(try job.signCAdES(using: module, pin: "synthetic-value"))
             XCTAssertEqual(mock.count(8), 0); try assertCleanFailure(job)
         }
@@ -171,7 +199,7 @@ final class SigningJobTests: XCTestCase {
             let fd = output.fileHandleForReading.fileDescriptor
             XCTAssertEqual(fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK), 0)
             try process.run()
-            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); process.waitUntilExit() } }
+            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); try? FixtureProcess.wait(process) } }
             var text = Data(), buffer = [UInt8](repeating: 0, count: 4096)
             let deadline = ProcessInfo.processInfo.systemUptime + 4
             while ProcessInfo.processInfo.systemUptime < deadline {
@@ -193,7 +221,7 @@ final class SigningJobTests: XCTestCase {
             let finish = ProcessInfo.processInfo.systemUptime + 3
             while process.isRunning && ProcessInfo.processInfo.systemUptime < finish { Thread.sleep(forTimeInterval: 0.01) }
             if process.isRunning { kill(process.processIdentifier, SIGKILL); XCTFail("CLI cancellation blocked") }
-            process.waitUntilExit()
+            try FixtureProcess.wait(process)
             let error = String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             XCTAssertEqual(process.terminationStatus, 1)
             XCTAssertTrue(error.contains("annullata"), error)

@@ -13,6 +13,8 @@ acl_t sg_output_inherited_acl(int parent, int stage);
 int sg_output_apply_acl(int fd, acl_t acl);
 /* Conservative recovery of the empty inheritance fixture after a crash. */
 int sg_output_cleanup_permissions(int stage);
+/* Read-only check: 1 = no extended ACL write grants, 0 = unsafe, -1 = error. */
+int sg_discovery_acl_safe(const char *path);
 #ifdef __cplusplus
 }
 #endif

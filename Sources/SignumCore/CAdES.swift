@@ -5,7 +5,7 @@ import CryptoKit
 /// Only RSA PKCS#1 v1.5 with SHA-256 and one signer's leaf certificate.
 /// Independently validate any generated .p7m with a separate implementation.
 public enum CAdES {
-    public static let maximumDocumentBytes = 16 * 1024 * 1024
+    public static let maximumDocumentBytes = SigningResourceLimits.maximumDocumentBytes
 
     public struct Prepared {
         public let attributesToSign: Data
@@ -16,7 +16,7 @@ public enum CAdES {
 
         public init(document: Data, certificateDER: Data) throws {
             guard !document.isEmpty && document.count <= CAdES.maximumDocumentBytes else {
-                throw SignumError.module("CAdES proof of concept accepts documents of 1–16 MiB")
+                throw SignumError.module("Serve un documento non vuoto, fino a \(maximumDocumentBytes / 1024 / 1024) MiB.")
             }
             let identity = try DER.certificateIdentity(certificateDER)
             self.document = document
@@ -58,18 +58,30 @@ public enum CAdES {
                 DER.sequence([DER.rsaEncryptionOID, DER.null]),
                 DER.octets(signature)
             ])
-            let encapsulatedContent = DER.sequence([
-                DER.dataOID,
-                DER.contextExplicit0(DER.octets(document))
-            ])
-            let signedData = DER.sequence([
-                DER.integerOne,
-                DER.set([digestAlgorithm]),
-                encapsulatedContent,
-                DER.contextImplicit0(certificateDER),
-                DER.set([signerInfo])
-            ])
-            return DER.sequence([DER.signedDataOID, DER.contextExplicit0(signedData)])
+            // Same DER ContentInfo/SignedData layout as before. Keep only the
+            // small enclosing headers/metadata, then append the attached bytes
+            // once. Nested wrap/sequence calls materialized the payload at every
+            // enclosing level. Prepared still owns the immutable approved Data.
+            let signedPrefix = DER.integerOne + DER.set([digestAlgorithm])
+            let signedSuffix = DER.contextImplicit0(certificateDER) + DER.set([signerInfo])
+            let octets = DER.header(0x04, length: document.count)
+            let explicitDocument = DER.header(0xA0, length: octets.count + document.count)
+            let encapsulatedLength = DER.dataOID.count + explicitDocument.count + octets.count + document.count
+            let encapsulated = DER.header(0x30, length: encapsulatedLength)
+            let signedLength = signedPrefix.count + encapsulated.count + encapsulatedLength + signedSuffix.count
+            let signed = DER.header(0x30, length: signedLength)
+            let explicitSigned = DER.header(0xA0, length: signed.count + signedLength)
+            let outerLength = DER.signedDataOID.count + explicitSigned.count + signed.count + signedLength
+            let outer = DER.header(0x30, length: outerLength)
+            var result = Data()
+            result.reserveCapacity(outer.count + outerLength)
+            for prefix in [outer, DER.signedDataOID, explicitSigned, signed, signedPrefix,
+                           encapsulated, DER.dataOID, explicitDocument, octets] {
+                result.append(prefix)
+            }
+            result.append(document)
+            result.append(signedSuffix)
+            return result
         }
     }
 }
@@ -109,11 +121,17 @@ enum DER {
     }
 
     static func wrap(_ tag: UInt8, _ content: Data) -> Data {
+        var result = header(tag, length: content.count)
+        result.append(content)
+        return result
+    }
+
+    static func header(_ tag: UInt8, length: Int) -> Data {
         var result = Data([tag])
-        if content.count < 128 {
-            result.append(UInt8(content.count))
+        if length < 128 {
+            result.append(UInt8(length))
         } else {
-            var length = content.count
+            var length = length
             var bytes = [UInt8]()
             while length > 0 {
                 bytes.insert(UInt8(length & 0xFF), at: 0)
@@ -122,7 +140,6 @@ enum DER {
             result.append(UInt8(0x80 | bytes.count))
             result.append(contentsOf: bytes)
         }
-        result.append(content)
         return result
     }
 
@@ -132,8 +149,9 @@ enum DER {
         let contents: Range<Int>
     }
 
-    static func read(_ bytes: [UInt8], at index: inout Int, limit: Int) throws -> Node {
-        guard index >= 0, index < limit, limit <= bytes.count else {
+    static func read<Bytes: RandomAccessCollection>(_ bytes: Bytes, at index: inout Int, limit: Int) throws -> Node
+        where Bytes.Element == UInt8, Bytes.Index == Int {
+        guard bytes.startIndex == 0, index >= 0, index < limit, limit <= bytes.count else {
             throw SignumError.invalidCertificate
         }
         let start = index

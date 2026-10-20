@@ -3,10 +3,12 @@ import XCTest
 import PDFKit
 import CoreGraphics
 @testable import SignumApp
+@testable import SignumPlacementReference
 @testable import SignumCore
 
-final class PAdESPreviewTests: XCTestCase {
-    private let field = PAdESPlacement(pageIndex: 0, rectangle: CGRect(x: 12, y: 25, width: 190, height: 62))
+// Historical freeText reference only; live behavior is covered by overlay/workspace tests.
+final class LegacyPAdESPreviewReferenceTests: XCTestCase {
+    private let field = ReferencePlacement(pageIndex: 0, rectangle: CGRect(x: 12, y: 25, width: 190, height: 62))
 
     private func pdf() throws -> Data {
         let bytes = NSMutableData()
@@ -18,7 +20,7 @@ final class PAdESPreviewTests: XCTestCase {
     }
 
     @MainActor func testSignerChangesWithoutMovingOrDuplicatingAnnotation() async throws {
-        let viewer = PlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: pdf()))
+        let viewer = ReferencePlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: pdf()))
         viewer.updatePreview(field, name: "Synthetic A", visible: true)
         let old = try XCTUnwrap(viewer.previewAnnotation)
         viewer.updatePreview(field, name: "Synthetic B", visible: true)
@@ -34,7 +36,7 @@ final class PAdESPreviewTests: XCTestCase {
     }
 
     @MainActor func testDiscoveryAfterPlacementReplacesPlaceholder() async throws {
-        let viewer = PlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: pdf()))
+        let viewer = ReferencePlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: pdf()))
         viewer.updatePreview(field, name: "Seleziona un certificato", visible: true)
         viewer.updatePreview(field, name: "Synthetic discovered signer", visible: true)
         XCTAssertEqual(viewer.previewAnnotation?.contents, "Firmato digitalmente da\nSynthetic discovered signer")
@@ -43,7 +45,7 @@ final class PAdESPreviewTests: XCTestCase {
     }
 
     @MainActor func testVisibilityAndAbsentPlacementNeverLeaveStaleSigner() async throws {
-        let viewer = PlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: pdf()))
+        let viewer = ReferencePlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: pdf()))
         viewer.updatePreview(field, name: "Synthetic A", visible: true)
         viewer.updatePreview(field, name: "Synthetic B", visible: false)
         XCTAssertNil(viewer.previewAnnotation)
@@ -71,7 +73,7 @@ final class PAdESPreviewTests: XCTestCase {
         let job = try SigningJob(snapshot: snapshot, providerPath: "/synthetic/provider.dylib", slot: 7,
                                 certificate: certificate, certificateDER: b, destination: folder.appendingPathComponent("signed.pdf"))
         let id = job.id, hash = job.contentSHA256, identity = job.snapshotIdentity
-        let viewer = PlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: snapshot.approvedBytes))
+        let viewer = ReferencePlacementPDFView(); viewer.document = try XCTUnwrap(PDFDocument(data: snapshot.approvedBytes))
         viewer.updatePreview(field, name: nameA, visible: true)
         viewer.updatePreview(field, name: nameB, visible: true)
         let confirmation = signingApprovalMessage(holder: nameB, job: job)

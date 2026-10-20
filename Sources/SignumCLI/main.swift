@@ -16,6 +16,7 @@ func help() {
     swift run SignumCLI certs <slot> [absolute_module_path]
     swift run SignumCLI sign-test <slot> <cert_ID_hex> [absolute_module_path]
     swift run SignumCLI sign-cades <slot> <cert_ID_hex> <input> <output.p7m> [absolute_module_path]
+    swift run SignumCLI verify <document>
     swift run SignumCLI verify-cades <signed.p7m> [extracted-output]
 
     The PIN is entered at a terminal prompt, never as a CLI argument.
@@ -45,6 +46,27 @@ func withCancellation<T>(_ operation: SigningOperation, _ body: () throws -> T) 
 func run() throws {
     let arguments = Array(CommandLine.arguments.dropFirst())
     guard let action = arguments.first else { help(); return }
+
+    if action == "verify" {
+        guard arguments.count == 2 else { help(); return }
+        let operation = SigningOperation()
+        let report = try withCancellation(operation) {
+            try SignumVerificationService.verify(file: URL(fileURLWithPath: arguments[1]), isCancelled: { operation.isCancellationRequested })
+        }
+        print("\(report.documentName) · \(report.format.rawValue) · \(report.signatures.count) firme")
+        print(report.summary)
+        if !report.issue.isEmpty { print(report.issue) }
+        for signature in report.signatures {
+            print("Firma \(signature.id+1): \(signature.integrity.description)")
+            if let certificate = signature.certificate { print(certificate.subject); print("SHA-256 certificato: " + certificate.sha256) }
+            print(signature.algorithm)
+            if let end = signature.signedRevisionEnd { print("Revisione: \(end) byte; modifiche successive: \(signature.laterChanges)") }
+            if !signature.reason.isEmpty { print(signature.reason) }
+        }
+        print(VerificationReport.scope)
+        if report.format == .pades { print(VerificationReport.revisionScope) }
+        return
+    }
 
     if action == "verify-cades" {
         guard arguments.count == 2 || arguments.count == 3 else { help(); return }

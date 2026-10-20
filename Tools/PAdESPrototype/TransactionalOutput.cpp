@@ -66,18 +66,29 @@ void recover(int parent) {
 }
 }
 OutputOperations::OutputOperations() :
+    openParent([](const char* path) { return open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC); }),
+    identifyParent([](int fd, struct stat* value) { return fstat(fd, value); }),
+    beforePublish([] {}), afterPublish([] {}),
     write([](int fd, const void* p, size_t n) { return ::write(fd, p, n); }),
     sync([](int fd) { return fsync(fd); }), close([](int fd) { return ::close(fd); }),
     harden(sg_output_make_private), applyACL(sg_output_apply_acl) {}
-TransactionalOutput::TransactionalOutput(const std::string& destination, OutputOperations operations) : ops(std::move(operations)) {
+TransactionalOutput::TransactionalOutput(const std::string& destination, OutputOperations operations, std::optional<OutputDirectoryIdentity> expected) : expectedDirectory(expected), ops(std::move(operations)) {
     try {
         const std::filesystem::path path(destination);
         destinationName = path.filename().string();
         check(!destinationName.empty() && destinationName != "." && destinationName != "..", "Invalid destination");
         auto folder = path.parent_path();
         if (folder.empty()) folder = ".";
-        parent = open(folder.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        parentPath = folder.string();
+        parent = ops.openParent(folder.c_str());
         check(parent >= 0, "Cannot open destination folder");
+        if (expectedDirectory) {
+            struct stat actual{};
+            check(ops.identifyParent(parent, &actual) == 0 && S_ISDIR(actual.st_mode) &&
+                  int64_t(actual.st_dev) == expectedDirectory->device && uint64_t(actual.st_ino) == expectedDirectory->inode,
+                  "Opened output directory differs from approved identity");
+            requireApprovedPath();
+        }
         recover(parent);
         struct stat existing{};
         const int exists = fstatat(parent, destinationName.c_str(), &existing, AT_SYMLINK_NOFOLLOW);
@@ -97,6 +108,16 @@ TransactionalOutput::TransactionalOutput(const std::string& destination, OutputO
         haveFile = true;
         check(ops.harden(file, 0600) == 0 && sg_output_is_private(file, 0600) == 0, "Cannot harden staged PDF");
     } catch (...) { cleanup(); throw; }
+}
+void TransactionalOutput::requireApprovedPath() {
+    if (!expectedDirectory) return; // Explicit legacy API without a frozen plan.
+    struct stat named{};
+    char* canonical = realpath(parentPath.c_str(), nullptr);
+    const bool approvedName = canonical && parentPath == canonical;
+    free(canonical);
+    check(approvedName && stat(parentPath.c_str(), &named) == 0 && S_ISDIR(named.st_mode) &&
+          int64_t(named.st_dev) == expectedDirectory->device && uint64_t(named.st_ino) == expectedDirectory->inode,
+          "Approved output path changed or is unreachable");
 }
 void TransactionalOutput::cleanup() noexcept {
     if (haveFile && same(stage, payload, fileIdentity)) unlinkat(stage, payload, 0);
@@ -140,7 +161,13 @@ void TransactionalOutput::verifyAndPublish(const Bytes& source, const std::strin
     const int closing = file; file = -1;
     check(ops.close(closing) == 0, "PDF close failed");
     check(sg_output_is_private(stage, 0700) == 0 && same(parent, directoryName, directoryIdentity) && same(stage, payload, fileIdentity), "Staged PDF was replaced");
+    ops.beforePublish();
+    requireApprovedPath();
     check(renameatx_np(stage, payload, parent, destinationName.c_str(), RENAME_EXCL) == 0, "Cannot publish PDF exclusively");
-    // Commit succeeded. Cleanup is best effort and cannot change the outcome.
+    // A post-commit path change is uncertain, never an ordinary retryable failure.
+    // Cleanup only targets private staging; the published inode is preserved.
+    ops.afterPublish();
+    try { requireApprovedPath(); }
+    catch (...) { throw std::runtime_error("Output already published; approved path changed; outcome uncertain"); }
 }
 }

@@ -21,6 +21,9 @@ public enum SignumFileOutput {
     // Per-operation dependencies allow real short writes and syscall failures in
     // offline tests; there is no process-wide mutable fault-injection switch.
     struct OutputIO {
+        var openParent: (String) -> Int32 = { Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC) }
+        var identifyParent: (Int32, UnsafeMutablePointer<stat>) -> Int32 = { fstat($0, $1) }
+        var afterPublish: () -> Void = {}
         var write: (Int32, UnsafeRawPointer, Int) -> Int = { Darwin.write($0, $1, $2) }
         var sync: (Int32) -> Int32 = { Darwin.fsync($0) }
         var close: (Int32) -> Int32 = { Darwin.close($0) }
@@ -34,7 +37,12 @@ public enum SignumFileOutput {
     private static let prefix = ".signum-staging-"
     private static let payload = "output"
 
-    static func writeNew(_ data: Data, to url: URL, io: OutputIO,
+    public static func writeNew(_ data: Data, to url: URL, expectedDirectory: OutputDirectoryIdentity,
+                                validate: (Data) throws -> Void = { _ in }) throws {
+        try writeNew(data, to: url, expectedDirectory: expectedDirectory, io: OutputIO(), validate: validate)
+    }
+
+    static func writeNew(_ data: Data, to url: URL, expectedDirectory: OutputDirectoryIdentity? = nil, io: OutputIO,
                          validate: (Data) throws -> Void = { _ in }) throws {
         guard url.isFileURL, !data.isEmpty,
               !["", ".", "..", "/"].contains(url.lastPathComponent) else {
@@ -42,9 +50,18 @@ public enum SignumFileOutput {
         }
         // Pin the selected directory: subsequent operations never resolve its
         // ancestors again, even if someone renames/replaces that directory.
-        let parent = Darwin.open(url.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        let directory = url.deletingLastPathComponent()
+        let parent = io.openParent(directory.path)
         guard parent >= 0 else { throw failure("aprire la cartella di destinazione") }
         defer { Darwin.close(parent) }
+        if let expectedDirectory {
+            var actual = stat()
+            guard io.identifyParent(parent, &actual) == 0, actual.st_mode & S_IFMT == S_IFDIR,
+                  OutputDirectoryIdentity(actual) == expectedDirectory else {
+                throw SignumError.module("La directory aperta non corrisponde alla destinazione approvata.")
+            }
+            try expectedDirectory.requireCurrent(at: directory)
+        }
         recoverAbandoned(in: parent)
         let name = prefix + UUID().uuidString
         guard mkdirat(parent, name, 0o700) == 0 else { throw failure("creare lo staging privato") }
@@ -119,13 +136,20 @@ public enum SignumFileOutput {
         }
         // macOS exclusive rename is the commit point. Existing files, directories
         // and dangling symlinks are all refused atomically, without a check/use gap.
+        if let expectedDirectory { try expectedDirectory.requireCurrent(at: directory) }
         guard io.publish(stage, payload, parent, url.lastPathComponent) == 0 else {
             if errno == EEXIST {
                 throw SignumError.module("Il file di destinazione esiste già: scegli un altro nome.")
             }
             throw failure("pubblicare il file completo")
         }
-        // Nothing fallible after commit: never report failure once published.
+        // After commit, never delete the published inode or report an ordinary
+        // failure. A renamed/unreachable approved path is explicitly uncertain.
+        io.afterPublish()
+        if let expectedDirectory {
+            do { try expectedDirectory.requireCurrent(at: directory) }
+            catch { throw SignumError.outputUncertain("Output pubblicato nella directory approvata, ma il percorso è cambiato. Conservare l’output e non ripetere automaticamente.") }
+        }
     }
 
     private static func failure(_ operation: String) -> SignumError {

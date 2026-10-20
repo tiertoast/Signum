@@ -192,7 +192,7 @@ final class DocumentSnapshotTests: XCTestCase {
             let fd = output.fileHandleForReading.fileDescriptor
             XCTAssertEqual(fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK), 0)
             try process.run()
-            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); process.waitUntilExit() } }
+            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); try? FixtureProcess.wait(process) } }
             var captured = Data(), buffer = [UInt8](repeating: 0, count: 4096)
             let deadline = ProcessInfo.processInfo.systemUptime + 3
             while ProcessInfo.processInfo.systemUptime < deadline {
@@ -209,7 +209,7 @@ final class DocumentSnapshotTests: XCTestCase {
             let finish = ProcessInfo.processInfo.systemUptime + 3
             while process.isRunning && ProcessInfo.processInfo.systemUptime < finish { Thread.sleep(forTimeInterval: 0.01) }
             if process.isRunning { kill(process.processIdentifier, SIGKILL); XCTFail("Crash fixture blocked") }
-            process.waitUntilExit()
+            try FixtureProcess.wait(process)
             XCTAssertEqual(process.terminationReason, .uncaughtSignal)
             XCTAssertEqual(process.terminationStatus, SIGKILL)
             let next = try DocumentSnapshot.capture(source: source, format: .cades)

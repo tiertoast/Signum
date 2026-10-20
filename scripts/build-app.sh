@@ -1,27 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
-if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "Signum.app can only be packaged on macOS" >&2
-  exit 1
-fi
-swift build -c release --product SignumApp
-APP="build/Signum.app"
-mkdir -p "$APP/Contents/MacOS"
-cp .build/release/SignumApp "$APP/Contents/MacOS/Signum"
-cp Resources/Info.plist "$APP/Contents/Info.plist"
-
-# Optional separately-built PoDoFo helper. Always clear stale copies so that
-# an earlier experimental binary cannot silently remain enabled.
-rm -rf "$APP/Contents/Helpers"
-HELPER=".build/signum-pades/signum-pades-local"
-if [[ -x "$HELPER" ]]; then
-  mkdir -p "$APP/Contents/Helpers"
-  cp "$HELPER" "$APP/Contents/Helpers/signum-pades-local"
-  chmod 755 "$APP/Contents/Helpers/signum-pades-local"
-  echo "[PAdES] Local helper included (still requires independent validation)."
-else
-  echo "[PAdES] Helper absent: PDF signing will remain disabled."
-fi
-
-echo "Created $APP (unsigned development build; do not distribute)."
+cat >&2 <<'MESSAGE'
+ERROR: scripts/build-app.sh is retired: it could produce an incomplete app without SignumPKCS11Worker.
+Use the official packager from the repository root with a NEW output path:
+  python3 scripts/build-beta-app.py --output /new/path/Signum.app --configuration release --native-prefix /local/prefix --cmake /local/cmake
+See docs/LOCAL_TESTING.md for prerequisites, Debug/Release audits and synthetic bundle tests.
+No bundle has been created or modified.
+MESSAGE
+exit 2

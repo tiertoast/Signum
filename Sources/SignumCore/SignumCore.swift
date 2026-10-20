@@ -22,20 +22,22 @@ public enum SignumError: Error, LocalizedError {
     }
 }
 
-public struct SignumToken: Identifiable, Hashable, Sendable {
+public struct SignumToken: Identifiable, Codable, Hashable, Sendable {
     public let slot: UInt
     public let label: String
     public let manufacturer: String
     public let model: String
     public let reader: String
+    public let serial: String
 
     public init(slot: UInt, label: String, manufacturer: String,
-                model: String, reader: String = "") {
+                model: String, reader: String = "", serial: String = "") {
         self.slot = slot
         self.label = label
         self.manufacturer = manufacturer
         self.model = model
         self.reader = reader
+        self.serial = serial
     }
 
     public var id: UInt { slot }
@@ -81,9 +83,12 @@ public struct SignumTokenScan {
 /// per canonical module and serialize complete session transactions. Retain the
 /// object during a call. Higher-level multi-call jobs still need their own state.
 /// The driver executes in-process: use trusted modules and call off the UI thread.
-public final class PKCS11Module: @unchecked Sendable {
-    // Immutable Swift state; each C entry point serializes the shared provider.
+public final class PKCS11Module {
+    // Single-owner Swift resource: batchSession/closedInWorker are worker-only.
+    // Do not transfer the module across executors. Public C transactions still
+    // serialize provider access; that does not make Swift lifecycle state Sendable.
     private let context: OpaquePointer
+    private var batchSession: OpaquePointer?
     private var closedInWorker = false // Used only by the single-owner worker entry point.
     public let modulePath: String
 
@@ -102,6 +107,8 @@ public final class PKCS11Module: @unchecked Sendable {
         modulePath = sg_canonical_path(pointer).map { String(cString: $0) } ?? path
     }
 
+    // Exclusive transfer of the last context to releaseQueue. No caller remains,
+    // pointer is immutable, and the sole scheduled closure invokes sg_close once.
     private final class RetiredContext: @unchecked Sendable {
         let pointer: OpaquePointer
         init(_ pointer: OpaquePointer) { self.pointer = pointer }
@@ -122,12 +129,76 @@ public final class PKCS11Module: @unchecked Sendable {
         precondition(!closedInWorker)
         closedInWorker = true
         var diagnostics = [CChar](repeating: 0, count: 512)
+        let batchStatus = sg_batch_close(batchSession, &diagnostics, diagnostics.count)
+        batchSession = nil
         let status = sg_close_checked(context, &diagnostics, diagnostics.count)
-        guard status == 0 else { throw SignumError.module("Provider teardown failed") }
+        guard status == 0, batchStatus == 0 else { throw SignumError.module("Provider teardown failed") }
+    }
+
+    // Dedicated worker only; the context never escapes to the GUI.
+    func firstBatchSignature(slot: UInt, serial: String, certificate: SignumCertificate, der: Data,
+                             attributes: Data, pin: String) throws -> (Data, Bool) {
+        var secret = Data(pin.utf8), output = [UInt8](repeating: 0, count: 8192), length = 0
+        var reusable: Int32 = 0
+        defer { secret.resetBytes(in: 0..<secret.count) }
+        try execute { error in
+            certificate.identifier.withUnsafeBytes { id in der.withUnsafeBytes { approved in
+                secret.withUnsafeBytes { secret in attributes.withUnsafeBytes { message in
+                    sg_batch_first(context, slot, serial, id.bindMemory(to: UInt8.self).baseAddress, id.count,
+                        approved.bindMemory(to: UInt8.self).baseAddress, approved.count,
+                        secret.bindMemory(to: UInt8.self).baseAddress, secret.count,
+                        message.bindMemory(to: UInt8.self).baseAddress, message.count,
+                        &batchSession, &reusable, &output, output.count, &length, error.baseAddress, error.count)
+                }}
+            }}
+        }
+        guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
+        return (Data(output.prefix(length)), reusable == 1)
+    }
+    func nextBatchSignature(attributes: Data) throws -> Data {
+        guard let batchSession else { throw SignumError.module("Batch session closed") }
+        var output = [UInt8](repeating: 0, count: 8192), length = 0
+        try execute { error in attributes.withUnsafeBytes { bytes in
+            sg_batch_next(batchSession, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
+                          &output, output.count, &length, error.baseAddress, error.count)
+        }}
+        guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
+        return Data(output.prefix(length))
+    }
+
+    var batchRequiresPIN: Bool { sg_batch_requires_pin(batchSession) == 1 }
+    func firstTemporaryBatchSignature(slot: UInt, serial: String, certificate: SignumCertificate, der: Data,
+                                     attributes: Data, pin: WorkerBatchPINContext) throws -> (Data, Bool) {
+        var output = [UInt8](repeating: 0, count: 8192), length = 0, reusable: Int32 = 0
+        try execute { error in certificate.identifier.withUnsafeBytes { id in der.withUnsafeBytes { approved in
+            attributes.withUnsafeBytes { message in
+                sg_batch_first_temporary(context, slot, serial, id.bindMemory(to: UInt8.self).baseAddress, id.count,
+                    approved.bindMemory(to: UInt8.self).baseAddress, approved.count, pin.bytes, pin.length, pin.deadline,
+                    message.bindMemory(to: UInt8.self).baseAddress, message.count, &batchSession, &reusable,
+                    &output, output.count, &length, error.baseAddress, error.count)
+            }
+        }}}
+        guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
+        return (Data(output.prefix(length)), reusable == 1)
+    }
+    func nextTemporaryBatchSignature(attributes: Data, pin: WorkerBatchPINContext) throws -> Data {
+        guard let batchSession else { throw SignumError.module("Batch session closed") }
+        var output = [UInt8](repeating: 0, count: 8192), length = 0
+        try execute { error in attributes.withUnsafeBytes { bytes in
+            sg_batch_next_temporary(batchSession, pin.bytes, pin.length,
+                bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &output, output.count, &length, error.baseAddress, error.count)
+        }}
+        guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
+        return Data(output.prefix(length))
     }
 
     public func tokens() throws -> [SignumToken] {
         try scanTokens().tokens
+    }
+
+    func reportedVersion() -> String? {
+        var major: UInt32 = 0, minor: UInt32 = 0
+        return sg_module_version(context, &major, &minor) == 0 ? "\(major).\(minor)" : nil
     }
 
     /// A reader may expose a slot before its card is ready. Return the other
@@ -145,7 +216,7 @@ public final class PKCS11Module: @unchecked Sendable {
         let found = rows.prefix(count).map {
             SignumToken(slot: UInt($0.slot), label: Self.fixedString($0.label),
                         manufacturer: Self.fixedString($0.manufacturer),
-                        model: Self.fixedString($0.model), reader: Self.fixedString($0.reader))
+                        model: Self.fixedString($0.model), reader: Self.fixedString($0.reader), serial: Self.fixedString($0.serial))
         }
         return SignumTokenScan(tokens: found, unavailableSlots: unavailable)
     }
@@ -330,6 +401,7 @@ public final class PKCS11Module: @unchecked Sendable {
         let result = withExtendedLifetime(self) {
             diagnostics.withUnsafeMutableBufferPointer { buffer in perform(buffer) }
         }
+        if result == -2 { throw IsolatedPKCS11Client.Failure.authenticationRequired }
         guard result == 0 else { throw SignumError.module(Self.diagnostic(diagnostics)) }
     }
 

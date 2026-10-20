@@ -61,7 +61,7 @@ final class CertificateSigningGateTests: XCTestCase {
         let deadline = ProcessInfo.processInfo.systemUptime + 3
         while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.01) }
         if process.isRunning { kill(process.processIdentifier, SIGKILL); XCTFail("CLI waited for credentials") }
-        process.waitUntilExit()
+        try FixtureProcess.wait(process)
         try input.fileHandleForWriting.close()
         let reason = String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         XCTAssertEqual(process.terminationStatus, 1)

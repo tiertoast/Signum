@@ -2,10 +2,11 @@ import Foundation
 
 /// Human-readable fields taken from the public X.509 certificate.
 /// These are informational only; they do NOT indicate trust or eIDAS qualification.
-public struct SignumCertificateIdentity: Equatable {
+public struct SignumCertificateIdentity: Equatable, Sendable {
     public let fullName: String
     public let fiscalCode: String?
     public let issuer: String?
+    public let organization: String?
 
     /// Display identity and expected-certificate binding can share these exact
     /// public DER bytes; this does not evaluate eligibility or trust.
@@ -13,10 +14,11 @@ public struct SignumCertificateIdentity: Equatable {
         self = try CertificateIdentityReader.read(certificateDER)
     }
 
-    init(fullName: String, fiscalCode: String?, issuer: String?) {
+    init(fullName: String, fiscalCode: String?, issuer: String?, organization: String? = nil) {
         self.fullName = fullName
         self.fiscalCode = fiscalCode
         self.issuer = issuer
+        self.organization = organization
     }
 
     public var title: String {
@@ -31,6 +33,7 @@ enum CertificateIdentityReader {
     private static let surname = Data([0x55, 0x04, 0x04])      // 2.5.4.4
     private static let serialNumber = Data([0x55, 0x04, 0x05]) // 2.5.4.5
     private static let givenName = Data([0x55, 0x04, 0x2A])    // 2.5.4.42
+    private static let organization = Data([0x55, 0x04, 0x0A]) // 2.5.4.10
 
     static func read(_ certificate: Data) throws -> SignumCertificateIdentity {
         let bytes = [UInt8](certificate)
@@ -79,7 +82,7 @@ enum CertificateIdentityReader {
         return SignumCertificateIdentity(
             fullName: name,
             fiscalCode: code,
-            issuer: issuer[commonName]
+            issuer: issuer[commonName], organization: subject[organization]
         )
     }
 

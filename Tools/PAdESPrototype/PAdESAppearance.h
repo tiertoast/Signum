@@ -1,8 +1,25 @@
 #pragma once
 #include <podofo/podofo.h>
 #include <string>
+#include <cmath>
 namespace signum {
 using namespace PoDoFo;
+// Explicit physical mode is used only by new GUI appearances. Legacy callers
+// retain raw-unit limits. The actual immutable page value must match consent.
+inline double approvedAppearanceUserUnit(const PdfPage& page, double expected) {
+    double actual = 1;
+    const auto* value = page.GetObject().GetDictionary().FindKey("UserUnit");
+    if ((value && !value->TryGetReal(actual)) || !std::isfinite(actual) || actual <= 0 || actual > 75000 || actual != expected)
+        throw std::runtime_error("Appearance UserUnit mismatch");
+    return actual;
+}
+inline bool physicalAppearanceSize(double width, double height, double unit) {
+    const double w = width * unit, h = height * unit;
+    return std::isfinite(unit) && unit > 0 && unit <= 75000 && std::isfinite(w) && std::isfinite(h) &&
+        ((w >= 80 && w <= 800 && h >= 40 && h <= 500) ||
+         (h >= 80 && h <= 800 && w >= 40 && w <= 500));
+}
+
 inline void setTextAppearance(PdfMemDocument& doc, PdfSignature& signature,
                                 const PoDoFo::Rect& rect, const std::string& holder) {
     if (rect.Width < 125 || rect.Height < 45)

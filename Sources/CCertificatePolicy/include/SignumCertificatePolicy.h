@@ -21,6 +21,7 @@ typedef struct {
     double not_before, not_after; /* Unix seconds; zero on malformed input. */
     int key_usage_present, digital_signature, content_commitment;
     int eku_present, document_signing, any_extended_key_usage;
+    int client_authentication; /* Informational only; does not change eligibility. */
     int public_key_bits;
 } SGCertificateAssessment;
 SGCertificateAssessment sg_certificate_assess(const uint8_t *der, size_t length, double unix_time);

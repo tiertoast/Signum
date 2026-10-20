@@ -13,7 +13,7 @@ if(NOT TARGET podofo::podofo)
     message(FATAL_ERROR "Installed PoDoFo does not export podofo::podofo")
 endif()
 
-add_library(signum-pades-reliability STATIC TransactionalOutput.cpp PAdESVerification.cpp ../../Sources/COutputPermissions/output_permissions.c ../../Sources/CProcessCoordination/process_coordination.c)
+add_library(signum-pades-reliability STATIC ../../Sources/COutputPermissions/discovery_permissions.c TransactionalOutput.cpp PAdESVerification.cpp UnifiedVerification.cpp ../../Sources/COutputPermissions/output_permissions.c ../../Sources/CProcessCoordination/process_coordination.c)
 target_link_libraries(signum-pades-reliability PUBLIC OpenSSL::Crypto "-framework CoreGraphics" "-framework CoreFoundation")
 target_include_directories(signum-pades-reliability PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../../Sources/COutputPermissions/include ../../Sources/CProcessCoordination/include)
 target_compile_options(signum-pades-reliability PRIVATE -Wall -Wextra -Wpedantic)

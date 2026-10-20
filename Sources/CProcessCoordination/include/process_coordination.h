@@ -13,6 +13,8 @@ SGTokenLease *sg_token_lease_acquire(const char *provider, uint64_t slot, int di
 void sg_token_lease_release(SGTokenLease *lease);
 /* Worker-only: terminate on parent death, never Finalize an active vendor call. */
 int sg_worker_watch_parent(void);
+/* Read-only RSS sampling: 0=sample, 1=observed exit/zombie, -1=unavailable. */
+int sg_process_resident_bytes(int pid, uint64_t *bytes);
 #ifdef __cplusplus
 }
 #endif

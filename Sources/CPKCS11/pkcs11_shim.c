@@ -8,6 +8,8 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <time.h>
+#include <math.h>
 
 typedef struct SGProvider {
     char *canonical_path;
@@ -40,7 +42,7 @@ static size_t provider_count;
 
 static int failed(char *error, size_t size, const char *operation, CK_RV rv) {
     if (error && size) snprintf(error, size, "%s failed (PKCS#11 RV=0x%lX)", operation, (unsigned long)rv);
-    return -1;
+    return rv == CKR_USER_NOT_LOGGED_IN ? -2 : -1;
 }
 static int invalid(char *error, size_t size, const char *reason) {
     if (error && size) snprintf(error, size, "%s", reason);
@@ -257,6 +259,15 @@ static int close_session(SGContext *ctx, CK_SESSION_HANDLE session, int status, 
     return -1;
 }
 
+int sg_module_version(SGContext *ctx, unsigned *major, unsigned *minor) {
+    if (!major || !minor || enter(ctx, NULL, 0)) return -1;
+    CK_INFO info;
+    CK_RV rv = ctx->api->C_GetInfo ? ctx->api->C_GetInfo(&info) : CKR_FUNCTION_NOT_SUPPORTED;
+    if (rv == CKR_OK) { *major = info.libraryVersion.major; *minor = info.libraryVersion.minor; }
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return rv == CKR_OK ? 0 : -1;
+}
+
 static int login_user(SGContext *ctx, CK_SESSION_HANDLE session, const uint8_t *pin, size_t pin_length,
                        char *error, size_t size) {
     CK_SESSION_INFO info;
@@ -312,6 +323,7 @@ static int sg_tokens_impl(SGContext *ctx, SGToken *out, size_t capacity,
         copy_padded(t->label, sizeof(t->label), info.label, sizeof(info.label));
         copy_padded(t->manufacturer, sizeof(t->manufacturer), info.manufacturerID, sizeof(info.manufacturerID));
         copy_padded(t->model, sizeof(t->model), (const unsigned char *)info.model, sizeof(info.model));
+        copy_padded(t->serial, sizeof(t->serial), info.serialNumber, sizeof(info.serialNumber));
         CK_SLOT_INFO slot_info;
         if (ctx->api->C_GetSlotInfo(slots[i], &slot_info) == CKR_OK) {
             copy_padded(t->reader, sizeof(t->reader), slot_info.slotDescription,
@@ -370,6 +382,7 @@ static int sg_certificates_impl(SGContext *ctx, unsigned long slot, SGCertificat
             {CKA_ID, cert->id, sizeof(cert->id)}
         };
         rv = ctx->api->C_GetAttributeValue(session, object, attrs, 2);
+        if (rv == CKR_USER_NOT_LOGGED_IN) { status = failed(error, error_size, "C_GetAttributeValue", rv); break; }
         if (rv != CKR_OK || attrs[1].ulValueLen > sizeof(cert->id) || attrs[0].ulValueLen > sizeof(cert->label) - 1) {
             status = invalid(error, error_size, "Cannot read certificate label/ID"); break;
         }
@@ -394,7 +407,8 @@ static int sg_certificate_der_impl(SGContext *ctx, unsigned long slot, const uin
     if (!status) {
         CK_ATTRIBUTE attr = {CKA_VALUE, NULL, 0};
         CK_RV rv = ctx->api->C_GetAttributeValue(session, object, &attr, 1);
-        if (rv != CKR_OK || attr.ulValueLen == CK_UNAVAILABLE_INFORMATION || attr.ulValueLen > 65536) {
+        if (rv == CKR_USER_NOT_LOGGED_IN) return close_session(ctx, session, failed(error, error_size, "C_GetAttributeValue DER", rv), error, error_size);
+        if (rv != CKR_OK || !attr.ulValueLen || attr.ulValueLen == CK_UNAVAILABLE_INFORMATION || attr.ulValueLen > 65536) {
             status = invalid(error, error_size, "Cannot obtain X.509 DER size");
         } else {
             *length = attr.ulValueLen;
@@ -405,19 +419,43 @@ static int sg_certificate_der_impl(SGContext *ctx, unsigned long slot, const uin
                     attr.ulValueLen = capacity;
                     rv = ctx->api->C_GetAttributeValue(session, object, &attr, 1);
                     if (rv != CKR_OK) status = failed(error, error_size, "C_GetAttributeValue DER", rv);
+                    else if (!attr.ulValueLen || attr.ulValueLen > capacity || attr.ulValueLen > 65536)
+                        status = invalid(error, error_size, "Invalid returned DER length");
                     else *length = attr.ulValueLen;
                 }
             }
         }
     }
-    return close_session(ctx, session, status, error, error_size);
+    status = close_session(ctx, session, status, error, error_size);
+    if (status) { *length = 0; if (out && capacity) memset(out, 0, capacity); }
+    return status;
+}
+
+/* No active sign operation exists here. Find/DER/policy are evaluated in
+ * the same authenticated session, before key selection and SignInit. Never
+ * insert object searches after the CONTEXT_SPECIFIC authorization. */
+static int check_authenticated_certificate(SGContext *ctx, CK_SESSION_HANDLE session,
+    const uint8_t *id, size_t id_length, const uint8_t *expected, size_t expected_length,
+    char *error, size_t size) {
+    CK_OBJECT_HANDLE certificate;
+    int status = find_one(ctx, session, CKO_CERTIFICATE, id, id_length, &certificate, error, size);
+    if (status) return status;
+    uint8_t actual[65536];
+    CK_ATTRIBUTE attr = { CKA_VALUE, actual, sizeof(actual) };
+    CK_RV rv = ctx->api->C_GetAttributeValue(session, certificate, &attr, 1);
+    if (rv != CKR_OK) return failed(error, size, "Authenticated certificate DER", rv);
+    if (!attr.ulValueLen || attr.ulValueLen > sizeof(actual) || attr.ulValueLen != expected_length ||
+        memcmp(actual, expected, expected_length))
+        return invalid(error, size, "Certificate changed after USER login");
+    SGCertificateAssessment assessment = sg_certificate_assess(actual, attr.ulValueLen, sg_certificate_now());
+    return assessment.status == SG_CERT_ELIGIBLE ? 0 : invalid(error, size, "Certificate no longer locally eligible");
 }
 
 static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *id,
                  size_t id_length, const uint8_t *pin, size_t pin_length,
                  const uint8_t *message, size_t message_length,
                  uint8_t *signature, size_t signature_capacity,
-                 size_t *signature_length, char *error, size_t error_size) {
+                 size_t *signature_length, const uint8_t *expected, size_t expected_length, char *error, size_t error_size) {
     if (!ctx || !id || !id_length || !pin || !pin_length || !message || !signature ||
         !signature_length || message_length > 1024 * 1024 || signature_capacity < 8192)
         return invalid(error, error_size, "Invalid signing arguments");
@@ -426,6 +464,7 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
     if (open_session(ctx, slot, &session, error, error_size)) return -1;
     CK_RV rv;
     int status = login_user(ctx, session, pin, pin_length, error, error_size);
+    if (!status && expected) status = check_authenticated_certificate(ctx, session, id, id_length, expected, expected_length, error, error_size);
     if (!status) {
         CK_OBJECT_HANDLE key;
         status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length, &key, error, error_size);
@@ -437,7 +476,9 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
                 CK_BBOOL always_auth = CK_FALSE;
                 CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
                 CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
-                if (arv == CKR_OK && always_auth == CK_TRUE) {
+                if (arv == CKR_OK && (auth.ulValueLen != sizeof(always_auth) || (always_auth != CK_TRUE && always_auth != CK_FALSE))) {
+                    status = invalid(error, error_size, "Invalid authentication attribute");
+                } else if (arv == CKR_OK && always_auth == CK_TRUE) {
                     rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
                     if (rv != CKR_OK) status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv);
                 } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID && arv != CKR_ATTRIBUTE_SENSITIVE) {
@@ -446,7 +487,8 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
                 if (!status) {
                     CK_ULONG n = signature_capacity;
                     rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)message, message_length, signature, &n);
-                    if (rv == CKR_OK) *signature_length = n;
+                    if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
+                    else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
                     else status = failed(error, error_size, "C_Sign", rv);
                 }
             }
@@ -466,7 +508,7 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                            const uint8_t *pin, size_t pin_length,
                            const uint8_t *digestinfo, size_t digestinfo_length,
                            uint8_t *signature, size_t signature_capacity,
-                           size_t *signature_length, char *error, size_t error_size) {
+                           size_t *signature_length, const uint8_t *expected, size_t expected_length, char *error, size_t error_size) {
     // SHA-256 DigestInfo is exactly 51 bytes:
     // SEQUENCE AlgorithmIdentifier SHA256 + OCTET STRING 32.
     static const uint8_t prefix[] = {
@@ -483,6 +525,7 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
     if (open_session(ctx, slot, &session, error, error_size)) return -1;
     CK_RV rv;
     int status = login_user(ctx, session, pin, pin_length, error, error_size);
+    if (!status && expected) status = check_authenticated_certificate(ctx, session, id, id_length, expected, expected_length, error, error_size);
     if (!status) {
         CK_OBJECT_HANDLE key;
         status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length,
@@ -495,7 +538,9 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                 CK_BBOOL always_auth = CK_FALSE;
                 CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
                 CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
-                if (arv == CKR_OK && always_auth == CK_TRUE) {
+                if (arv == CKR_OK && (auth.ulValueLen != sizeof(always_auth) || (always_auth != CK_TRUE && always_auth != CK_FALSE))) {
+                    status = invalid(error, error_size, "Invalid authentication attribute");
+                } else if (arv == CKR_OK && always_auth == CK_TRUE) {
                     rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC,
                                            (CK_UTF8CHAR_PTR)pin, pin_length);
                     if (rv != CKR_OK) status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv);
@@ -507,7 +552,8 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                     CK_ULONG n = signature_capacity;
                     rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)digestinfo,
                                           digestinfo_length, signature, &n);
-                    if (rv == CKR_OK) *signature_length = n;
+                    if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
+                    else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
                     else status = failed(error, error_size, "C_Sign", rv);
                 }
             }
@@ -546,7 +592,7 @@ int sg_certificate_der(SGContext *ctx, unsigned long slot, const uint8_t *id, si
 int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length, uint8_t *signature, size_t signature_capacity, size_t *signature_length, char *error, size_t error_size) {
     if (signature_length) *signature_length = 0;
     if (enter(ctx, error, error_size)) return -1;
-    int status = sg_sign_test_impl(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, signature_capacity, signature_length, error, error_size);
+    int status = sg_sign_test_impl(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, signature_capacity, signature_length, NULL, 0, error, error_size);
     pthread_mutex_unlock(&ctx->provider->operations);
     return status;
 }
@@ -554,7 +600,7 @@ int sg_sign_test(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t i
 int sg_sign_encoded_digest(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length, const uint8_t *pin, size_t pin_length, const uint8_t *digestinfo, size_t digestinfo_length, uint8_t *signature, size_t signature_capacity, size_t *signature_length, char *error, size_t error_size) {
     if (signature_length) *signature_length = 0;
     if (enter(ctx, error, error_size)) return -1;
-    int status = sg_sign_encoded_digest_impl(ctx, slot, id, id_length, pin, pin_length, digestinfo, digestinfo_length, signature, signature_capacity, signature_length, error, error_size);
+    int status = sg_sign_encoded_digest_impl(ctx, slot, id, id_length, pin, pin_length, digestinfo, digestinfo_length, signature, signature_capacity, signature_length, NULL, 0, error, error_size);
     pthread_mutex_unlock(&ctx->provider->operations);
     return status;
 }
@@ -587,10 +633,179 @@ int name(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length
     if (length) *length = 0; \
     if (enter(ctx, error, error_size)) return -1; \
     int status = check_signing_certificate(ctx, slot, id, id_length, expected, expected_length, error, error_size); \
-    if (!status) status = implementation(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, capacity, length, error, error_size); \
+    if (!status) status = implementation(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, capacity, length, expected, expected_length, error, error_size); \
     if (status && signature && capacity) memset(signature, 0, capacity); \
     pthread_mutex_unlock(&ctx->provider->operations); \
     return status; \
 }
 CHECKED_SIGN(sg_sign_test_checked, sg_sign_test_impl)
 CHECKED_SIGN(sg_sign_encoded_digest_checked, sg_sign_encoded_digest_impl)
+
+/* Dedicated worker owns this context and its lease for the entire batch. */
+struct SGBatchSession {
+    SGContext *ctx;
+    CK_SESSION_HANDLE handle;
+    CK_SLOT_ID slot;
+    CK_TOKEN_INFO token;
+    uint8_t id[64], der[65536];
+    size_t id_length, der_length;
+    int reusable, failed, temporary_pin, auth_known;
+    CK_BBOOL auth; CK_OBJECT_HANDLE key;
+    double pin_deadline;
+};
+static int batch_token(SGBatchSession *s, int initial, const char *serial, char *error, size_t size) {
+    CK_TOKEN_INFO token;
+    CK_RV rv = s->ctx->api->C_GetTokenInfo(s->slot, &token);
+    if (rv != CKR_OK) return failed(error, size, "C_GetTokenInfo batch", rv);
+    if (initial) {
+        char value[17]; copy_padded(value, sizeof(value), (const unsigned char *)token.serialNumber, sizeof(token.serialNumber));
+        if (!serial || !*serial || strcmp(value, serial)) return invalid(error, size, "Selected token identity changed or unavailable");
+        s->token = token;
+    } else if (memcmp(token.serialNumber, s->token.serialNumber, sizeof(token.serialNumber)) ||
+               memcmp(token.label, s->token.label, sizeof(token.label)) ||
+               memcmp(token.manufacturerID, s->token.manufacturerID, sizeof(token.manufacturerID)) ||
+               memcmp(token.model, s->token.model, sizeof(token.model))) return invalid(error, size, "Batch token replaced");
+    return 0;
+}
+static int batch_certificate(SGBatchSession *s, char *error, size_t size) {
+    CK_OBJECT_HANDLE certificate;
+    int status = find_one(s->ctx, s->handle, CKO_CERTIFICATE, s->id, s->id_length, &certificate, error, size);
+    if (status) return status;
+    uint8_t actual[65536];
+    CK_ATTRIBUTE attr = { CKA_VALUE, actual, sizeof(actual) };
+    CK_RV rv = s->ctx->api->C_GetAttributeValue(s->handle, certificate, &attr, 1);
+    if (rv != CKR_OK) return failed(error, size, "Batch certificate DER", rv);
+    if (attr.ulValueLen != s->der_length || memcmp(actual, s->der, s->der_length)) return invalid(error, size, "Batch certificate replaced");
+    SGCertificateAssessment assessment = sg_certificate_assess(actual, attr.ulValueLen, sg_certificate_now());
+    return assessment.status == SG_CERT_ELIGIBLE ? 0 : invalid(error, size, "Batch certificate no longer locally eligible");
+}
+double sg_batch_monotonic_now(void) {
+    struct timespec now;
+    return clock_gettime(CLOCK_MONOTONIC, &now) ? -1 : now.tv_sec + now.tv_nsec / 1e9;
+}
+static int batch_pin_current(SGBatchSession *s) {
+    if (!s->temporary_pin) return 1;
+    double now = sg_batch_monotonic_now();
+    return now >= 0 && now < s->pin_deadline;
+}
+static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t pin_length,
+    const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    if (!message || !message_length || message_length > 4096 || !signature || capacity < 8192 || !length || s->failed)
+        return invalid(error, size, "Invalid/retired batch signature request");
+    *length = 0;
+    int status = batch_token(s, 0, NULL, error, size);
+    CK_SESSION_INFO info;
+    CK_RV rv;
+    if (!status) {
+        rv = s->ctx->api->C_GetSessionInfo(s->handle, &info);
+        if (rv != CKR_OK) status = failed(error, size, "Batch session info", rv);
+        else if (info.slotID != s->slot || (info.state != CKS_RO_USER_FUNCTIONS && info.state != CKS_RW_USER_FUNCTIONS))
+            status = invalid(error, size, "Batch USER session lost; no automatic reauthentication");
+    }
+    if (!status) status = batch_certificate(s, error, size);
+    CK_OBJECT_HANDLE key;
+    if (!status) status = find_one(s->ctx, s->handle, CKO_PRIVATE_KEY, s->id, s->id_length, &key, error, size);
+    CK_BBOOL auth = CK_FALSE; int known = 0;
+    if (!status) {
+        CK_ATTRIBUTE attribute = { CKA_ALWAYS_AUTHENTICATE, &auth, sizeof(auth) };
+        rv = s->ctx->api->C_GetAttributeValue(s->handle, key, &attribute, 1);
+        known = rv == CKR_OK && attribute.ulValueLen == sizeof(auth) && (auth == CK_FALSE || auth == CK_TRUE);
+        if (rv != CKR_OK && rv != CKR_ATTRIBUTE_TYPE_INVALID && rv != CKR_ATTRIBUTE_SENSITIVE)
+            status = failed(error, size, "Batch authentication attribute", rv);
+        if (!first && (!known || !s->auth_known || auth != s->auth || key != s->key || !s->reusable))
+            status = invalid(error, size, "Batch key or authentication policy changed");
+        if (!first && known && auth == CK_TRUE && (!s->temporary_pin || !pin || !pin_length))
+            status = invalid(error, size, "Missing authorized batch authentication");
+        if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired");
+        if (first) { s->auth_known = known; s->auth = auth; s->key = key; }
+    }
+    if (!status) {
+        CK_MECHANISM mechanism = { CKM_SHA256_RSA_PKCS, NULL, 0 };
+        rv = s->ctx->api->C_SignInit(s->handle, &mechanism, key);
+        if (rv != CKR_OK) status = failed(error, size, "Batch C_SignInit", rv);
+        if (!status && known && auth == CK_TRUE) {
+            if (!batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before authentication");
+            rv = status ? CKR_GENERAL_ERROR : s->ctx->api->C_Login(s->handle, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
+            if (rv != CKR_OK) status = failed(error, size, "Batch C_Login CONTEXT_SPECIFIC (no retry)", rv);
+        }
+        if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before Sign");
+        if (!status) {
+            CK_ULONG count = capacity;
+            rv = s->ctx->api->C_Sign(s->handle, (CK_BYTE_PTR)message, message_length, signature, &count);
+            if (rv != CKR_OK || !count || count > capacity) status = failed(error, size, "Batch C_Sign (no retry)", rv == CKR_OK ? CKR_GENERAL_ERROR : rv);
+            else *length = count;
+        }
+        if (first) s->reusable = known && (auth == CK_FALSE || s->temporary_pin) && s->ctx->provider->owns_initialization;
+    }
+    if (status) { s->failed = 1; memset(signature, 0, capacity); *length = 0; }
+    return status;
+}
+static int batch_first(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
+    const uint8_t *der, size_t der_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length,
+    SGBatchSession **out, int *reusable, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size, int temporary_pin, double pin_deadline) {
+    if (length) *length = 0;
+    if (!out || !reusable || !signature || capacity < 8192 || !length || !message || !message_length || message_length > 4096 || !id || !id_length || id_length > 64 || !der || !der_length || der_length > 65536 || !pin || !pin_length || pin_length > 64)
+        return invalid(error, size, "Invalid first batch request");
+    *out = NULL; *reusable = 0;
+    if (enter(ctx, error, size)) return -1;
+    SGBatchSession *s = calloc(1, sizeof(*s));
+    int status = s ? 0 : invalid(error, size, "Cannot allocate batch session");
+    if (s) {
+        s->ctx = ctx; s->slot = slot; s->temporary_pin = temporary_pin; s->pin_deadline = pin_deadline; s->id_length = id_length; s->der_length = der_length;
+        memcpy(s->id, id, id_length); memcpy(s->der, der, der_length);
+        status = batch_token(s, 1, serial, error, size);
+        if (!status) status = open_session(ctx, slot, &s->handle, error, size);
+        if (!status) {
+            status = batch_certificate(s, error, size);
+            if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before USER login");
+            if (!status) status = login_user(ctx, s->handle, pin, pin_length, error, size);
+            if (!status) status = batch_sign(s, 1, pin, pin_length, message, message_length, signature, capacity, length, error, size);
+            if (temporary_pin) {
+                /* Return cleanup ownership even on error: worker must erase
+                 * the PIN BEFORE potentially blocking CloseSession/Finalize. */
+                if (status) s->failed = 1;
+                *out = s; *reusable = !status && s->reusable;
+            } else if (!status && s->reusable) { *out = s; *reusable = 1; }
+            else { status = close_session(ctx, s->handle, status, error, size); free(s); }
+        } else free(s);
+    }
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return status;
+}
+int sg_batch_first(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
+    const uint8_t *der, size_t der_length, const uint8_t *pin, size_t pin_length, const uint8_t *message, size_t message_length,
+    SGBatchSession **out, int *reusable, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    return batch_first(ctx, slot, serial, id, id_length, der, der_length, pin, pin_length, message, message_length,
+        out, reusable, signature, capacity, length, error, size, 0, 0);
+}
+int sg_batch_first_temporary(SGContext *ctx, unsigned long slot, const char *serial, const uint8_t *id, size_t id_length,
+    const uint8_t *der, size_t der_length, const uint8_t *pin, size_t pin_length, double deadline,
+    const uint8_t *message, size_t message_length, SGBatchSession **out, int *reusable,
+    uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
+    if (!isfinite(deadline) || deadline <= 0) return invalid(error, size, "Invalid PIN deadline");
+    return batch_first(ctx, slot, serial, id, id_length, der, der_length, pin, pin_length, message, message_length,
+        out, reusable, signature, capacity, length, error, size, 1, deadline);
+}
+int sg_batch_requires_pin(SGBatchSession *s) {
+    return s && !s->failed && s->reusable && s->temporary_pin && s->auth_known && s->auth == CK_TRUE;
+}
+int sg_batch_next_temporary(SGBatchSession *s, const uint8_t *pin, size_t pin_length,
+    const uint8_t *message, size_t message_length, uint8_t *signature,
+    size_t capacity, size_t *length, char *error, size_t size) {
+    if (!s || !s->temporary_pin || pin_length > 64 || enter(s->ctx, error, size)) return -1;
+    int status = batch_sign(s, 0, pin, pin_length, message, message_length, signature, capacity, length, error, size);
+    pthread_mutex_unlock(&s->ctx->provider->operations); return status;
+}
+int sg_batch_next(SGBatchSession *s, const uint8_t *message, size_t message_length, uint8_t *signature,
+    size_t capacity, size_t *length, char *error, size_t size) {
+    if (!s || enter(s->ctx, error, size)) return -1;
+    int status = batch_sign(s, 0, NULL, 0, message, message_length, signature, capacity, length, error, size);
+    pthread_mutex_unlock(&s->ctx->provider->operations); return status;
+}
+int sg_batch_close(SGBatchSession *s, char *error, size_t size) {
+    if (!s) return 0;
+    SGContext *ctx = s->ctx;
+    if (enter(ctx, error, size)) { free(s); return -1; }
+    int status = close_session(ctx, s->handle, 0, error, size);
+    pthread_mutex_unlock(&ctx->provider->operations); free(s); return status;
+}

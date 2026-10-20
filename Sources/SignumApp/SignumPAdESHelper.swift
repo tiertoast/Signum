@@ -15,7 +15,7 @@ enum SignumPAdESHelper {
         FileManager.default.isExecutableFile(atPath: executableURL.path)
     }
 
-    struct Field: Equatable {
+    struct Field: Equatable, Sendable {
         let pageIndex: Int
         let x: Double
         let y: Double
@@ -24,9 +24,15 @@ enum SignumPAdESHelper {
     }
 
     static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?, operation: SigningOperation? = nil,
-                     executable: URL? = nil, timeout: TimeInterval = 120) throws {
+                     executable: URL? = nil, timeout: TimeInterval = 120, appearance: RenderedPAdESAppearance? = nil) throws {
         defer { job.snapshot.close() }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
+        guard PAdESInputContract.validPIN(pin) else { throw SignumError.module("PIN non rappresentabile nel trasporto PAdES.") }
+        if let frozen = job.padesAppearance, let appearance, frozen.approvalIdentity != appearance.approvalIdentity {
+            throw SignumError.module("Appearance differente da quella approvata nel job.")
+        }
+        let appearance = job.padesAppearance ?? appearance
+        try job.requireAvailableDestination()
         _ = try job.verifiedBytes()
         let input = job.snapshot.fileURL, output = job.destination
         let modulePath = job.providerPath, slot = job.slot, certificateID = job.certificate.id
@@ -44,9 +50,6 @@ enum SignumPAdESHelper {
         guard !FileManager.default.fileExists(atPath: output.path) else {
             throw SignumError.module("File PDF di destinazione già esistente.")
         }
-        guard !pin.isEmpty, pin.utf8.count <= 64 else {
-            throw SignumError.module("PIN mancante o troppo lungo.")
-        }
 
         var args = [
             input.path,
@@ -55,6 +58,14 @@ enum SignumPAdESHelper {
             String(slot),
             certificateID
         ]
+        let field = appearance.map { value -> Field? in
+            guard value.configuration.visible else { return nil }
+            let c = value.configuration, r = c.rectangle
+            return Field(pageIndex:c.pageIndex,x:r.minX,y:r.minY,width:r.width,height:r.height)
+        } ?? field
+        if let appearance {
+            guard appearance.certificateSHA256 == job.certificateSHA256, appearance.pdf.count <= PAdESAppearanceRenderer.maximumPDFBytes else { throw SignumError.module("Appearance non vincolata al certificato approvato.") }
+        }
         if let field {
             let values = [field.x, field.y, field.width, field.height]
             guard field.pageIndex >= 0,
@@ -71,13 +82,16 @@ enum SignumPAdESHelper {
             ]
         }
         args.append("--pin-stdin")
-        if field != nil { args.append("--appearance-stdin") }
+        if field != nil { args.append(appearance == nil ? "--appearance-stdin" : "--appearance-pdf-stdin") }
 
         // Supply exactly one line to the helper. This avoids getpass() in GUI
         // contexts and avoids leaking credentials through command arguments.
-        var secret = Data(pin.utf8)
-        secret.append(0x0A)
-        if field != nil {
+        var secret = try PAdESInputContract.pinLine(pin)
+        if field != nil, let appearance {
+            guard !appearance.pdf.isEmpty else { throw SignumError.module("Appearance mancante.") }
+            secret.append(contentsOf:(0..<4).reversed().map { UInt8((UInt32(appearance.pdf.count) >> ($0*8)) & 255) })
+            secret.append(appearance.pdf)
+        } else if field != nil {
             // Helvetica (PDF Standard 14) is used by this first text-only AP.
             // Limit to printable ASCII and avoid injecting protocol delimiters.
             let normalizedName = appearanceName.folding(
@@ -98,11 +112,21 @@ enum SignumPAdESHelper {
         operation?.transition(to: .waitingForAuthentication)
         operation?.transition(to: .signing)
         let fingerprint = job.certificateSHA256
+        // A bound GUI job never falls back to the explicit legacy v4 helper contract.
+        if let identity = job.destinationDirectoryIdentity { args += ["--expected-output-directory-v1", identity.wire] }
+        if let binding = job.providerContext {
+            guard binding.valid, binding.padesWire.utf8.count <= 16384 else { throw SignumError.module("Contesto PAdES non valido.") }
+            args += ["--provider-context-v1", binding.padesWire]
+        }
+        if let appearance, appearance.configuration.visible, let unit=appearance.configuration.userUnit {
+            args += ["--appearance-user-unit",String(Double(unit))]
+        }
         args += ["--job-id", job.id.uuidString, "--snapshot-id", job.snapshotIdentity.id.uuidString,
                  "--expected-document-sha256", job.contentSHA256,
-                 "--expected-cert-sha256", fingerprint, "--verified-output-v4"]
+                 "--expected-cert-sha256", fingerprint, job.providerContext == nil ? "--verified-output-v4" : "--verified-output-v5"]
         let outcome = PAdESHelperProcess.run(executable: engine, arguments: args, input: &secret,
-            destination: output, timeout: timeout, expectedJobID: job.id,
+            destination: output, timeout: timeout, expectedJobID: job.id, expectedProtocolVersion: job.providerContext == nil ? 4 : 5,
+            maximumInput: appearance == nil ? 512 : PAdESAppearanceRenderer.maximumPDFBytes+69,
             isCancelled: { operation?.isCancellationRequested ?? false })
         try PAdESHelperProcess.requirePublished(outcome)
         operation?.transition(to: .verifying); operation?.recordPublished()

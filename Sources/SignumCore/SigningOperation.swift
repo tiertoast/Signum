@@ -21,14 +21,15 @@ public enum SigningOperationPhase: String, Sendable {
     public var isTerminal: Bool { [.completed, .failed, .cancelled, .outcomeUncertain].contains(self) }
 }
 /// Per-request state, separate from view state and immutable SigningJob inputs.
-/// Callbacks run outside the lock. The tiny publication barrier never waits on
+/// phase/cancelled/publishing are lock-protected; immutable callbacks must be
+/// Sendable and can run concurrently, outside the lock. The tiny publication barrier never waits on
 /// vendor/verification code; cancellation is refused once commit has begun.
 public final class SigningOperation: @unchecked Sendable {
     public let id: UUID
     private let lock = NSLock()
     private var phase: SigningOperationPhase = .idle, cancelled = false, publishing = false
-    private let changed: (SigningOperationPhase) -> Void
-    public init(id: UUID = UUID(), changed: @escaping (SigningOperationPhase) -> Void = { _ in }) {
+    private let changed: @Sendable (SigningOperationPhase) -> Void
+    public init(id: UUID = UUID(), changed: @escaping @Sendable (SigningOperationPhase) -> Void = { _ in }) {
         self.id = id; self.changed = changed
     }
     public var state: SigningOperationPhase { lock.lock(); defer { lock.unlock() }; return phase }
@@ -101,7 +102,7 @@ extension SigningJob {
                 submitted = true
                 let signature = try worker.sign(provider: providerPath, slot: slot, certificate: certificate,
                     der: certificateDER, attributes: prepared.attributesToSign, pin: pin, id: id,
-                    timeout: timeout, isCancelled: { operation.isCancellationRequested })
+                    timeout: timeout, providerContext: providerContext, isCancelled: { operation.isCancellationRequested })
                 receivedVerifiedSignature = true
                 operation.transition(to: .verifying)
                 try operation.checkCancellation()
@@ -109,6 +110,10 @@ extension SigningJob {
             }
             operation.transition(to: .completed)
         } catch {
+            if case SignumError.outputUncertain = error {
+                operation.transition(to: .outcomeUncertain)
+                throw error
+            }
             if submitted && !receivedVerifiedSignature && !(error is IsolatedPKCS11Client.Failure) &&
                 (error as? SupervisedProcess.Failure) != .launch && (error as? SupervisedProcess.Failure) != .capacity {
                 operation.transition(to: .outcomeUncertain)

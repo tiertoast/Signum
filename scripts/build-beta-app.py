@@ -84,6 +84,32 @@ def replace_exclusive(source, destination):
         raise OSError(code, os.strerror(code), str(destination))
 
 
+def required_products(bins, native_build):
+    products = {bins / "SignumApp": "Contents/MacOS/Signum",
+                bins / "SignumCLI": "Contents/Helpers/SignumCLI",
+                bins / "SignumPKCS11Worker": "Contents/Helpers/SignumPKCS11Worker",
+                native_build / "signum-pades-local": "Contents/Helpers/signum-pades-local"}
+    for source in products:
+        if not source.is_file() or not os.access(source, os.X_OK):
+            raise ValueError("Missing mandatory executable: " + str(source))
+    return products
+
+
+def private_dependency(ref, prefix):
+    if ref.startswith("@rpath/"):
+        path = prefix / "lib" / ref[len("@rpath/"):]
+    elif ref.startswith("/"):
+        path = Path(ref)
+    else:
+        raise ValueError("Unsupported dependency: " + ref)
+    if not path.is_file():
+        raise ValueError("Missing mandatory native dependency: " + ref)
+    path = path.resolve(strict=True)
+    if prefix not in path.parents:
+        raise ValueError("Dependency outside the private native prefix: " + ref)
+    return path
+
+
 def build(output, configuration, native_prefix, cmake):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise ValueError("This local recipe currently requires macOS arm64")
@@ -122,16 +148,14 @@ def build(output, configuration, native_prefix, cmake):
     run([cmake, "--build", native_build, "--parallel", "6"], env=env)
     run([cmake.with_name("ctest"), "--test-dir", native_build, "--output-on-failure", "--verbose"], env=env)
 
+    products = required_products(bins, native_build)
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".signum-bundle-", dir=output.parent))
     app = stage / "Signum.app"
     try:
         for folder in ("MacOS", "Helpers", "Frameworks", "Resources"):
             (app / "Contents" / folder).mkdir(parents=True, exist_ok=True)
-        files = {bins / "SignumApp": app / "Contents/MacOS/Signum",
-                 bins / "SignumCLI": app / "Contents/Helpers/SignumCLI",
-                 bins / "SignumPKCS11Worker": app / "Contents/Helpers/SignumPKCS11Worker",
-                 native_build / "signum-pades-local": app / "Contents/Helpers/signum-pades-local"}
+        files = {source: app / target for source, target in products.items()}
         pending = list(files)
         ids = {}
         while pending:
@@ -146,15 +170,7 @@ def build(output, configuration, native_prefix, cmake):
                     continue
                 # This pinned dependency closure has @rpath libraries in prefix/lib.
                 # Reject arbitrary external refs instead of silently copying a local brew install.
-                if ref.startswith("@rpath/"):
-                    dependency = prefix / "lib" / ref[len("@rpath/"):]
-                elif ref.startswith("/"):
-                    dependency = Path(ref)
-                else:
-                    raise ValueError("Unsupported dependency: " + ref)
-                dependency = dependency.resolve(strict=True)
-                if prefix not in dependency.parents:
-                    raise ValueError("Dependency outside the private native prefix: " + ref)
+                dependency = private_dependency(ref, prefix)
                 name = Path(ref).name
                 target = app / "Contents/Frameworks" / name
                 if dependency in files:
@@ -208,7 +224,7 @@ def build(output, configuration, native_prefix, cmake):
                     "minimumOSFromMachO": ".".join(map(str, max(versions))), "declaredMinimumOS": declared_target, "native": native_metadata,
                     "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
                     "signing": "ad-hoc only; no Developer ID, hardened runtime or notarization",
-                    "external": "User-installed PKCS#11 middleware; system /usr/bin/openssl for CAdES verification"}
+                    "external": "User-installed PKCS#11 middleware for signing/discovery; bundled OpenSSL for unified verification; system /usr/bin/openssl for legacy verify-cades"}
         # Inner dylibs, helpers, main executable, then the enclosing bundle.
         ordered = sorted(files.values(), key=lambda p: (p.parent.name != "Frameworks", p.parent.name == "MacOS", str(p)))
         for dest in ordered:

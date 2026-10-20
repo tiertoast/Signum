@@ -15,6 +15,11 @@ public enum PKCS11WorkerEntrypoint {
               fcntl(reply, F_SETNOSIGPIPE, 1) == 0 else { return 2 }
         defer { Darwin.close(reply); Darwin.close(sink) }
         guard dup2(sink, STDOUT_FILENO) >= 0, dup2(sink, STDERR_FILENO) >= 0 else { return 2 }
+        guard fcntl(STDIN_FILENO, F_SETFD, FD_CLOEXEC) == 0 else { return 2 }
+        if CommandLine.arguments.count == 2, CommandLine.arguments[1] == "--batch-v1" {
+            return BatchWorkerServer.serve(reply: reply)
+        }
+        guard CommandLine.arguments.count == 1 else { return 2 }
         var input = Data(), chunk = [UInt8](repeating: 0, count: 8192)
         defer { input.resetBytes(in: 0..<input.count) }
         while true {
@@ -27,10 +32,12 @@ public enum PKCS11WorkerEntrypoint {
         Darwin.close(STDIN_FILENO)
         guard let request = try? JSONDecoder().decode(PKCS11WorkerRequest.self, from: input), request.valid else { return 2 }
         input.resetBytes(in: 0..<input.count)
-        var response = PKCS11WorkerResponse(version: 1, id: request.id, action: request.action,
+        var response = PKCS11WorkerResponse(version: request.version, id: request.id, action: request.action,
             provider: request.provider, tokens: [], unavailable: 0, certificates: [], signature: nil, succeeded: false)
         do { response = try perform(request) }
         catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
+        catch IsolatedPKCS11Client.Failure.authenticationRequired { response.failureKind = "authenticationRequired" }
+        catch is MiddlewareFileSecurity.Failure { if request.version == 2 { response.failureKind = "contextChanged" } }
         catch { /* Never return vendor diagnostics or request bytes. */ }
         guard var output = try? JSONEncoder().encode(response), output.count <= 2 * 1024 * 1024 else { return 2 }
         defer { output.resetBytes(in: 0..<output.count) }
@@ -49,13 +56,18 @@ public enum PKCS11WorkerEntrypoint {
             throw SupervisedProcess.Failure.launch
         }
         defer { sg_token_lease_release(lease) }
+        if let expected = request.expectedModule {
+            let inspected = try MiddlewareFileSecurity.inspect(request.provider, automatic: request.automaticModule == true)
+            guard inspected.identity == expected, inspected.canonicalPath == request.provider else { throw MiddlewareFileSecurity.Failure.changed }
+        }
         let module = try PKCS11Module(path: request.provider)
         let result = Result { () -> PKCS11WorkerResponse in
             var tokens: [WorkerToken] = [], certificates: [WorkerCertificate] = [], unavailable = 0
-            var signature: Data?
+            var signature: Data?, version: String?
             switch request.action {
             case .scan:
                 let scan = try module.scanTokens(); tokens = scan.tokens.map(WorkerToken.init); unavailable = scan.unavailableSlots
+                version = module.reportedVersion()
             case .certificates:
                 var total = 0
                 for certificate in try module.certificates(slot: request.slot!) {
@@ -66,12 +78,17 @@ public enum PKCS11WorkerEntrypoint {
                 }
             case .rsaSHA256:
                 let certificate = request.certificate!
+                if let binding = request.providerContext {
+                    try binding.requireCurrentModule()
+                    try binding.requireCurrentToken(module)
+                }
                 try CertificateEligibility.requireEligible(certificateDER: certificate.der)
                 signature = try module.signRSASHA256(slot: request.slot!, certificate: certificate.value,
                     pin: request.pin!, message: request.attributes!, expectedCertificateDER: certificate.der)
             }
-            return PKCS11WorkerResponse(version: 1, id: request.id, action: request.action, provider: module.modulePath,
-                tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true)
+            return PKCS11WorkerResponse(version: request.version, id: request.id, action: request.action, provider: module.modulePath,
+                tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true,
+                libraryVersion: version, validatedModule: request.expectedModule, automaticValidated: request.automaticModule, validatedContext: request.providerContext)
         }
         // A blocked Finalize is contained by the parent's same deadline. Do not
         // announce success before checked provider teardown completes.

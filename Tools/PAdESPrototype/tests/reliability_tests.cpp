@@ -1,3 +1,6 @@
+#include "SigningProviderContext.h"
+#include "UnifiedVerification.h"
+#include "PAdESInput.h"
 #include "SignumCertificatePolicy.h"
 #include "TransactionalOutput.h"
 #include "process_coordination.h"
@@ -196,16 +199,23 @@ static pid_t spawnFixture(std::vector<std::string> arguments, const fs::path& lo
     if (!input.empty()) expect(write(pipeFD[1], input.data(), input.size()) == static_cast<ssize_t>(input.size()), "Cannot send fixture credential");
     close(pipeFD[1]); return pid;
 }
-static int waitFixture(pid_t pid) {
-    int status = 0; auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    for (;;) {
-        auto result = waitpid(pid, &status, WNOHANG);
-        if (result == pid) break;
+static int waitStatus(pid_t pid, std::chrono::seconds limit = std::chrono::seconds(10)) {
+    int status = 0; bool expired = false;
+    auto deadline = std::chrono::steady_clock::now() + limit;
+    while (true) {
+        const auto result = waitpid(pid, &status, WNOHANG);
+        if (result == pid) { expect(!expired, "Fixture timed out (child killed)"); return status; }
         if (result < 0 && errno == EINTR) continue;
         expect(result >= 0, "Cannot reap fixture");
-        if (std::chrono::steady_clock::now() > deadline) { kill(pid, SIGKILL); waitpid(pid, &status, 0); throw std::runtime_error("Fixture timed out"); }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            if (expired) throw std::runtime_error("Fixture did not reap after SIGKILL");
+            kill(pid, SIGKILL); expired = true; deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        }
         usleep(10000);
     }
+}
+static int waitFixture(pid_t pid) {
+    const auto status = waitStatus(pid);
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 static fs::path softwareProvider(const Folder& folder, const Identity& identity) {
@@ -254,6 +264,115 @@ int main(int argc, char** argv) {
         }
         Folder folder; Identity identity, other;
         const auto source = sourcePDF(), valid = signedPDF(source, identity);
+        test("bounded source reader owns exact binary bytes and closes on rejection", [&] {
+            Folder f;
+            for (size_t size : {size_t(5), size_t(65535), size_t(65536), size_t(65537), size_t(1024*1024)}) {
+                Bytes expected(size);
+                for (size_t i=0;i<size;++i) expected[i]=static_cast<uint8_t>(i % 251);
+                std::copy_n("%PDF-",5,expected.begin());
+                const auto input=fs::canonical(f.path)/"source.pdf"; put(input,expected);
+                auto actual=readSource(input.string()); fs::remove(input);
+                expect(actual==expected,"Reader truncated or changed binary content");
+                expected[4]='X'; expect(actual[4]=='-',"Reader result aliases mutable source storage");
+            }
+            const auto descriptors=[] { int count=0; for(int fd=0;fd<256;++fd) if(fcntl(fd,F_GETFD)>=0)++count; return count; };
+            const int before=descriptors();
+            const auto input=fs::canonical(f.path)/"invalid.pdf";
+            for (const auto& invalid : {Bytes{},Bytes{'%', 'P', 'D', 'F'},Bytes{'n','o','t','p','d','f'}}) {
+                put(input,invalid); bool failed=false;
+                try { (void)readSource(input.string()); } catch (...) { failed=true; }
+                expect(failed && descriptors()==before,"Invalid input accepted or descriptor leaked");
+                fs::remove(input);
+            }
+            int fd=open(input.c_str(),O_CREAT|O_RDWR,0600); expect(fd>=0,"Cannot create size fixture");
+            expect(ftruncate(fd,maxInput+1)==0,"Cannot size sparse fixture"); close(fd);
+            bool failed=false; try { (void)readSource(input.string()); } catch (...) { failed=true; }
+            expect(failed && descriptors()==before,"Oversize input accepted or descriptor leaked");
+            fs::remove(input); expect(fs::is_empty(f.path),"Reader created scratch output");
+        });
+        test("large ByteRange buffers preserve incremental CMS and reject tampering before publication", [&] {
+            PdfMemDocument document; document.GetPages().CreatePage(PoDoFo::Rect(0,0,595,842));
+            auto& padding=document.GetObjects().CreateDictionaryObject();
+            std::string data(1024*1024,'x'); data[65535]='a'; data[65536]='b'; data[65537]='c';
+            padding.GetOrCreateStream().SetData(bufferview(data),PdfFilterList{});
+            document.GetCatalog().GetDictionary().AddKey("SignumTestPadding",padding.GetIndirectReference());
+            charbuff buffer; BufferStreamDevice device(buffer); document.Save(device,PdfSaveOptions::NoFlateCompress);
+            Bytes large(buffer.begin(),buffer.end()); expect(large.size()>1024*1024,"Fixture lost padding");
+            const auto first=signedPDF(large,identity,false), second=signedPDF(first,other,true);
+            expect(std::equal(large.begin(),large.end(),first.begin()),"Original bytes changed");
+            verifyPDF(first,large,identity.der); verifyPDF(second,first,other.der);
+            auto report=inspectPAdES(second);
+            expect(report.state=="signed" && report.signatures.size()==2,"Incremental signatures lost");
+            for(const auto& signature:report.signatures) expect(signature.integrity=="verified","CMS bytes changed");
+            Folder f; auto output=f.path/"signed.pdf";
+            { TransactionalOutput tx(output.string()); tx.write(second); tx.verifyAndPublish(first,other.der); }
+            expect(fileBytes(output)==second,"Readback/published bytes changed");
+            auto corrupt=second; corrupt[65536]^=1; bool failed=false;
+            try { TransactionalOutput tx((f.path/"rejected.pdf").string()); tx.write(corrupt); tx.verifyAndPublish(first,other.der); }
+            catch (...) { failed=true; }
+            expect(failed && !fs::exists(f.path/"rejected.pdf") && fileBytes(output)==second,"Tampered bytes published or previous output changed");
+            expect(std::distance(fs::directory_iterator(f.path),fs::directory_iterator{})==1,"Failed verification leaked staging");
+        });
+        test("physical appearance size respects UserUnit and quarter-turn footprints", [&] {
+            for (const double unit : {.1, .5, 1., 2., 10., 75000.}) {
+                expect(signum::physicalAppearanceSize(240/unit,90/unit,unit), "Physical upright rejected");
+                expect(signum::physicalAppearanceSize(90/unit,240/unit,unit), "Physical quarter turn rejected");
+                expect(!signum::physicalAppearanceSize(39/unit,90/unit,unit), "Below minimum accepted");
+                expect(!signum::physicalAppearanceSize(801/unit,90/unit,unit), "Above maximum accepted");
+            }
+            expect(!signum::physicalAppearanceSize(240,90,0) && !signum::physicalAppearanceSize(240,90,INFINITY), "Invalid unit accepted");
+        });
+        test("appearance UserUnit binds actual page and rejects invalid or substituted metadata", [&] {
+            PdfMemDocument fixture; auto& page = fixture.GetPages().CreatePage(PoDoFo::Rect(0,0,595,842));
+            expect(signum::approvedAppearanceUserUnit(page,1) == 1, "Default unit changed");
+            page.GetObject().GetDictionary().AddKey("UserUnit",PdfObject(2.0));
+            expect(signum::approvedAppearanceUserUnit(page,2) == 2, "Explicit unit changed");
+            bool rejected = false; try { (void)signum::approvedAppearanceUserUnit(page,1); } catch (...) { rejected = true; }
+            expect(rejected, "Mismatched unit accepted");
+            page.GetObject().GetDictionary().AddKey("UserUnit",PdfObject(PdfString("invalid")));
+            rejected = false; try { (void)signum::approvedAppearanceUserUnit(page,1); } catch (...) { rejected = true; }
+            expect(rejected, "Malformed unit accepted");
+        });
+        test("bound provider context codec validates every field and detects file replacement", [&] {
+            Folder fixture; auto module = fs::canonical(fixture.path) / "synthetic-module";
+            put(module, Bytes{1,2,3}); struct stat st{}; expect(lstat(module.c_str(), &st) == 0, "Fixture stat");
+            auto hex = [](const std::string& value) { std::string out; const char* digits = "0123456789abcdef";
+                for (unsigned char c : value) { out += digits[c>>4]; out += digits[c&15]; } return out; };
+            std::vector<std::string> fields = {"1",hex(module.string()),std::to_string(st.st_dev),std::to_string(st.st_ino),std::to_string(st.st_size),
+                std::to_string(st.st_mtimespec.tv_sec),std::to_string(st.st_mtimespec.tv_nsec),std::to_string(st.st_ctimespec.tv_sec),std::to_string(st.st_ctimespec.tv_nsec),
+                "0","7",hex("label"),hex("manufacturer"),hex("model"),hex("reader"),hex("serial"),"01",std::string(64,'a'),std::string(64,'b'),"00000000-0000-0000-0000-000000000001"};
+            auto encode = [](const std::vector<std::string>& values) { std::string out; for (size_t i=0;i<values.size();++i) { if(i) out += ':';out += values[i]; }return out; };
+            signum::SigningProviderContext context(encode(fields)); context.requireCurrentModule(module.string());
+            expect(context.matchesToken(7,"label","manufacturer","model","reader","serial"),"Context changed token bytes");
+            expect(context.matchesToken(7," label ","manufacturer","model","reader","serial"),"Discovery whitespace normalization changed");
+            expect(!context.matchesToken(8,"label","manufacturer","model","reader","serial"),"Changed slot accepted");
+            expect(!context.matchesToken(7,"label","manufacturer","model","reader","other"),"Changed metadata accepted");
+            const std::vector<std::pair<size_t,std::string>> invalid = {{0,"2"},{1,"00"},{1,"zz"},{2,"-1"},{3,"0"},{4,"18446744073709551616"},
+                {6,"1000000000"},{8,"1000000000"},{9,"2"},{10,"-1"},{11,"00"},{12,std::string(258,'a')},{13,"z0"},{14,std::string(514,'a')},
+                {15,std::string(66,'a')},{16,""},{16,std::string(130,'a')},{17,"bad"},{18,std::string(64,'z')},{19,"not-a-uuid"}};
+            for (const auto& item : invalid) { auto changed=fields;changed[item.first]=item.second;bool rejected=false;
+                try { signum::SigningProviderContext bad(encode(changed)); }catch(...){rejected=true;}expect(rejected,"Malformed context field accepted"); }
+            for (const auto& wire : {std::string(),encode(fields)+":extra",std::string(16385,'a')}) { bool rejected=false;
+                try { signum::SigningProviderContext bad(wire); }catch(...){rejected=true;}expect(rejected,"Malformed context frame accepted"); }
+            auto replacement=module.parent_path()/"replacement";put(replacement,Bytes{4,5,6});fs::rename(replacement,module);
+            bool rejected=false;try{context.requireCurrentModule(module.string());}catch(...){rejected=true;}expect(rejected,"Replaced file accepted");
+        });
+        test("PAdES line codec preserves accepted bytes and rejects invalid or incomplete frames", [&] {
+            auto decode = [](const std::string& frame) {
+                int fds[2]; expect(pipe(fds) == 0, "Codec pipe");
+                expect(write(fds[1], frame.data(), frame.size()) == static_cast<ssize_t>(frame.size()), "Codec write"); close(fds[1]);
+                try { auto result = signum::readPAdESPIN(fds[0]); close(fds[0]); return result; }
+                catch (...) { close(fds[0]); throw; }
+            };
+            for (const auto& value : {std::string("synthetic"), std::string("é漢字"), std::string(64, 'X')}) {
+                const auto decoded = decode(value + "\n");
+                expect(std::string(decoded.begin(), decoded.end()) == value, "Codec changed accepted bytes");
+            }
+            for (const auto& value : {std::string(), std::string("\n"), std::string("X"), std::string(65, 'X')+"\n", std::string("X\rY\n"), std::string("X\0Y\n", 4)}) {
+                bool rejected = false; try { (void)decode(value); } catch (...) { rejected = true; }
+                expect(rejected, "Invalid/incomplete PIN frame accepted");
+            }
+        });
         test("selected certificate fingerprint binding before authentication", [&] {
             unsigned char digest[32]; unsigned int count = 0;
             expect(EVP_Digest(identity.der.data(), identity.der.size(), digest, &count, EVP_sha256(), nullptr) == 1 && count == 32, "Fixture fingerprint failed");
@@ -533,7 +652,7 @@ int main(int argc, char** argv) {
             std::string executable = fs::absolute(argv[0]).string(), destination = output.string();
             char* args[] = {executable.data(), const_cast<char*>(phase.c_str()), destination.data(), nullptr};
             pid_t pid; expect(posix_spawn(&pid, executable.c_str(), nullptr, nullptr, args, environ) == 0, "Cannot spawn crash fixture");
-            int status; expect(waitpid(pid, &status, 0) == pid && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL, "Fixture not killed");
+            const int status = waitStatus(pid); expect(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL, "Fixture not killed");
             expect(!fs::exists(output) && !fs::is_empty(f.path), "Crash exposed final or did not exercise staging");
             { TransactionalOutput recovery(output.string()); }
             expect(fs::is_empty(f.path), "Abandoned staging not recovered");
@@ -576,7 +695,7 @@ int main(int argc, char** argv) {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
             while ((result = waitpid(pid, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline)
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            if (result == 0) { kill(pid, SIGKILL); waitpid(pid, &status, 0); }
+            if (result == 0) { kill(pid, SIGKILL); status = waitStatus(pid, std::chrono::seconds(2)); }
             close(channel[1]);
             expect(result == pid && WIFEXITED(status) && WEXITSTATUS(status) == (scenario == 4 ? 2 : 1), "Helper waited for PIN or failed unexpectedly");
             auto bytes = fileBytes(log); std::string reason(bytes.begin(), bytes.end());
@@ -643,6 +762,84 @@ int main(int argc, char** argv) {
                 while (audit >> op) { if (op == 8) ++logins; if (op == 16) ++signs; }
                 expect(logins == 1 && signs == 1 && fileBytes(input) == source, "Helper retried PIN/sign or changed source");
             }
+        });
+        for (int fault = 0; fault < 4; ++fault) test("approved native output descriptor validation " + std::to_string(fault), [&] {
+            Folder f; auto folder = fs::canonical(f.path); struct stat info{};
+            expect(stat(folder.c_str(), &info) == 0, "Cannot identify approved directory");
+            OutputDirectoryIdentity expected{int64_t(info.st_dev), uint64_t(info.st_ino)};
+            OutputOperations ops;
+            if (fault == 1) ++expected.inode;
+            if (fault == 2) ops.identifyParent = [](int, struct stat*) { errno = EIO; return -1; };
+            if (fault == 3) ops.openParent = [](const char*) { errno = EACCES; return -1; };
+            bool failed = false;
+            try { TransactionalOutput tx((folder / "result.pdf").string(), ops, expected); tx.write(valid); tx.verifyAndPublish(source, identity.der); }
+            catch (...) { failed = true; }
+            expect(failed == (fault != 0), "Wrong descriptor outcome");
+            expect(fault == 0 ? fileBytes(folder / "result.pdf") == valid : fs::is_empty(folder), "Wrong payload or leaked staging");
+        });
+        for (int point = 0; point < 3; ++point) test("native directory rename phase " + std::to_string(point), [&] {
+            Folder f; auto root = fs::canonical(f.path), folder = root / "approved", moved = root / "moved";
+            fs::create_directory(folder); struct stat info{}; expect(stat(folder.c_str(), &info) == 0, "Directory identity");
+            OutputDirectoryIdentity expected{int64_t(info.st_dev), uint64_t(info.st_ino)};
+            auto rename = [&] { fs::rename(folder, moved); fs::create_directory(folder); };
+            OutputOperations ops;
+            if (point == 1) ops.beforePublish = rename;
+            if (point == 2) ops.afterPublish = rename;
+            bool failed = false;
+            try {
+                if (point == 0) rename();
+                TransactionalOutput tx((folder / "result.pdf").string(), ops, expected);
+                tx.write(valid); tx.verifyAndPublish(source, identity.der);
+            } catch (...) { failed = true; }
+            expect(failed && fs::is_empty(folder), "Renamed directory falsely succeeded or wrote wrong payload");
+            expect(point == 2 ? fileBytes(moved / "result.pdf") == valid : fs::is_empty(moved), "Published data removed or precommit leaked");
+        });
+        test("native output plan canonical alias and symlink replacement", [&] {
+            Folder f; auto root = fs::canonical(f.path), folder = root / "approved", alias = root / "alias";
+            fs::create_directory(folder); fs::create_directory_symlink(folder, alias);
+            struct stat info{}; expect(stat(folder.c_str(), &info) == 0, "Directory identity");
+            OutputDirectoryIdentity expected{int64_t(info.st_dev), uint64_t(info.st_ino)};
+            bool failed = false; try { TransactionalOutput tx((alias / "result.pdf").string(), {}, expected); } catch (...) { failed = true; }
+            expect(failed && fs::is_empty(folder), "Unapproved alias created staging");
+            TransactionalOutput tx((fs::canonical(alias) / "result.pdf").string(), {}, expected);
+            tx.write(valid); tx.verifyAndPublish(source, identity.der);
+        });
+        test("read-only source policy accepts unsigned and supported incremental signatures", [&] {
+            requireSupportedSource(source); requireSupportedSource(valid);
+            const auto twice = signedPDF(valid, other); requireSupportedSource(twice);
+            verifyPDF(twice, valid, other.der);
+        });
+        test("source policy rejects unsupported prior signature dictionary", [&] {
+            auto unsupported = valid;
+            const auto offset = find(unsupported, "ETSI.CAdES.detached"); unsupported[offset] = 'X';
+            bool failed = false; try { requireSupportedSource(unsupported); } catch (...) { failed = true; }
+            expect(failed, "Unsupported previous signature accepted");
+        });
+        test("source policy rejects malformed and encrypted PDF", [&] {
+            charbuff buffer(reinterpret_cast<const char*>(source.data()), source.size());
+            auto device = std::make_shared<BufferStreamDevice>(buffer); PdfMemDocument doc(device);
+            doc.SetEncrypted("synthetic-user", "synthetic-owner");
+            charbuff encoded; BufferStreamDevice target(encoded); doc.Save(target);
+            for (const auto& candidate : {Bytes{'%', 'P', 'D', 'F', '-', 'x'}, Bytes(encoded.begin(), encoded.end())}) {
+                bool failed = false; try { requireSupportedSource(candidate); } catch (...) { failed = true; }
+                expect(failed, "Malformed/encrypted source accepted");
+            }
+        });
+        test("certified source rejected before provider authentication", [&] {
+            Folder f(fs::absolute(argv[0]).parent_path()); Identity signer(2048, true);
+            auto module = softwareProvider(f, signer), input = f.path / "certified.pdf", output = f.path / "signed.pdf";
+            charbuff buffer(reinterpret_cast<const char*>(source.data()), source.size());
+            auto device = std::make_shared<BufferStreamDevice>(buffer); PdfMemDocument doc(device);
+            doc.GetCatalog().GetDictionary().AddKey("Perms", PdfDictionary());
+            charbuff encoded; BufferStreamDevice target(encoded); doc.Save(target);
+            Bytes certified(encoded.begin(), encoded.end()); put(input, certified);
+            std::vector<std::string> args = {argv[2], input.string(), output.string(), module.string(), "7", "01", "--pin-stdin",
+                "--job-id", "11111111-1111-4111-8111-111111111111", "--snapshot-id", "22222222-2222-4222-8222-222222222222",
+                "--expected-document-sha256", sha256(certified), "--expected-cert-sha256", sha256(Bytes(signer.der.begin(), signer.der.end())), "--verified-output-v4"};
+            auto pid = spawnFixture(args, f.path / "helper.log", "synthetic-fixture\n");
+            waitFixture(pid);
+            expect(!fs::exists(f.path / "operations"), "Predictably unsupported source accessed the provider");
+            expect(!fs::exists(output), "Certified source published output");
         });
         std::cout << checks << " native cases passed; no token or PIN used\n";
         return 0;

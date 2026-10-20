@@ -50,11 +50,26 @@ struct ProviderSelection {
     mutating func applyCertificates(_ loaded: LoadedCertificates) {
         certificates = loaded.certificates; certificateIdentities = loaded.identities
         certificateDERs = loaded.derByID; certificateAssessments = loaded.assessments
-        selectedCertificateID = loaded.certificates.first(where: { loaded.assessments[$0.id]?.permitsSigning == true })?.id
+        let eligible = loaded.certificates.filter { loaded.assessments[$0.id]?.permitsSigning == true }
+        selectedCertificateID = eligible.count == 1 ? eligible[0].id : nil
     }
     mutating func beginCertificateLoad() -> UUID {
         applyCertificates(LoadedCertificates()); pin = ""; requestID = UUID()
         return requestID
+    }
+
+    mutating func select(route: DeviceCertificateRoute) {
+        changePath(route.providerPath)
+        let request = beginDiscovery()
+        var loaded = LoadedCertificates()
+        loaded.certificates = [route.certificate]
+        loaded.derByID[route.certificate.id] = route.der
+        loaded.assessments[route.certificate.id] = route.assessment
+        loaded.identities[route.certificate.id] = route.identity
+        _ = acceptDiscovery(request: request, inputPath: path, canonicalPath: route.providerPath,
+            tokens: [route.token], slot: route.token.slot, certificates: loaded)
+        // Inspecting an ineligible certificate is allowed; approval is blocked.
+        selectedCertificateID = route.certificate.id
     }
 }
 #endif

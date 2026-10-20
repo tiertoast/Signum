@@ -22,10 +22,12 @@ final class SyntheticCertificates {
         let p = Process(); p.executableURL = URL(fileURLWithPath: openssl); p.arguments = args
         p.currentDirectoryURL = folder
         p.standardOutput = FileHandle.nullDevice
-        let error = Pipe(); p.standardError = error
+        let diagnosticURL = folder.appendingPathComponent("diagnostics-"+UUID().uuidString)
+        _ = FileManager.default.createFile(atPath:diagnosticURL.path,contents:nil)
+        let error = try FileHandle(forWritingTo:diagnosticURL); defer { try? error.close() }; p.standardError = error
         try p.run()
-        let diagnostics = error.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
+        try FixtureProcess.wait(p)
+        let diagnostics = try Data(contentsOf:diagnosticURL)
         guard p.terminationStatus == 0 else {
             throw SignumError.module("Synthetic certificate generation: " + String(decoding: diagnostics, as: UTF8.self))
         }

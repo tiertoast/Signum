@@ -107,6 +107,7 @@ static int extensions(Slice list, SGCertificateAssessment *r) {
             while (inner.n) {
                 Slice purpose;
                 if (!field(&inner, 6, &purpose) || !oid_valid(purpose)) return 0;
+                if (OID(purpose, 0x2b,6,1,5,5,7,3,2)) r->client_authentication = 1;
                 if (OID(purpose, 0x2b,6,1,5,5,7,3,36)) r->document_signing = 1;
                 else if (OID(purpose, 0x55,0x1d,0x25,0)) r->any_extended_key_usage = 1;
                 else if (!(purpose.n == 8 && !memcmp(purpose.p, (const uint8_t[]){0x2b,6,1,5,5,7,3}, 7)

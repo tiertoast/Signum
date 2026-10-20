@@ -6,6 +6,65 @@ import COutputPermissions
 
 #if os(macOS)
 final class SignumFileOutputTests: XCTestCase {
+    func testApprovedDescriptorIdentityAndOpenStatFailuresBeforeStaging() throws {
+        try inFolder { folder, output in
+            let expected = try OutputDirectoryIdentity.inspect(folder).1
+            for fault in 0..<3 {
+                var io = SignumFileOutput.OutputIO()
+                if fault == 0 { io.identifyParent = { _,_ in errno = EIO; return -1 } }
+                if fault == 1 { io.openParent = { _ in errno = EACCES; return -1 } }
+                let identity = fault == 2 ? try OutputDirectoryIdentity.inspect(folder.deletingLastPathComponent()).1 : expected
+                XCTAssertThrowsError(try SignumFileOutput.writeNew(bytes,to:output,expectedDirectory:identity,io:io))
+                try assertEmpty(folder)
+            }
+            try SignumFileOutput.writeNew(bytes,to:output,expectedDirectory:expected)
+            XCTAssertEqual(try Data(contentsOf:output),bytes)
+            XCTAssertThrowsError(try SignumFileOutput.writeNew(bytes,to:output,expectedDirectory:expected))
+        }
+    }
+    func testApprovedDirectoryRenamedBeforePublicationFailsWithoutOutput() throws {
+        try inFolder { root,_ in
+            for point in 0..<2 {
+                let directory = root.appendingPathComponent("approved"), moved = root.appendingPathComponent("moved")
+                try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+                let identity = try OutputDirectoryIdentity.inspect(directory).1
+                var io = SignumFileOutput.OutputIO()
+                let rename = {
+                    try FileManager.default.moveItem(at:directory,to:moved)
+                    try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+                }
+                if point == 0 { io.staged = rename } else { io.beforePublish = rename }
+                XCTAssertThrowsError(try SignumFileOutput.writeNew(bytes,to:directory.appendingPathComponent("result"),expectedDirectory:identity,io:io))
+                try assertEmpty(directory); try assertEmpty(moved)
+                try FileManager.default.removeItem(at:directory);try FileManager.default.removeItem(at:moved)
+            }
+        }
+    }
+    func testAfterPublishRenameIsUncertainAndPublishedBytesArePreserved() throws {
+        try inFolder { root,_ in
+            let directory = root.appendingPathComponent("approved"), moved = root.appendingPathComponent("moved")
+            try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+            let identity = try OutputDirectoryIdentity.inspect(directory).1
+            var io = SignumFileOutput.OutputIO()
+            io.afterPublish = { XCTAssertEqual(rename(directory.path,moved.path),0) }
+            XCTAssertThrowsError(try SignumFileOutput.writeNew(bytes,to:directory.appendingPathComponent("result"),expectedDirectory:identity,io:io)) {
+                guard case SignumError.outputUncertain = $0 else { return XCTFail("Published output must be uncertain") }
+            }
+            XCTAssertEqual(try Data(contentsOf:moved.appendingPathComponent("result")),bytes)
+        }
+    }
+    func testPlanCanonicalizesAliasAndWriterRejectsSymlinkReplacement() throws {
+        try inFolder { root,_ in
+            let directory = root.appendingPathComponent("approved"), alias = root.appendingPathComponent("alias")
+            try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false)
+            try FileManager.default.createSymbolicLink(at:alias,withDestinationURL:directory)
+            let canonical = try OutputDirectoryIdentity.inspect(alias)
+            XCTAssertEqual(canonical.0,try OutputDirectoryIdentity.inspect(directory).0)
+            XCTAssertThrowsError(try SignumFileOutput.writeNew(bytes,to:alias.appendingPathComponent("result"),expectedDirectory:canonical.1))
+            try assertEmpty(directory)
+            try SignumFileOutput.writeNew(bytes,to:canonical.0.appendingPathComponent("result"),expectedDirectory:canonical.1)
+        }
+    }
     func testCreatesNewP7MWithoutOverwriting() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("signum-output-test-\(UUID().uuidString)", isDirectory: true)
@@ -29,10 +88,12 @@ final class SignumFileOutputTests: XCTestCase {
     private enum FixtureError: Error { case rejected }
 
     private func inFolder(_ body: (URL, URL) throws -> Void) throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: folder) }
-        try body(folder, folder.appendingPathComponent("signed.p7m"))
+        let native = try XCTUnwrap(realpath(folder.path,nil)); defer { free(native) }
+        let canonical = URL(fileURLWithPath:String(cString:native),isDirectory:true)
+        try body(canonical, canonical.appendingPathComponent("signed.p7m"))
     }
 
     private func assertEmpty(_ folder: URL, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -469,7 +530,7 @@ final class SignumFileOutputTests: XCTestCase {
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             try process.run()
-            process.waitUntilExit()
+            try FixtureProcess.wait(process)
             XCTAssertEqual(process.terminationReason, .uncaughtSignal)
             XCTAssertEqual(process.terminationStatus, SIGKILL)
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))

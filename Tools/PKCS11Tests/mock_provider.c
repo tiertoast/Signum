@@ -20,9 +20,21 @@ static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static MockStats stats;
 static CK_RV faults[M_COUNT];
 static unsigned delay_us;
+static int sign_length_override, der_length_override, der_query_override;
+static CK_ULONG sign_returned_length, der_returned_length, der_query_length;
+// Scalar-only fault injection: never reads/writes beyond the provided buffer.
+void mock_return_length(int operation, unsigned long length) {
+    pthread_mutex_lock(&mutex);
+    if (operation == M_SIGN) { sign_length_override = 1; sign_returned_length = length; }
+    if (operation == M_ATTRIBUTE) { der_length_override = 1; der_returned_length = length; }
+    if (operation == -M_ATTRIBUTE) { der_query_override = 1; der_query_length = length; }
+    pthread_mutex_unlock(&mutex);
+}
 static unsigned char certificate_bytes[65536], replacement_bytes[65536];
 static size_t certificate_length, replacement_length;
 static unsigned certificate_reads, replace_after;
+static int after_user_action, certificate_absent;
+void mock_after_user_login(int action) { pthread_mutex_lock(&mutex); after_user_action = action; pthread_mutex_unlock(&mutex); }
 void mock_certificate_der(const unsigned char *bytes, size_t length) {
     pthread_mutex_lock(&mutex);
     if (bytes && length && length <= sizeof(certificate_bytes)) {
@@ -39,9 +51,11 @@ void mock_replace_certificate(const unsigned char *bytes, size_t length, unsigne
     pthread_mutex_unlock(&mutex);
 }
 static int blocked_operation = -1, blocked, released, always_auth, external_session;
-typedef struct { int active, delivered; CK_OBJECT_CLASS kind; } Session;
+typedef struct { int active, delivered, sign_active, context_ready; CK_OBJECT_CLASS kind; } Session;
 static Session sessions[512];
 static CK_ULONG next_session = 1;
+static CK_OBJECT_HANDLE private_key_handle = 2;
+void mock_key_handle(unsigned long value) { pthread_mutex_lock(&mutex); private_key_handle = value; pthread_mutex_unlock(&mutex); }
 void mock_stats(MockStats *out) { pthread_mutex_lock(&mutex); *out = stats; pthread_mutex_unlock(&mutex); }
 unsigned mock_call_count(int op) { pthread_mutex_lock(&mutex); unsigned count = stats.calls[op]; pthread_mutex_unlock(&mutex); return count; }
 unsigned mock_finalize_on_main(void) { pthread_mutex_lock(&mutex); unsigned value = stats.finalize_on_main; pthread_mutex_unlock(&mutex); return value; }
@@ -58,6 +72,9 @@ int mock_wait_blocked(void) {
     int result = blocked; pthread_mutex_unlock(&mutex); return result;
 }
 void mock_release(void) { pthread_mutex_lock(&mutex); released = 1; blocked_operation = -1; pthread_cond_broadcast(&condition); pthread_mutex_unlock(&mutex); }
+#ifndef SIGNUM_MOCK_FAULT_AFTER
+#define SIGNUM_MOCK_FAULT_AFTER 0
+#endif
 static CK_RV begin(int op) {
 #ifdef SIGNUM_MOCK_AUDIT_PATH
     /* Test audit contains operation numbers only, never arguments/credentials. */
@@ -69,7 +86,7 @@ static CK_RV begin(int op) {
 #endif
 #ifdef SIGNUM_MOCK_WORKER_PHASE
     /* Compile-time synthetic subprocess fixtures only; never runtime toggles. */
-    if (op == SIGNUM_MOCK_WORKER_PHASE) {
+    if (op == SIGNUM_MOCK_WORKER_PHASE && stats.calls[op] >= SIGNUM_MOCK_FAULT_AFTER) {
 #if SIGNUM_MOCK_WORKER_EFFECT == 1
         usleep(50000);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 2
@@ -78,6 +95,10 @@ static CK_RV begin(int op) {
         raise(SIGABRT);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 4
         faults[op] = CKR_GENERAL_ERROR;
+#elif SIGNUM_MOCK_WORKER_EFFECT == 8
+        faults[op] = CKR_DEVICE_REMOVED;
+#elif SIGNUM_MOCK_WORKER_EFFECT == 6
+        faults[op] = CKR_USER_NOT_LOGGED_IN;
 #elif SIGNUM_MOCK_WORKER_EFFECT == 7
 #ifdef SIGNUM_MOCK_AUDIT_PATH
         int claim = open(SIGNUM_MOCK_AUDIT_PATH ".once", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
@@ -107,6 +128,12 @@ static CK_RV end(CK_RV rv) { --stats.active_calls; pthread_mutex_unlock(&mutex);
 #define VALID(h) if ((h) >= 512 || !sessions[h].active) return end(CKR_SESSION_HANDLE_INVALID)
 static CK_RV initialize(void *args) {
     BEGIN(M_INIT);
+#ifdef SIGNUM_MOCK_DEFAULT_ALWAYS_AUTH
+    always_auth = SIGNUM_MOCK_DEFAULT_ALWAYS_AUTH;
+#endif
+#ifdef SIGNUM_MOCK_PREAUTHENTICATED
+    if (SIGNUM_MOCK_PREAUTHENTICATED) { stats.logged_in = 1; external_session = 1; }
+#endif
 #ifdef SIGNUM_MOCK_BOOTSTRAP_CERTIFICATE
     if (!certificate_length) {
         memcpy(certificate_bytes, bootstrap_certificate, sizeof(bootstrap_certificate));
@@ -114,6 +141,9 @@ static CK_RV initialize(void *args) {
     }
 #endif
     stats.initialize_flags = args ? ((CK_C_INITIALIZE_ARGS_PTR)args)->flags : 0;
+#if SIGNUM_MOCK_PREINITIALIZED
+    stats.initialized = 1;
+#endif
     if (stats.initialized) return end(CKR_CRYPTOKI_ALREADY_INITIALIZED);
     stats.initialized = 1; return end(CKR_OK);
 }
@@ -132,8 +162,14 @@ static CK_RV slots(CK_BBOOL present, CK_SLOT_ID_PTR out, CK_ULONG_PTR n) {
 static CK_RV token(CK_SLOT_ID slot, CK_TOKEN_INFO_PTR out) {
     (void)slot; BEGIN(M_TOKEN_INFO); memset(out, ' ', sizeof(*out));
     memcpy(out->label, "Signum Mock", 11); memcpy(out->model, "Synthetic", 9);
-    memcpy(out->manufacturerID, "Offline fixture", 15); return end(CKR_OK);
+    memcpy(out->manufacturerID, "Offline fixture", 15); memcpy(out->serialNumber, "SYNTHETIC-0001", 14); return end(CKR_OK);
 }
+#ifdef SIGNUM_MOCK_REPORT_VERSION
+static CK_RV reported_info(CK_INFO_PTR out) {
+    memset(out, 0, sizeof(*out)); out->libraryVersion.major = 1; out->libraryVersion.minor = 2;
+    return CKR_OK;
+}
+#endif
 static CK_RV slot_info(CK_SLOT_ID slot, CK_SLOT_INFO_PTR out) {
     (void)slot; BEGIN(M_SLOT_INFO); memset(out, ' ', sizeof(*out));
     memcpy(out->slotDescription, "Synthetic reader", 16); return end(CKR_OK);
@@ -159,21 +195,37 @@ static CK_RV session_info(CK_SESSION_HANDLE h, CK_SESSION_INFO_PTR out) {
 static CK_RV login(CK_SESSION_HANDLE h, CK_USER_TYPE user, CK_UTF8CHAR_PTR value, CK_ULONG length) {
     (void)value; (void)length; // deliberately never inspect, store or log credentials
     BEGIN(user == CKU_CONTEXT_SPECIFIC ? M_LOGIN_CONTEXT : M_LOGIN_USER); VALID(h);
+#if SIGNUM_MOCK_STRICT_CONTEXT
+    if (user == CKU_CONTEXT_SPECIFIC) {
+        if (!always_auth || !sessions[h].sign_active) return end(CKR_OPERATION_NOT_INITIALIZED);
+        sessions[h].context_ready = 1;
+    }
+#endif
     if (user == CKU_USER) {
         if (stats.logged_in) return end(CKR_USER_ALREADY_LOGGED_IN);
         stats.logged_in = 1;
+        if (after_user_action == 1 && replacement_length) {
+            memcpy(certificate_bytes, replacement_bytes, replacement_length);
+            certificate_length = replacement_length; replacement_length = 0;
+        }
+        if (after_user_action == 2) certificate_absent = 1;
+        if (after_user_action == 3) { sessions[h].active = 0; --stats.sessions; }
     }
     return end(CKR_OK);
 }
 static CK_RV logout(CK_SESSION_HANDLE h) { BEGIN(M_LOGOUT); VALID(h); stats.logged_in = 0; return end(CKR_OK); }
 static CK_RV find_init(CK_SESSION_HANDLE h, CK_ATTRIBUTE_PTR attrs, CK_ULONG n) {
-    BEGIN(M_FIND_INIT); VALID(h); sessions[h].delivered = 0;
+    BEGIN(M_FIND_INIT); VALID(h);
+#if SIGNUM_MOCK_STRICT_CONTEXT
+    if (sessions[h].sign_active) return end(CKR_OPERATION_ACTIVE);
+#endif
+    sessions[h].delivered = 0;
     for (CK_ULONG i = 0; i < n; ++i) if (attrs[i].type == CKA_CLASS) sessions[h].kind = *(CK_OBJECT_CLASS*)attrs[i].pValue;
     return end(CKR_OK);
 }
 static CK_RV find_objects(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE_PTR out, CK_ULONG max, CK_ULONG_PTR count) {
-    (void)max; BEGIN(M_FIND); VALID(h); *count = sessions[h].delivered ? 0 : 1;
-    if (*count) *out = sessions[h].kind == CKO_CERTIFICATE ? 1 : 2;
+    (void)max; BEGIN(M_FIND); VALID(h); *count = sessions[h].delivered || (certificate_absent && sessions[h].kind == CKO_CERTIFICATE) ? 0 : 1;
+    if (*count) *out = sessions[h].kind == CKO_CERTIFICATE ? 1 : private_key_handle;
     sessions[h].delivered = 1; return end(CKR_OK);
 }
 static CK_RV find_final(CK_SESSION_HANDLE h) { BEGIN(M_FIND_FINAL); VALID(h); return end(CKR_OK); }
@@ -195,22 +247,31 @@ static CK_RV attribute(CK_SESSION_HANDLE h, CK_OBJECT_HANDLE obj, CK_ATTRIBUTE_P
             n = certificate_length ? certificate_length : sizeof(der);
             if (attrs[i].pValue) ++certificate_reads;
             break;
-        case CKA_ALWAYS_AUTHENTICATE: value = &auth; n = sizeof(auth); break;
+        case CKA_ALWAYS_AUTHENTICATE:
+#if SIGNUM_MOCK_UNKNOWN_AUTH
+            return end(CKR_ATTRIBUTE_TYPE_INVALID);
+#endif
+            value = &auth; n = sizeof(auth); break;
         default: return end(CKR_ATTRIBUTE_TYPE_INVALID);
         }
         if (attrs[i].pValue) {
             if (attrs[i].ulValueLen < n) { attrs[i].ulValueLen = n; return end(CKR_BUFFER_TOO_SMALL); }
             memcpy(attrs[i].pValue, value, n);
         }
-        attrs[i].ulValueLen = n;
+        attrs[i].ulValueLen = attrs[i].type == CKA_VALUE && attrs[i].pValue && der_length_override ? der_returned_length :
+            (attrs[i].type == CKA_VALUE && !attrs[i].pValue && der_query_override ? der_query_length : n);
     }
     return end(CKR_OK);
 }
 static CK_RV sign_init(CK_SESSION_HANDLE h, CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE key) {
-    (void)key; BEGIN(M_SIGN_INIT); VALID(h); stats.last_mechanism = mechanism->mechanism; return end(CKR_OK);
+    (void)key; BEGIN(M_SIGN_INIT); VALID(h); sessions[h].sign_active = 1; sessions[h].context_ready = 0; stats.last_mechanism = mechanism->mechanism; return end(CKR_OK);
 }
 static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PTR signature, CK_ULONG_PTR length) {
     (void)bytes; (void)n; BEGIN(M_SIGN); VALID(h);
+#if SIGNUM_MOCK_STRICT_CONTEXT
+    if (!stats.logged_in || !sessions[h].sign_active || (always_auth && !sessions[h].context_ready)) return end(CKR_USER_NOT_LOGGED_IN);
+    sessions[h].sign_active = sessions[h].context_ready = 0;
+#endif
 #ifdef SIGNUM_MOCK_SOFTWARE_KEY
     SecKeyAlgorithm algorithm = kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256;
     if (stats.last_mechanism == CKM_RSA_PKCS) {
@@ -236,11 +297,14 @@ static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PT
     return end(rv);
 #endif
     if (*length < 32) return end(CKR_BUFFER_TOO_SMALL);
-    memset(signature, 0x53, 32); *length = 32; return end(CKR_OK);
+    memset(signature, 0x53, 32); *length = sign_length_override ? sign_returned_length : 32; return end(CKR_OK);
 }
 static CK_FUNCTION_LIST functions = {
     .version = {2,40}, .C_Initialize = initialize, .C_Finalize = finalize,
     .C_GetSlotList = slots, .C_GetTokenInfo = token, .C_GetSlotInfo = slot_info,
+#ifdef SIGNUM_MOCK_REPORT_VERSION
+    .C_GetInfo = reported_info,
+#endif
     .C_OpenSession = open_session, .C_CloseSession = close_session, .C_GetSessionInfo = session_info,
     .C_Login = login, .C_Logout = logout, .C_FindObjectsInit = find_init,
     .C_FindObjects = find_objects, .C_FindObjectsFinal = find_final,

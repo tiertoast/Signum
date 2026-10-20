@@ -1,4 +1,5 @@
 #include "PAdESVerification.h"
+#include "UnifiedVerification.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <openssl/cms.h>
 #include <openssl/x509.h>
@@ -11,6 +12,7 @@
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
+#include <iostream>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -48,7 +50,11 @@ void fields(CGPDFArrayRef array, std::vector<CGPDFDictionaryRef>& signatures, un
         const char* type = nullptr;
         const bool signature = CGPDFDictionaryGetName(field, "FT", &type) ? std::strcmp(type, "Sig") == 0 : inheritedSignature;
         CGPDFDictionaryRef value = nullptr;
-        if (signature && CGPDFDictionaryGetDictionary(field, "V", &value)) signatures.push_back(value);
+        CGPDFObjectRef rawValue = nullptr;
+        if (signature && CGPDFDictionaryGetObject(field, "V", &rawValue) && CGPDFObjectGetType(rawValue) != kCGPDFObjectTypeNull) {
+            require(CGPDFDictionaryGetDictionary(field,"V",&value),"Invalid signature value");
+            signatures.push_back(value);
+        }
         CGPDFArrayRef kids = nullptr;
         if (CGPDFDictionaryGetArray(field, "Kids", &kids)) fields(kids, signatures, depth + 1, budget, signature);
     }
@@ -238,11 +244,65 @@ size_t verifySignature(CGPDFDictionaryRef signature, const Bytes& pdf, const std
     CGPDFStringRef contents = nullptr;
     require(CGPDFDictionaryGetString(signature, "Contents", &contents) && CGPDFStringGetLength(contents) == decoded.size() &&
             std::equal(decoded.begin(), decoded.end(), CGPDFStringGetBytePtr(contents)), "Contents/ByteRange mismatch");
-    Bytes signedBytes(pdf.begin(), pdf.begin() + start);
+    // Both validated ByteRange segments are owned until CMS verification ends.
+    // Reserve their total length before copying the first segment: appending the
+    // short suffix otherwise doubles the full-document prefix allocation.
+    Bytes signedBytes;
+    signedBytes.reserve(start + (revisionEnd - end));
+    signedBytes.insert(signedBytes.end(), pdf.begin(), pdf.begin() + start);
     signedBytes.insert(signedBytes.end(), pdf.begin() + end, pdf.begin() + revisionEnd);
     verifyCMS(decoded, signedBytes, expected);
     return revisionEnd;
 }
+}
+
+Inspection inspectPAdES(const Bytes& pdf) {
+    Inspection report; report.format="pades"; report.state="unsigned";
+    Document document(pdf);
+    require(CGPDFDocumentGetNumberOfPages(document.value)>0 && CGPDFDocumentGetNumberOfPages(document.value)<=1000,"Unsupported PDF page count (1–1000)");
+    const auto entries=signatures(document);
+    if(!entries.empty())report.state="signed";
+    for(auto dictionary:entries) {
+        InspectedSignature result;
+        try {
+            CGPDFStringRef value=nullptr;
+            require(CGPDFDictionaryGetString(dictionary,"Contents",&value),"Signature Contents missing");
+            Bytes cms(CGPDFStringGetBytePtr(value),CGPDFStringGetBytePtr(value)+CGPDFStringGetLength(value));
+            CGPDFArrayRef ranges=nullptr;
+            require(CGPDFDictionaryGetArray(dictionary,"ByteRange",&ranges) && CGPDFArrayGetCount(ranges)==4,"Invalid ByteRange");
+            std::array<size_t,4> r{};
+            for(size_t i=0;i<4;++i) {CGPDFInteger n=-1;require(CGPDFArrayGetInteger(ranges,i,&n)&&n>=0&&uint64_t(n)<=pdf.size(),"Invalid ByteRange number");r[i]=size_t(n);}
+            require(r[0]==0&&r[1]<r[2]&&r[3]<=pdf.size()-r[2],"Invalid ByteRange coverage");
+            Bytes signedBytes;
+            signedBytes.reserve(r[1] + r[3]); // Both ranges already bounded by pdf.size().
+            signedBytes.insert(signedBytes.end(),pdf.begin(),pdf.begin()+r[1]);
+            signedBytes.insert(signedBytes.end(),pdf.begin()+r[2],pdf.begin()+r[2]+r[3]);
+            auto signers=inspectCMS(cms,&signedBytes,nullptr);
+            // The inspection scope deliberately matches SG-03: one CMS signer
+            // per signature dictionary, SHA-256, Adobe.PPKLite/ETSI detached.
+            require(signers.size()==1,"Unsupported multi-signer PDF CMS");
+            result=std::move(signers.front());
+            result.revisionEnd=r[2]+r[3]; result.laterChanges=result.revisionEnd<pdf.size();
+            result.revisionEnd=verifySignature(dictionary,pdf,nullptr);
+            require(result.integrity=="verified","PDF CMS could not be verified");
+            result.laterChanges=result.revisionEnd<pdf.size();
+        } catch(const std::exception& error) {
+            const std::string message=error.what();
+            if(result.integrity=="verified"||result.reason.empty()) {
+                result.integrity=message.find("Unsupported")!=std::string::npos || message.find("CMS")!=std::string::npos ? "notVerifiable":"invalid";
+                if(message=="PDF CMS integrity verification failed")result.integrity="invalid";
+                result.reason=message;
+            }
+        }
+        report.signatures.push_back(std::move(result));
+    }
+    std::stable_sort(report.signatures.begin(),report.signatures.end(),[](const auto& a,const auto& b){return a.revisionEnd<b.revisionEnd;});
+    return report;
+}
+
+bool isPreviewablePDF(const Bytes& bytes) {
+    try { Document document(bytes); const auto pages=CGPDFDocumentGetNumberOfPages(document.value);return pages>0&&pages<=1000; }
+    catch(...) { return false; }
 }
 
 void requireExpectedCertificate(const std::string& certificate, const std::string& sha256) {
@@ -269,6 +329,9 @@ Bytes readSource(const std::string& path) {
     struct stat info{};
     require(fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size > 0 && static_cast<uint64_t>(info.st_size) <= maxInput, "Invalid PDF input size/type");
     Bytes bytes;
+    // fstat is bounded above; capacity is only a hint. Keep every growth,
+    // identity, size/mtime/ctime and final content check below unchanged.
+    bytes.reserve(static_cast<size_t>(info.st_size));
     std::array<uint8_t, 65536> chunk{};
     while (true) {
         const auto count = read(fd, chunk.data(), chunk.size());
@@ -288,19 +351,65 @@ Bytes readSource(const std::string& path) {
     return bytes;
 }
 
+void requireSupportedSource(const Bytes& source) {
+    require(!source.empty() && source.size() <= maxInput, "Invalid PDF input size");
+    require(source.size() >= 5 && std::memcmp(source.data(), "%PDF-", 5) == 0, "Input is not a PDF");
+    Document original(source);
+    const auto count = CGPDFDocumentGetNumberOfPages(original.value);
+    require(count > 0, "Unsupported PDF page count");
+    // Certification needs a separate DocMDP/FieldMDP policy. Even a malformed
+    // Perms entry cannot be interpreted as permission to add a signature.
+    CGPDFObjectRef permissions = nullptr;
+    require(!CGPDFDictionaryGetObject(CGPDFDocumentGetCatalog(original.value), "Perms", &permissions), "Certified PDFs are not supported");
+    // Exercise the same bounded page/resource/annotation reader used at commit.
+    comparePages(original, original);
+    const auto previous = signatures(original);
+    require(previous.size() < 32, "Too many PDF signatures to add another signature");
+    for (auto signature : previous)
+        require(verifySignature(signature, source, nullptr) <= source.size(), "Invalid source signature revision");
+}
+
+int sourcePreflightMain() {
+    try {
+        Bytes source; std::array<uint8_t, 65536> chunk{};
+        while (true) {
+            const auto n = read(STDIN_FILENO, chunk.data(), chunk.size());
+            if (n < 0 && errno == EINTR) continue;
+            require(n >= 0, "PDF source read error");
+            if (!n) break;
+            require(source.size() + static_cast<size_t>(n) <= maxInput, "Invalid PDF input size");
+            source.insert(source.end(), chunk.begin(), chunk.begin() + n);
+        }
+        std::array<unsigned char, 32> hash{}; unsigned int length = 0;
+        require(EVP_Digest(source.data(), source.size(), hash.data(), &length, EVP_sha256(), nullptr) == 1 && length == hash.size(), "Cannot hash source");
+        std::ostringstream fingerprint;
+        for (auto byte : hash) fingerprint << std::hex << std::setfill('0') << std::setw(2) << unsigned(byte);
+        std::string reason, status = "accepted";
+        try { requireSupportedSource(source); }
+        catch (const std::exception& error) { status = "rejected"; reason = error.what(); }
+        // Native policy diagnostics are bounded ASCII; escape before JSON.
+        std::string escaped;
+        for (unsigned char c : reason.substr(0, 1024)) {
+            if (c == '"' || c == '\\') escaped += '\\';
+            escaped += c >= 32 && c < 127 ? char(c) : ' ';
+        }
+        std::cout << "{\"version\":1,\"status\":\"" << status << "\",\"sha256\":\"" << fingerprint.str()
+                  << "\",\"reason\":\"" << escaped << "\"}";
+        return 0;
+    } catch (...) { return 2; }
+}
+
 void verifyPDF(const Bytes& pdf, const Bytes& source, const std::string& expectedCertificate) {
     require(!expectedCertificate.empty() && pdf.size() <= maxOutput && source.size() <= maxInput && !source.empty(), "Invalid verification input");
     require(pdf.size() > source.size() && std::equal(source.begin(), source.end(), pdf.begin()), "Signed PDF does not preserve source bytes");
     size_t eof = pdf.size();
     while (eof && whitespace(pdf[eof - 1])) --eof;
     require(eof >= 5 && std::memcmp(pdf.data() + eof - 5, "%%EOF", 5) == 0, "Truncated PDF or unexpected trailing data");
+    requireSupportedSource(source);
     Document original(source), result(pdf);
     require(CGPDFDocumentGetNumberOfPages(original.value) > 0 &&
             CGPDFDocumentGetNumberOfPages(original.value) == CGPDFDocumentGetNumberOfPages(result.value), "PDF page count changed");
     const auto addedWidgets = comparePages(original, result);
-    // Certification transforms require a separate DocMDP/FieldMDP policy (SG-11).
-    CGPDFDictionaryRef permissions = nullptr;
-    require(!CGPDFDictionaryGetDictionary(CGPDFDocumentGetCatalog(original.value), "Perms", &permissions), "Certified PDFs are not supported");
     const auto before = signatures(original), after = signatures(result);
     require(after.size() == before.size() + 1, "Expected one additional PDF signature");
     size_t finalCount = 0;

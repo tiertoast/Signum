@@ -17,10 +17,10 @@ final class MockModule: @unchecked Sendable {
     let waitBlocked: @convention(c) () -> Int32
     let release: @convention(c) () -> Void
 
-    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false) throws {
+    init(certificate: Data? = nil, privateKey: Data? = nil, workerPhase: Int? = nil, workerEffect: Int = 0, audit: Bool = false, reportVersion: Bool = false, alwaysAuth: Bool = false, unknownAuth: Bool = false, preauthenticated: Bool = false, preinitialized: Bool = false, faultAfter: Int = 0, strictContext: Bool = false) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        folder = root.appendingPathComponent(".build/swift-provider-tests/" + UUID().uuidString)
+        folder = try FixtureFiles.directory("provider")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         path = folder.appendingPathComponent("mock.dylib")
@@ -31,6 +31,14 @@ final class MockModule: @unchecked Sendable {
         if audit {
             compiler.arguments! += ["-DSIGNUM_MOCK_AUDIT_PATH=" + String(reflecting: folder.appendingPathComponent("operations").path)]
         }
+        if strictContext { compiler.arguments! += ["-DSIGNUM_MOCK_STRICT_CONTEXT=1"] }
+        if alwaysAuth { compiler.arguments! += ["-DSIGNUM_MOCK_DEFAULT_ALWAYS_AUTH=1"] }
+        compiler.arguments! += [
+                                 "-DSIGNUM_MOCK_UNKNOWN_AUTH=\(unknownAuth ? 1 : 0)",
+                                 "-DSIGNUM_MOCK_PREAUTHENTICATED=\(preauthenticated ? 1 : 0)",
+                                 "-DSIGNUM_MOCK_PREINITIALIZED=\(preinitialized ? 1 : 0)",
+                                 "-DSIGNUM_MOCK_FAULT_AFTER=\(faultAfter)"]
+        if reportVersion { compiler.arguments! += ["-DSIGNUM_MOCK_REPORT_VERSION=1"] }
         if let workerPhase {
             compiler.arguments! += ["-DSIGNUM_MOCK_WORKER_PHASE=\(workerPhase)", "-DSIGNUM_MOCK_WORKER_EFFECT=\(workerEffect)"]
         }
@@ -48,7 +56,7 @@ final class MockModule: @unchecked Sendable {
         }
         compiler.standardOutput = FileHandle.nullDevice
         try compiler.run()
-        compiler.waitUntilExit()
+        try FixtureProcess.wait(compiler)
         guard compiler.terminationStatus == 0, let handle = dlopen(path.path, RTLD_NOW | RTLD_LOCAL) else {
             throw SignumError.module("Cannot compile/load synthetic provider")
         }

@@ -1,4 +1,4 @@
 import SignumCore
 import Darwin
-// No arguments, shell, environment credentials or diagnostic output.
+// Internal one-shot or --batch-v1 transport; no credential arguments/env/logs.
 exit(PKCS11WorkerEntrypoint.serve())
