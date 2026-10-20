@@ -42,8 +42,13 @@ job ID and independently verified RSA response. The bounded synthetic stdin
 request is deleted and never logged. OpenSSL is separately measured too. No
 retries, authorization/session reuse, PIN caching, or provider parallelism.
 
-`/usr/bin/time -l` records lifetime peak RSS, CPU and peak footprint. Checkpoints
-record current Mach resident bytes, process peak RSS, CPU/wall time and Darwin
+`/usr/bin/time -l` records wait-resource data. A local parent/150 MiB child
+control shows that its reported maximum RSS includes the child high-water value
+on the observed Darwin host (parent SELF ~1.7 MiB, time ~151 MiB). Use
+RUSAGE_SELF checkpoint peaks for parents, and time RSS/CPU/footprint only for
+separately measured leaf worker/helper/verifier processes. Never label time RSS
+from a parent with subprocesses as that parent’s memory or a pipeline total.
+Checkpoints record current Mach resident bytes, SELF peak RSS, CPU/wall time and Darwin
 process-attributed disk bytes. These disk counters depend on cache state and are
 not logical read/write totals. CaptureIO counts clone calls and actual capture
 read bytes/calls. Logical read/hash/copy counts from source inspection must be
