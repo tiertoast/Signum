@@ -88,4 +88,28 @@ final class TrustedListParserTests: XCTestCase {
             XCTAssertEqual($0 as? TLParseError, .unsupportedVersion)
         }
     }
+    func testAbsentSignatureRemainsUntrustedInput() throws {
+        let withoutSignature = String(decoding: xml(), as: UTF8.self)
+            .replacingOccurrences(of: "<ds:Signature><ds:SignedInfo/></ds:Signature>", with: "")
+        XCTAssertFalse(try UntrustedTLParser.parse(Data(withoutSignature.utf8)).containsSignatureElement)
+    }
+
+    func testForeignNamespaceCannotInjectServiceStatus() throws {
+        let altered = String(decoding: xml(), as: UTF8.self)
+            .replacingOccurrences(of: "<ServiceStatus>", with:
+                "<evil:ServiceStatus xmlns:evil=\"https://attacker.invalid/\">")
+            .replacingOccurrences(of: "</ServiceStatus>", with: "</evil:ServiceStatus>")
+        XCTAssertThrowsError(try UntrustedTLParser.parse(Data(altered.utf8))) {
+            XCTAssertEqual($0 as? TLParseError, .invalidStructure)
+        }
+    }
+
+    func testMalformedCertificateIdentityRejected() throws {
+        let altered = String(decoding: xml(), as: UTF8.self)
+            .replacingOccurrences(of: "AAECAw==", with: "***not-base64***")
+        XCTAssertThrowsError(try UntrustedTLParser.parse(Data(altered.utf8))) {
+            XCTAssertEqual($0 as? TLParseError, .invalidStructure)
+        }
+    }
+
 }
