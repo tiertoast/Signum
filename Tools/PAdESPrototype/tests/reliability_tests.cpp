@@ -1,4 +1,5 @@
 #include "SigningProviderContext.h"
+#include "UnifiedVerification.h"
 #include "PAdESInput.h"
 #include "SignumCertificatePolicy.h"
 #include "TransactionalOutput.h"
@@ -263,6 +264,55 @@ int main(int argc, char** argv) {
         }
         Folder folder; Identity identity, other;
         const auto source = sourcePDF(), valid = signedPDF(source, identity);
+        test("bounded source reader owns exact binary bytes and closes on rejection", [&] {
+            Folder f;
+            for (size_t size : {size_t(5), size_t(65535), size_t(65536), size_t(65537), size_t(1024*1024)}) {
+                Bytes expected(size);
+                for (size_t i=0;i<size;++i) expected[i]=static_cast<uint8_t>(i % 251);
+                std::copy_n("%PDF-",5,expected.begin());
+                const auto input=fs::canonical(f.path)/"source.pdf"; put(input,expected);
+                auto actual=readSource(input.string()); fs::remove(input);
+                expect(actual==expected,"Reader truncated or changed binary content");
+                expected[4]='X'; expect(actual[4]=='-',"Reader result aliases mutable source storage");
+            }
+            const auto descriptors=[] { int count=0; for(int fd=0;fd<256;++fd) if(fcntl(fd,F_GETFD)>=0)++count; return count; };
+            const int before=descriptors();
+            const auto input=fs::canonical(f.path)/"invalid.pdf";
+            for (const auto& invalid : {Bytes{},Bytes{'%', 'P', 'D', 'F'},Bytes{'n','o','t','p','d','f'}}) {
+                put(input,invalid); bool failed=false;
+                try { (void)readSource(input.string()); } catch (...) { failed=true; }
+                expect(failed && descriptors()==before,"Invalid input accepted or descriptor leaked");
+                fs::remove(input);
+            }
+            int fd=open(input.c_str(),O_CREAT|O_RDWR,0600); expect(fd>=0,"Cannot create size fixture");
+            expect(ftruncate(fd,maxInput+1)==0,"Cannot size sparse fixture"); close(fd);
+            bool failed=false; try { (void)readSource(input.string()); } catch (...) { failed=true; }
+            expect(failed && descriptors()==before,"Oversize input accepted or descriptor leaked");
+            fs::remove(input); expect(fs::is_empty(f.path),"Reader created scratch output");
+        });
+        test("large ByteRange buffers preserve incremental CMS and reject tampering before publication", [&] {
+            PdfMemDocument document; document.GetPages().CreatePage(PoDoFo::Rect(0,0,595,842));
+            auto& padding=document.GetObjects().CreateDictionaryObject();
+            std::string data(1024*1024,'x'); data[65535]='a'; data[65536]='b'; data[65537]='c';
+            padding.GetOrCreateStream().SetData(bufferview(data),PdfFilterList{});
+            document.GetCatalog().GetDictionary().AddKey("SignumTestPadding",padding.GetIndirectReference());
+            charbuff buffer; BufferStreamDevice device(buffer); document.Save(device,PdfSaveOptions::NoFlateCompress);
+            Bytes large(buffer.begin(),buffer.end()); expect(large.size()>1024*1024,"Fixture lost padding");
+            const auto first=signedPDF(large,identity,false), second=signedPDF(first,other,true);
+            expect(std::equal(large.begin(),large.end(),first.begin()),"Original bytes changed");
+            verifyPDF(first,large,identity.der); verifyPDF(second,first,other.der);
+            auto report=inspectPAdES(second);
+            expect(report.state=="signed" && report.signatures.size()==2,"Incremental signatures lost");
+            for(const auto& signature:report.signatures) expect(signature.integrity=="verified","CMS bytes changed");
+            Folder f; auto output=f.path/"signed.pdf";
+            { TransactionalOutput tx(output.string()); tx.write(second); tx.verifyAndPublish(first,other.der); }
+            expect(fileBytes(output)==second,"Readback/published bytes changed");
+            auto corrupt=second; corrupt[65536]^=1; bool failed=false;
+            try { TransactionalOutput tx((f.path/"rejected.pdf").string()); tx.write(corrupt); tx.verifyAndPublish(first,other.der); }
+            catch (...) { failed=true; }
+            expect(failed && !fs::exists(f.path/"rejected.pdf") && fileBytes(output)==second,"Tampered bytes published or previous output changed");
+            expect(std::distance(fs::directory_iterator(f.path),fs::directory_iterator{})==1,"Failed verification leaked staging");
+        });
         test("physical appearance size respects UserUnit and quarter-turn footprints", [&] {
             for (const double unit : {.1, .5, 1., 2., 10., 75000.}) {
                 expect(signum::physicalAppearanceSize(240/unit,90/unit,unit), "Physical upright rejected");

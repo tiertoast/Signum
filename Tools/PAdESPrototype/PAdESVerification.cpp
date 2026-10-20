@@ -244,7 +244,12 @@ size_t verifySignature(CGPDFDictionaryRef signature, const Bytes& pdf, const std
     CGPDFStringRef contents = nullptr;
     require(CGPDFDictionaryGetString(signature, "Contents", &contents) && CGPDFStringGetLength(contents) == decoded.size() &&
             std::equal(decoded.begin(), decoded.end(), CGPDFStringGetBytePtr(contents)), "Contents/ByteRange mismatch");
-    Bytes signedBytes(pdf.begin(), pdf.begin() + start);
+    // Both validated ByteRange segments are owned until CMS verification ends.
+    // Reserve their total length before copying the first segment: appending the
+    // short suffix otherwise doubles the full-document prefix allocation.
+    Bytes signedBytes;
+    signedBytes.reserve(start + (revisionEnd - end));
+    signedBytes.insert(signedBytes.end(), pdf.begin(), pdf.begin() + start);
     signedBytes.insert(signedBytes.end(), pdf.begin() + end, pdf.begin() + revisionEnd);
     verifyCMS(decoded, signedBytes, expected);
     return revisionEnd;
@@ -268,7 +273,9 @@ Inspection inspectPAdES(const Bytes& pdf) {
             std::array<size_t,4> r{};
             for(size_t i=0;i<4;++i) {CGPDFInteger n=-1;require(CGPDFArrayGetInteger(ranges,i,&n)&&n>=0&&uint64_t(n)<=pdf.size(),"Invalid ByteRange number");r[i]=size_t(n);}
             require(r[0]==0&&r[1]<r[2]&&r[3]<=pdf.size()-r[2],"Invalid ByteRange coverage");
-            Bytes signedBytes(pdf.begin(),pdf.begin()+r[1]);
+            Bytes signedBytes;
+            signedBytes.reserve(r[1] + r[3]); // Both ranges already bounded by pdf.size().
+            signedBytes.insert(signedBytes.end(),pdf.begin(),pdf.begin()+r[1]);
             signedBytes.insert(signedBytes.end(),pdf.begin()+r[2],pdf.begin()+r[2]+r[3]);
             auto signers=inspectCMS(cms,&signedBytes,nullptr);
             // The inspection scope deliberately matches SG-03: one CMS signer
@@ -322,6 +329,9 @@ Bytes readSource(const std::string& path) {
     struct stat info{};
     require(fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size > 0 && static_cast<uint64_t>(info.st_size) <= maxInput, "Invalid PDF input size/type");
     Bytes bytes;
+    // fstat is bounded above; capacity is only a hint. Keep every growth,
+    // identity, size/mtime/ctime and final content check below unchanged.
+    bytes.reserve(static_cast<size_t>(info.st_size));
     std::array<uint8_t, 65536> chunk{};
     while (true) {
         const auto count = read(fd, chunk.data(), chunk.size());
