@@ -112,4 +112,13 @@ final class TrustedListParserTests: XCTestCase {
         }
     }
 
+    func testNonPositiveSequenceIsRejected() {
+        let changed = String(decoding: xml(), as: UTF8.self)
+            .replacingOccurrences(of: "<TSLSequenceNumber>224</TSLSequenceNumber>",
+                                  with: "<TSLSequenceNumber>0</TSLSequenceNumber>")
+        XCTAssertThrowsError(try UntrustedTLParser.parse(Data(changed.utf8))) {
+            XCTAssertEqual($0 as? TLParseError, .invalidStructure)
+        }
+    }
+
 }
