@@ -6,6 +6,7 @@ import SwiftUI
 import Darwin
 @testable import SignumCore
 @testable import SignumApp
+@testable import SignumPlacementReference
 
 @MainActor final class PAdESPlacementPerformanceTests: XCTestCase {
     static func png(_ size: Int) throws -> Data {
@@ -19,13 +20,13 @@ import Darwin
         CGImageDestinationAddImage(destination,try XCTUnwrap(context.makeImage()),nil)
         XCTAssertTrue(CGImageDestinationFinalize(destination)); return result as Data
     }
-    func testThirtyAndOneHundredTwentyMovesReuseBytesHashAndAnnotationForEveryImageSize() throws {
+    func testReferenceAnnotationReusesBytesHashAcrossThirtyAndOneHundredTwentyMoves() throws {
         let crop = CGRect(x: 0, y: 0, width: 3370, height: 2384)
         for pixels in [0,1024,2800] {
             var config = PAdESAppearanceConfiguration(); config.showSigner = false
             if pixels > 0 { config.image = try PAdESAppearanceImage(data: Self.png(pixels)) }
             let artwork = try PAdESAppearanceRenderer.render(config,certificateDER:Data(),cropBox:crop)
-            let view = PlacementPDFView(frame:CGRect(x:0,y:0,width:850,height:600))
+            let view = ReferencePlacementPDFView(frame:CGRect(x:0,y:0,width:850,height:600))
             view.install(document:try XCTUnwrap(PDFDocument(data:PAdESGeometryStabilizationTests.pdf(media:crop,vectors:10000))),pageIndex:0)
             view.layoutSubtreeIfNeeded(); XCTAssertNil(view.updateAppearance(artwork))
             let annotation = try XCTUnwrap(view.previewAnnotation)

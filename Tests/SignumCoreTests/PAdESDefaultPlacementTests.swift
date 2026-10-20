@@ -4,6 +4,7 @@ import PDFKit
 import SwiftUI
 @testable import SignumCore
 @testable import SignumApp
+@testable import SignumPlacementReference
 
 @MainActor final class PAdESDefaultPlacementTests: XCTestCase {
     func document(_ media:CGRect,_ crop:CGRect?=nil,_ rotation:Int=0,_ unit:Int=1,_ vectors:Int=0) throws -> CGPDFDocument {
@@ -66,7 +67,7 @@ import SwiftUI
             let g=try PAdESPageGeometry(page:ref)
             var c=try g.defaultAppearance();c.showSigner=false;c.showLabel=false;c.image=try PAdESOrientationTests.marker()
             let art=try PAdESAppearanceRenderer.render(c,certificateDER:Data(),cropBox:crop,pageRotation:rotation)
-            page.addAnnotation(try XCTUnwrap(AppearancePDFAnnotation(appearance:art)))
+            page.addAnnotation(try XCTUnwrap(ReferenceAppearancePDFAnnotation(appearance:art)))
             let image=try XCTUnwrap(page.thumbnail(of:CGSize(width:1000,height:1000),for:.cropBox).cgImage(forProposedRect:nil,context:nil,hints:nil))
             let actual=try coloredBounds(image)
             // Independent target from physical paper size and the requirement,

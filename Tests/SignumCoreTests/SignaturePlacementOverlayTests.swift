@@ -48,7 +48,7 @@ import PDFKit
                     XCTAssertEqual(mapped.midY,expected.midY,accuracy:0.01)
                     XCTAssertEqual(mapped.width,expected.width,accuracy:0.01)
                     XCTAssertEqual(mapped.height,expected.height,accuracy:0.01)
-                    XCTAssertNil(view.previewAnnotation)
+                    XCTAssertTrue(view.document?.page(at:config.pageIndex)?.annotations.isEmpty == true)
                     // Transparent to hit testing, scroll stays with PDFKit.
                     XCTAssertNil(overlay.hitTest(CGPoint(x:20,y:20)))
                 }

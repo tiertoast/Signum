@@ -5,6 +5,7 @@ import PDFKit
 import ImageIO
 @testable import SignumCore
 @testable import SignumApp
+@testable import SignumPlacementReference
 
 @MainActor final class PAdESGeometryStabilizationTests: XCTestCase {
     static func pdf(media: CGRect, crop: CGRect? = nil, rotation: Int = 0, unit: Int = 1, vectors: Int = 0) -> Data {
@@ -34,7 +35,7 @@ import ImageIO
                 let data = Self.pdf(media: media, crop: crop, rotation: rotation, unit: rotation == 270 ? 10 : 1)
                 let doc = try XCTUnwrap(PDFDocument(data: data)), page = try XCTUnwrap(doc.page(at: 0))
                 let appearance = try redArtwork(crop: crop)
-                page.addAnnotation(try XCTUnwrap(AppearancePDFAnnotation(appearance: appearance)))
+                page.addAnnotation(try XCTUnwrap(ReferenceAppearancePDFAnnotation(appearance: appearance)))
                 let ns = page.thumbnail(of: CGSize(width: 1000, height: 1000), for: .cropBox)
                 let image = try XCTUnwrap(ns.cgImage(forProposedRect: nil, context: nil, hints: nil))
                 let ctx = try XCTUnwrap(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
@@ -96,10 +97,10 @@ import ImageIO
         XCTAssertEqual(view.scaleFactor, view.scaleFactorForSizeToFit, accuracy: 0.01)
         XCTAssertNotNil(view.signatureOverlay.approvedAppearance)
         XCTAssertTrue(view.signatureOverlay.artworkView.hasPainted)
-        XCTAssertNil(view.previewAnnotation, "Live preview must not depend on a PDFKit annotation")
+        XCTAssertTrue(view.document?.page(at:0)?.annotations.isEmpty == true, "Live preview must not depend on a PDFKit annotation")
     }
-    func testAnnotationConstructionFailureIsExplicitAndNotReportedAsReady() throws {
-        let view = PlacementPDFView()
+    func testReferenceAnnotationConstructionFailureIsExplicitAndNotReportedAsReady() throws {
+        let view = ReferencePlacementPDFView()
         view.document = try XCTUnwrap(PDFDocument(data: Self.pdf(media: CGRect(x: 0, y: 0, width: 595, height: 842))))
         var c = PAdESAppearanceConfiguration(); c.showSigner = false
         let corrupt = RenderedPAdESAppearance(configuration: c, pdf: Data("not a PDF".utf8), certificateSHA256: "synthetic")

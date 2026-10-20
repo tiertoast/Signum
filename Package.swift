@@ -23,6 +23,8 @@ let package = Package(
         .executableTarget(name: "SignumApp", dependencies: ["SignumCore"]),
         .executableTarget(name: "SignumOutputCrashProbe", dependencies: ["SignumCore"],
                           path: "Tests/SignumOutputCrashProbe"),
-        .testTarget(name: "SignumCoreTests", dependencies: ["SignumCore", "SignumOutputCrashProbe", "SignumCLI", "SignumApp", "SignumPKCS11Worker"])
+        .target(name: "SignumPlacementReference", dependencies: ["SignumCore"],
+                path: "Tools/PlacementPrototype/Reference"),
+        .testTarget(name: "SignumCoreTests", dependencies: ["SignumPlacementReference", "SignumCore", "SignumOutputCrashProbe", "SignumCLI", "SignumApp", "SignumPKCS11Worker"])
     ]
 )

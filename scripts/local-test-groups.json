@@ -75,7 +75,7 @@
       "PAdESOrientationTests",
       "PAdESOrientationWorkflowTests",
       "PAdESPlacementPerformanceTests",
-      "PAdESPreviewTests",
+      "LegacyPAdESPreviewReferenceTests",
       "SignaturePlacementOverlayTests",
       "SigningWorkspaceTests"
     ]
@@ -111,7 +111,7 @@
       "PAdESOrientationTests",
       "PAdESOrientationWorkflowTests",
       "PAdESPlacementPerformanceTests",
-      "PAdESPreviewTests",
+      "LegacyPAdESPreviewReferenceTests",
       "PAdESStabilizationSigningTests",
       "SignaturePlacementOverlayTests",
       "SigningWorkspaceTests"

@@ -5,6 +5,7 @@ import ImageIO
 import CoreGraphics
 @testable import SignumCore
 @testable import SignumApp
+@testable import SignumPlacementReference
 
 final class PAdESAppearanceTests: XCTestCase {
     let crop = CGRect(x:50,y:70,width:400,height:450)
@@ -129,7 +130,7 @@ final class PAdESAppearanceTests: XCTestCase {
             let outputDocument=try XCTUnwrap(PDFDocument(data:bytes)), previewDocument=try XCTUnwrap(PDFDocument(data:original))
             _ = try XCTUnwrap(outputDocument.page(at:c.pageIndex))
             let previewPage=try XCTUnwrap(previewDocument.page(at:c.pageIndex))
-            previewPage.addAnnotation(try XCTUnwrap(AppearancePDFAnnotation(appearance:appearance)))
+            previewPage.addAnnotation(try XCTUnwrap(ReferenceAppearancePDFAnnotation(appearance:appearance)))
             func raster(_ page:PDFPage) throws -> (pixels:[UInt8],image:CGImage) {
                 let thumbnail=page.thumbnail(of:CGSize(width:600,height:600),for:.mediaBox)
                 let image=try XCTUnwrap(thumbnail.cgImage(forProposedRect:nil,context:nil,hints:nil))
