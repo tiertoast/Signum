@@ -3,3 +3,5 @@ Tests/SignumTrustAuthenticationTests/Fixtures/*.xml -text -diff -whitespace
 # Preserve upstream schema/license formatting.
 Sources/SignumTrustAuthentication/Schemas/*.xsd -whitespace
 Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE -whitespace
+
+Tests/SignumTrustIntegrationTests/Fixtures/*.xml -text -diff -whitespace

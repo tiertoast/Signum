@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import SignumCore
+import SignumTrustIntegration
 
 private extension Result {
     var isSuccess: Bool { if case .success = self { return true }; return false }
@@ -13,11 +14,18 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
 }
 
 
+@MainActor final class SignumLifecycle: NSObject, NSApplicationDelegate {
+    let trustedLists = try? TrustedListsModel.developmentPreview()
+    func applicationDidFinishLaunching(_ notification: Notification) { trustedLists?.start() }
+    func applicationWillTerminate(_ notification: Notification) { trustedLists?.stop() }
+}
+
 @main
 struct SignumApp: App {
+    @NSApplicationDelegateAdaptor(SignumLifecycle.self) private var lifecycle
     var body: some Scene {
         WindowGroup("Signum") {
-            SignumWindow()
+            SignumWindow(trustedLists: lifecycle.trustedLists)
                 .frame(minWidth: 980, minHeight: 650)
         }
         .defaultSize(width: 1320, height: 830)
@@ -34,6 +42,7 @@ private enum SignumFormat: String, Hashable {
 }
 
 @MainActor struct SignumWindow: View {
+    private let trustedLists: TrustedListsModel?
     @StateObject private var batch: BatchSigningCoordinator
     @StateObject private var interaction = SigningInteraction()
     @StateObject private var review = SigningReview()
@@ -82,7 +91,8 @@ private enum SignumFormat: String, Hashable {
     init(batch: BatchSigningCoordinator? = nil, initialDevices: DeviceSelection = .init(),
          initialProvider: ProviderSelection = .init(), selectedSnapshot: DocumentSnapshot? = nil,
          automaticallyDiscover: Bool = true, defaults: UserDefaults = .standard,
-         workspace: SigningWorkspaceSelection? = nil) {
+         workspace: SigningWorkspaceSelection? = nil, trustedLists: TrustedListsModel? = nil) {
+        self.trustedLists = trustedLists
         self.automaticallyDiscover = automaticallyDiscover
         preferences = SigningExperiencePreferences(defaults: defaults)
         _batch = StateObject(wrappedValue: batch ?? BatchSigningCoordinator())
@@ -199,6 +209,7 @@ private enum SignumFormat: String, Hashable {
                             Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
                             Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.").font(.caption).foregroundStyle(.secondary)
                             SignumGraphicSettingsPane()
+                            if let trustedLists { TrustedListsPane(model: trustedLists) }
                         }
                     }
                     .padding(20)

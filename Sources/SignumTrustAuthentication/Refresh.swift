@@ -10,11 +10,17 @@ public struct TLRefreshView: Sendable {
     public let europeSequence: Int
     public let italySequence: Int
     public let expiresAt: Date
+    public let lastVerifiedUpdate: Date?
+    public let providerCount: Int
+    public let serviceCount: Int
     public let warning: String?
     public let currentEurope: AuthenticatedTL?
     public let currentItaly: AuthenticatedTL?
     init(_ snapshot: VerifiedSnapshot, source: TLRefreshSource, warning: String? = nil, now: Date? = nil) {
         self.source = source; self.warning = warning
+        lastVerifiedUpdate = snapshot.bundle.refreshedAt
+        providerCount = snapshot.italy.document.providers.count
+        serviceCount = snapshot.italy.document.providers.reduce(0) { $0 + $1.services.count }
         let expired = snapshot.expired || (now.map { min(snapshot.europe.document.nextUpdate, snapshot.italy.document.nextUpdate) <= $0 } ?? false)
         freshness = expired ? .expired : .current
         europeSequence = snapshot.europe.document.sequenceNumber; italySequence = snapshot.italy.document.sequenceNumber
