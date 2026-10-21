@@ -7,6 +7,7 @@ import SignumCore
 import SignumTrustIntegration
 import SignumTrustAuthentication
 import SignumCertificateValidation
+import SignumVerificationReports
 
 enum VerificationDropLoader {
     @MainActor static func urls(from providers: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
@@ -20,6 +21,7 @@ enum VerificationDropLoader {
         let id = UUID()
         let name: String
         var report: VerificationReport?
+        var verificationDate: Date?
         var paths: [Int: CertificatePathResult] = [:]
         var validations: [Int: CompleteSignatureValidationResult] = [:]
         var issue = ""
@@ -104,7 +106,7 @@ enum VerificationDropLoader {
                 let cacheURL = FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first?.appendingPathComponent(identity).appendingPathComponent("Revocation")
                 let service = SignatureQualificationService(cache:cacheURL.map { RevocationEvidenceCache(directory:$0) })
                 let online = await european?.networkAllowed() ?? true
-                let observedAt = validationClock()
+                let observedAt=validationClock();rows[index].verificationDate=observedAt
                 let assessment = Task.detached(priority: .utility) {
                     if let european {
                         let result = await service.validate(assessmentReport, catalog: european.europeanService, mode: online ? .online : .offline, observedAt: observedAt, evaluationMode: .bestAvailable,
@@ -210,6 +212,10 @@ struct UnifiedVerificationPane: View {
                                             if report.format == .pades { Text(VerificationReport.revisionScope) }
                                         }.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
                                     }
+                                    Menu("Esporta rapporto") {
+                                        Button("PDF…") { exportReport(row,format:.pdf) }
+                                        Button("Testo (.txt)…") { exportReport(row,format:.text) }
+                                    }.disabled(exporting || workspace.busy || row.verificationDate == nil)
                                     if report.previewPDF != nil { Button("Anteprima PDF in sola lettura") { preview = report } }
                                     if report.originalContent != nil { Button("Estrai originale…") { extract(report) }.disabled(exporting || workspace.busy) }
                                 } else if row.issue.isEmpty { Text(workspace.busy ? "In attesa di verifica…" : "Nessun risultato").font(.caption) }
@@ -263,6 +269,24 @@ struct UnifiedVerificationPane: View {
         workspace.cancel()
         let chooser = NSOpenPanel(); chooser.allowsMultipleSelection = true; chooser.canChooseDirectories = false
         if chooser.runModal() == .OK { start(chooser.urls) }
+    }
+    private func exportReport(_ row: VerificationWorkspace.Row,format: VerificationReportExporter.Format) {
+        guard !exporting,!workspace.busy,let report=row.report,let date=row.verificationDate else {return}
+        let panel=NSSavePanel();panel.title="Esporta rapporto di verifica"
+        panel.allowedContentTypes = format == .pdf ? [.pdf]:[.plainText]
+        panel.nameFieldStringValue=URL(fileURLWithPath:report.documentName).lastPathComponent+"-rapporto."+format.pathExtension
+        guard panel.runModal() == .OK,let destination=panel.url else {return}
+        let values=Array(row.validations.values),version=AppVersion.label(info:Bundle.main.infoDictionary)
+        exporting=true;extractionIssue="Esportazione del rapporto in corso…"
+        Task {
+            defer {exporting=false}
+            let result=await Task.detached(priority:.userInitiated) {Result {
+                let snapshot=try VerificationReportDocument(report:report,validations:values,verificationDate:date,productVersion:version)
+                try VerificationReportExporter.write(snapshot,format:format,to:destination)
+            }}.value
+            switch result {case .success:extractionIssue="Rapporto esportato. Nessun file esistente è stato sostituito."
+            case .failure(let error):extractionIssue=error.localizedDescription}
+        }
     }
     private func extract(_ report: VerificationReport) {
         guard !exporting, report.integrity == .verified, let content = report.originalContent else { return }
