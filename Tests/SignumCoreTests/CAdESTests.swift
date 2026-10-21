@@ -82,6 +82,26 @@ final class CAdESTests: XCTestCase {
         XCTAssertThrowsError(try DER.signingTime(Date(timeIntervalSince1970: .nan)))
     }
 
+    func testSigningTimeOffOmitsOnlyThatAttribute() throws {
+        let certificate = syntheticCertificate(), document = Data("Toggle fixture".utf8)
+        let on = try CAdES.Prepared(document: document, certificateDER: certificate, declaredSigningTime: Date(timeIntervalSince1970: 1792480943))
+        let off = try CAdES.Prepared(document: document, certificateDER: certificate, declaredSigningTime: nil)
+        let bytes = [UInt8](on.attributesToSign)
+        var cursor = 0
+        let root = try DER.read(bytes, at: &cursor, limit: bytes.count)
+        cursor = root.contents.lowerBound
+        var retained = [Data](), timeCount = 0
+        while cursor < root.contents.upperBound {
+            let attribute = try DER.read(bytes, at: &cursor, limit: root.contents.upperBound)
+            var field = attribute.contents.lowerBound
+            let oid = try DER.read(bytes, at: &field, limit: attribute.contents.upperBound)
+            if Data(bytes[oid.full]) == DER.signingTimeAttributeOID { timeCount += 1 }
+            else { retained.append(Data(bytes[attribute.full])) }
+        }
+        XCTAssertEqual(timeCount, 1)
+        XCTAssertEqual(off.attributesToSign, DER.set(retained))
+    }
+
     func testRejectMalformedCertificateAndEmptyDocument() {
         XCTAssertThrowsError(try DER.certificateIdentity(Data([0x30, 0x82, 0x01])))
         XCTAssertThrowsError(try CAdES.Prepared(document: Data(), certificateDER: syntheticCertificate()))

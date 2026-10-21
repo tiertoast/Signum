@@ -14,10 +14,11 @@ struct SigningReviewContext: Equatable {
     let discoveryID: UUID
     var appearanceHashes: [UUID:String] = [:]
     var providerContext: SigningProviderContext? = nil
+    var includeSigningTime = true
     static func == (a: Self, b: Self) -> Bool {
         a.revision == b.revision && a.provider == b.provider && a.slot == b.slot &&
         a.certificate.identifier == b.certificate.identifier && a.der == b.der &&
-        a.destination == b.destination && a.routeID == b.routeID && a.discoveryID == b.discoveryID && a.appearanceHashes == b.appearanceHashes && a.providerContext == b.providerContext
+        a.destination == b.destination && a.routeID == b.routeID && a.discoveryID == b.discoveryID && a.appearanceHashes == b.appearanceHashes && a.providerContext == b.providerContext && a.includeSigningTime == b.includeSigningTime
     }
 }
 
@@ -73,7 +74,7 @@ struct SigningReviewContext: Equatable {
                 if Task.isCancelled || cancellation.isCancellationRequested || context.revision != batch.revision { throw CancellationError() }
                 return try await batch.prepareReview(provider: context.provider, slot: context.slot,
                     certificate: context.certificate, der: context.der, destination: context.destination,
-                    providerContext: context.providerContext, appearances: appearances, isCancelled: { cancellation.isCancellationRequested })
+                    providerContext: context.providerContext, appearances: appearances, includeSigningTime: context.includeSigningTime, isCancelled: { cancellation.isCancellationRequested })
             }
             activePreparation = task; activeCancellation = cancellation; activeID = workID
             defer { if activeID == workID { activePreparation = nil; activeCancellation = nil } }

@@ -100,7 +100,7 @@ enum VerificationDropLoader {
                 rows[index].report = report
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
                 let assessmentReport = report
-                let identity = Bundle.main.bundleIdentifier ?? "io.github.tiertoast.Signum.DevelopmentPreview.B6"
+                let identity = Bundle.main.bundleIdentifier ?? "io.github.tiertoast.Signum.Beta.B7"
                 let cacheURL = FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first?.appendingPathComponent(identity).appendingPathComponent("Revocation")
                 let service = SignatureQualificationService(cache:cacheURL.map { RevocationEvidenceCache(directory:$0) })
                 let online = await european?.networkAllowed() ?? true

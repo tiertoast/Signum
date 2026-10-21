@@ -102,6 +102,7 @@ public struct BatchApproval: Sendable {
                               der: Data, destination: BatchOutputDestination,
                               providerContext: SigningProviderContext? = nil,
                               appearances: [UUID: RenderedPAdESAppearance] = [:],
+                              includeSigningTime: Bool = true,
                               isCancelled: @escaping @Sendable () -> Bool = { false }) async throws -> BatchApproval {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
         invalidateReview()
@@ -122,7 +123,7 @@ public struct BatchApproval: Sendable {
                 try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot, certificate: certificate,
                     certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity,
                     padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper, isCancelled: cancelled) : nil,
-                    padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext)
+                    padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext, includeSigningTime: includeSigningTime)
             }
             return BatchApproval(id: UUID(), jobs: jobs)
         }
@@ -214,12 +215,12 @@ public struct BatchApproval: Sendable {
     }
 
     public func prepareApproval(provider: String, slot: UInt, certificate: SignumCertificate,
-                                der: Data, directory: URL) async throws -> BatchApproval {
-        try await prepareApproval(provider: provider, slot: slot, certificate: certificate, der: der, destination: .commonDirectory(directory))
+                                der: Data, directory: URL, includeSigningTime: Bool = true) async throws -> BatchApproval {
+        try await prepareApproval(provider: provider, slot: slot, certificate: certificate, der: der, destination: .commonDirectory(directory), includeSigningTime: includeSigningTime)
     }
 
     public func prepareApproval(provider: String, slot: UInt, certificate: SignumCertificate,
-                                der: Data, destination: BatchOutputDestination = .originalFolders) async throws -> BatchApproval {
+                                der: Data, destination: BatchOutputDestination = .originalFolders, includeSigningTime: Bool = true) async throws -> BatchApproval {
         guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
         isFrozen = true; isPreparing = true
         let request = UUID(); acquisitionID = request
@@ -234,7 +235,7 @@ public struct BatchApproval: Sendable {
                     try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot,
                         certificate: certificate, certificateDER: der, destination: output.url,
                         destinationDirectoryIdentity: output.directoryIdentity,
-                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil)
+                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil, includeSigningTime: includeSigningTime)
                 }
                 return BatchApproval(id: UUID(), jobs: jobs)
             }.value

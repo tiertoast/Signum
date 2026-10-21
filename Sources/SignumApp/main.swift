@@ -47,6 +47,7 @@ private enum SignumFormat: String, Hashable {
     @StateObject private var interaction = SigningInteraction()
     @StateObject private var review = SigningReview()
     @AppStorage(SigningExperiencePreferences.Keys.batchAuthentication) private var authenticationModeRaw = BatchAuthenticationMode.automatic.rawValue
+    @AppStorage(SigningExperiencePreferences.Keys.includeSigningTime) private var includeSigningTime = true
     @State private var approvedAuthenticationMode: BatchAuthenticationMode = .perSignature
     @State private var authenticationSession: BatchCAdESSession?
     @State private var authenticationAttempted = false
@@ -100,6 +101,7 @@ private enum SignumFormat: String, Hashable {
         _manualPaths = State(initialValue: MiddlewarePreferences(defaults: defaults).paths)
         _customDirectory = State(initialValue: SigningExperiencePreferences(defaults: defaults).customDirectory)
         _authenticationModeRaw = AppStorage(wrappedValue: BatchAuthenticationMode.automatic.rawValue, SigningExperiencePreferences.Keys.batchAuthentication, store: defaults)
+        _includeSigningTime = AppStorage(wrappedValue: true, SigningExperiencePreferences.Keys.includeSigningTime, store: defaults)
         _additionalConfirmation = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.additionalConfirmation, store: defaults)
         _showExcludedCertificates = AppStorage(wrappedValue: false, SigningExperiencePreferences.Keys.showExcluded, store: defaults)
         _saveAlongsideOriginal = AppStorage(wrappedValue: true, SigningExperiencePreferences.Keys.alongsideOriginal, store: defaults)
@@ -127,7 +129,7 @@ private enum SignumFormat: String, Hashable {
                 (readyPreviews.contains($0.id) && placements[$0.id]?.appearance?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
         return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
                      der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity },
-                     providerContext: route.signingContext(discoveryID: devices.requestID))
+                     providerContext: route.signingContext(discoveryID: devices.requestID), includeSigningTime: includeSigningTime)
     }
     private var canApproveBatch: Bool {
         !interfaceLocked && !batch.isFrozen && !workspace.showingPDFPreview && review.matches(reviewContext, batch: batch)
@@ -206,6 +208,12 @@ private enum SignumFormat: String, Hashable {
                                 ForEach(BatchAuthenticationMode.allCases, id: \.rawValue) { mode in Text(mode.title).tag(mode.rawValue) }
                             }
                             Text(authenticationMode.explanation).font(.caption).foregroundStyle(.secondary)
+                            GroupBox("Firma digitale") {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Toggle("Includi data e ora della firma", isOn: $includeSigningTime).disabled(batch.isFrozen || interfaceLocked)
+                                    Text("La data e ora dichiarate della firma non costituiscono una marca temporale certificata.").font(.caption).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }
                             Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
                             Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.").font(.caption).foregroundStyle(.secondary)
                             SignumGraphicSettingsPane()

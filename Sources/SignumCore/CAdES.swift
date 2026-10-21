@@ -14,7 +14,7 @@ public enum CAdES {
         private let signerIdentifier: Data
         private let digestAlgorithm: Data
 
-        public init(document: Data, certificateDER: Data, declaredSigningTime: Date = Date()) throws {
+        public init(document: Data, certificateDER: Data, declaredSigningTime: Date? = Date()) throws {
             guard !document.isEmpty && document.count <= CAdES.maximumDocumentBytes else {
                 throw SignumError.module("Serve un documento non vuoto, fino a \(maximumDocumentBytes / 1024 / 1024) MiB.")
             }
@@ -32,12 +32,14 @@ public enum CAdES {
             let essCertIDv2 = DER.sequence([DER.octets(certificateDigest)])
             let signingCertificateV2 = DER.sequence([DER.sequence([essCertIDv2])])
 
-            let attributes = [
+            var attributes = [
                 DER.attribute(oid: DER.contentTypeAttributeOID, value: DER.dataOID),
                 DER.attribute(oid: DER.messageDigestAttributeOID, value: DER.octets(messageDigest)),
-                DER.attribute(oid: DER.signingTimeAttributeOID, value: try DER.signingTime(declaredSigningTime)),
                 DER.attribute(oid: DER.signingCertificateV2AttributeOID, value: signingCertificateV2)
             ]
+            if let declaredSigningTime {
+                attributes.append(DER.attribute(oid: DER.signingTimeAttributeOID, value: try DER.signingTime(declaredSigningTime)))
+            }
             // RFC 5652: sign DER-encoded SET OF attributes (tag 0x31).
             self.attributesToSign = DER.set(attributes)
         }

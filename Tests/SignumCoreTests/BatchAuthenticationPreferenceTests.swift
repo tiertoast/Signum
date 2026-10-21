@@ -16,6 +16,18 @@ final class BatchAuthenticationPreferenceTests: XCTestCase {
         defaults.set("unknown-value", forKey: SigningExperiencePreferences.Keys.batchAuthentication)
         XCTAssertEqual(preferences.authenticationMode, .perSignature)
     }
+    func testSigningTimeDefaultsOnAndPersistsBothChoices() throws {
+        let name = "Signum.synthetic.time." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = SigningExperiencePreferences(defaults: defaults)
+        XCTAssertTrue(preferences.includeSigningTime)
+        preferences.includeSigningTime = false
+        XCTAssertFalse(SigningExperiencePreferences(defaults: defaults).includeSigningTime)
+        XCTAssertEqual(defaults.persistentDomain(forName: name)?.count, 1)
+        preferences.includeSigningTime = true
+        XCTAssertTrue(SigningExperiencePreferences(defaults: defaults).includeSigningTime)
+    }
     func testPolicyDoesNotPromiseReuseForPAdESMixedOrUnknownIdentity() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

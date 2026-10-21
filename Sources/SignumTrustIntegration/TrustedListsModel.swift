@@ -70,7 +70,7 @@ public struct EuropeanCatalogProvider: EuropeanCatalogProviding {
         self.offline = offline; self.clock = clock
     }
     public static func developmentPreview() throws -> TrustedListsModel {
-        let identity = Bundle.main.bundleIdentifier.flatMap { $0.hasPrefix("io.github.tiertoast.Signum.DevelopmentPreview") ? $0 : nil } ?? "io.github.tiertoast.Signum.DevelopmentPreview.B6"
+        let identity = Bundle.main.bundleIdentifier.flatMap { ($0.hasPrefix("io.github.tiertoast.Signum.DevelopmentPreview") || $0 == "io.github.tiertoast.Signum.Beta.B7") ? $0 : nil } ?? "io.github.tiertoast.Signum.Beta.B7"
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
             .appendingPathComponent(identity + "/TrustedLists", isDirectory: true)
         return TrustedListsModel(europeanService: try EuropeanTrustCatalogService(directory: directory), directory: directory)
