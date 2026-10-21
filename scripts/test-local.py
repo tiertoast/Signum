@@ -120,6 +120,8 @@ class Run:
     def swift(self, name='swift', sanitizer=None, selected=None):
         scratch = self.root / name
         args = [self.config['swift'], 'test', '--scratch-path', scratch, '--jobs', '2' if sanitizer else '4']
+        if 'prefix' in self.config:
+            args += ['-Xlinker', '-rpath', '-Xlinker', str(Path(self.config['prefix']) / 'lib')]
         if sanitizer: args += ['--sanitize=' + sanitizer, '--filter', SANITIZER_FILTER]
         elif selected is not None: args += ['--filter', '(' + '|'.join(selected) + ')/']
         env = dict(self.env)

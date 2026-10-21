@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Build 6 relocation and production EU/IT cache smoke; no personal input or token.
+"""Development Preview relocation and production EU/IT cache smoke; no personal input or token.
 The existing packager audits Mach-O deployment/closure/rpaths and seals the bundle.
-This script tests the relocated bytes and leaves the GUI open for one panel check.
+This script tests relocated bytes; the 0.6 smoke closes its own GUI after startup.
 """
 import argparse, importlib.util, json, os, plistlib, shutil, subprocess, time
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('recipe', Path(__file__).with_name('build-beta-app.py'))
 recipe = importlib.util.module_from_spec(spec); spec.loader.exec_module(recipe)
 p = argparse.ArgumentParser(description=__doc__)
-p.add_argument('--build-number', type=int, choices=(6,7), default=6)
+p.add_argument('--build-number', type=int, choices=(1,6,7), default=6)
 p.add_argument('--trusted-cache', type=Path)
+p.add_argument('--version', choices=('0.5.0','0.6.0'), default='0.5.0')
 p.add_argument('--bundle', type=Path, required=True); p.add_argument('--output-root', type=Path, required=True)
 a = p.parse_args(); root = a.output_root.resolve(); root.mkdir(parents=True, exist_ok=False)
 app = root/'Relocated'/a.bundle.name; app.parent.mkdir(); shutil.copytree(a.bundle.resolve(), app, symlinks=True)
-info = plistlib.loads((app/'Contents/Info.plist').read_bytes()); identity = 'io.github.tiertoast.Signum.Beta.B7' if a.build_number == 7 else 'io.github.tiertoast.Signum.DevelopmentPreview.B6'
+info = plistlib.loads((app/'Contents/Info.plist').read_bytes()); identity, _ = recipe.preview_metadata(a.version, a.build_number)
 assert info['CFBundleIdentifier'] == identity and info['CFBundleVersion'] == str(a.build_number)
-assert info['LSMinimumSystemVersion'] == '13.0'
+assert info['LSMinimumSystemVersion'] == '13.0' and info['CFBundleShortVersionString'] == a.version
 subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
 env = {'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','HOME':os.environ['HOME'],'LC_ALL':'C','DYLD_PRINT_LIBRARIES':'1'}
 cache = Path.home()/'Library/Application Support'/identity/'TrustedLists'
@@ -43,10 +44,13 @@ with (root/'gui.stdout.log').open('wb') as out, (root/'gui.dyld.log').open('wb')
     process = subprocess.Popen([str(app/'Contents/MacOS/Signum')],env=env,stdout=out,stderr=err,start_new_session=True)
 time.sleep(4)
 assert process.poll() is None, 'GUI exited during startup'
+if a.version == '0.6.0':
+    # Close only this test process, so diagnostic logs are final rather than mutable.
+    process.terminate(); process.wait(timeout=15)
 recipe.audit_loaded((root/'gui.dyld.log').read_text(errors='replace'),app)
 result = {'status':'passed','bundleID':identity,'relocatedBundle':str(app),'minimumOS':'13.0',
           'macOS13RuntimeTested':False,'cache':str(cache),'selectiveUpdate':online,'offlineCache':offline,
-          'startupPID':process.pid,'startup':'alive after four seconds; panel check pending',
+          'startupPID':process.pid,'startup':('alive after four seconds, then smoke process terminated' if a.version == '0.6.0' else 'alive after four seconds; panel check pending'),
           'environment':'system PATH, no DYLD search overrides; loaded libraries audited',
           'DSS':'not executed; no ready runtime; not a packaging gate'}
 (root/'results.json').write_text(json.dumps(result,indent=2)+'\n')
