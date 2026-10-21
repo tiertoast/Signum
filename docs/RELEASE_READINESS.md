@@ -9,7 +9,7 @@ Earlier Alpha/Beta Foundation evidence is retained in [its historical report](SI
 | Area | Evidence / boundary |
 | --- | --- |
 | CAdES / PAdES | Local PKCS#11 signing/verification, signed-byte approval binding, no-overwrite publication, batch workflow and graphical PAdES. |
-| Signed declared time | CAdES \`signingTime\` signed attribute, default-ON persistent opt-out; not a timestamp or legal date proof. |
+| Signed declared time | CAdES `signingTime` signed attribute, default-ON persistent opt-out; not a timestamp or legal date proof. |
 | EU Trusted Lists | Signed LOTL, selective national caches, XMLDSig authentication, continuity/rollback checks; discovery of 30 territories is not 30-country QES validation. |
 | Certificates/evidence | Native X.509 path and supported OCSP/CRL and temporal-evidence checks, per-signer results and conservative fail-closed outcomes. |
 | eIDAS qualification | Restricted E2 profile for IT/AT/DE/BE/FR/ES, direct CA/QC/post-2016 signatures with sufficient bound historical evidence. General current-time QES validation without timestamp evidence not yet implemented. |

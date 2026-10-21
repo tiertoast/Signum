@@ -25,14 +25,14 @@ The 0.6 cycle should deliver useful formats without compromising 0.5 cryptograph
 ### 0.6-A — eIDAS at verification time
 
 - Specify and implement a defensible *current-time* verification policy for un-timestamped signatures, separate from historical validation based on reliable evidence.
-- Keep signer-declared \`signingTime\`, observed verification time, trusted proof of existence, revocation and TL validity **independent**.
+- Keep signer-declared `signingTime`, observed verification time, trusted proof of existence, revocation and TL validity **independent**.
 - Present certificate QC/QSCD indications independently from the verdict on whether a particular signature qualifies as QES. A lack of timestamp **alone** must not label a signature invalid/non-qualified, and missing evidence must not turn into an unsupported positive QES claim.
 - Acceptance: positive, negative and indeterminate cases; realistic Italian CAdES comparisons, documented normative basis, no regression in existing E2 historical gates.
 
 ### 0.6-B — XAdES Baseline-B
 
 - Implement **generation and independent verification** of an explicitly scoped XAdES Baseline-B XML signature profile, building on bundled libxml2/xmlsec only where suitable.
-- Preserve reference/digest/document binding, canonicalization and \`SignedProperties\` validation. Explicitly restrict unsupported transforms, external-resource resolution and ambiguous XML signatures.
+- Preserve reference/digest/document binding, canonicalization and `SignedProperties` validation. Explicitly restrict unsupported transforms, external-resource resolution and ambiguous XML signatures.
 - Acceptance: interoperable files verified by independent tooling, hostile XML/wrapping/external-reference cases rejected, no private-document uploads, bounded parsing and targeted native/Swift tests.
 - Larger XAdES-T/LT/LTA profiles belong to subsequent explicitly reviewed work, not a silent 0.6-B extension.
 
@@ -51,7 +51,7 @@ The 0.6 cycle should deliver useful formats without compromising 0.5 cryptograph
 ### 0.6-E — Verification reports
 
 - Offer an exportable, human-readable verification report with each signature's **integrity, certificate path, revocation, time and eIDAS qualification** as separate outcomes.
-- Clearly distinguish \`signingTime\` from verified timestamp evidence and indeterminate results from invalid signatures. Do not invent legal conclusions.
+- Clearly distinguish `signingTime` from verified timestamp evidence and indeterminate results from invalid signatures. Do not invent legal conclusions.
 - Acceptance: stable machine/testable report values, useful PDF/text export, support for supported CAdES/PAdES/XAdES/ASiC coverage and no leakage of PINs or document contents.
 
 **0.6 close-out:** one consolidated regression campaign, real-token acceptance for affected signing workflows, independent interoperability corpus, and beta packaging with an honest limitations list. No GitHub Actions, no repeated full suites at every submilestone.

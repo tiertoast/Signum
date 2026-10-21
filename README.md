@@ -12,7 +12,7 @@ For planned work, scope and milestone gates, see the **[development roadmap](doc
 
 | Area | Current scope |
 | --- | --- |
-| **CAdES** | Local PKCS#11 attached CMS/\`.p7m\` signing and cryptographic verification; safe batch signing; automatic signed \`signingTime\` attribute with a persistent ON-by-default setting to omit it when desired. |
+| **CAdES** | Local PKCS#11 attached CMS/`.p7m` signing and cryptographic verification; safe batch signing; automatic signed `signingTime` attribute with a persistent ON-by-default setting to omit it when desired. |
 | **PAdES** | PDF signing through a bundled native PoDoFo helper; visible/invisible appearance with PDFKit preview, placement and approved resources. |
 | **Verification** | CAdES/PAdES signature integrity and independent per-signer reports; certificate-chain trust, revocation, temporal evidence and eIDAS qualification exposed separately. |
 | **European Trusted Lists** | Authentic EU LOTL and selected national TLs, cryptographic XMLDSig authentication, cache continuity/rollback controls, selective acquisition and offline use of authenticated cached evidence. |
@@ -33,7 +33,7 @@ The positive qualification policy validated so far is deliberately narrow: IT, A
 - Signing uses an immutable approved document snapshot, signer/certificate binding, isolated PKCS#11 worker operation and bounded supervision.
 - The signed output is verified before exclusive, atomic publication; files are never silently overwritten and uncertain private operations are not automatically retried.
 - CAdES batch signing preserves the approved CMS attributes even when a job is delayed.
-- Revocation, trust, declared signing time and legal qualification are **not conflated**: an absent timestamp does not make the cryptographic signature invalid, and \`signingTime\` alone cannot prove the date or a QES verdict.
+- Revocation, trust, declared signing time and legal qualification are **not conflated**: an absent timestamp does not make the cryptographic signature invalid, and `signingTime` alone cannot prove the date or a QES verdict.
 - National Trusted List cache presence is not treated as authentication; missing, expired or inconsistent trust material fails closed.
 
 Worker isolation reduces the impact of middleware crashes/hangs on the UI; it is **not** a privilege sandbox against hostile third-party modules. Avoid putting PINs or private document contents in logs, command arguments or issues.
@@ -58,14 +58,14 @@ swift test
 scripts/test-pkcs11-local.sh
 ~~~
 
-Some integration tests require a locally built native PDF helper and explicit environment configuration; \`swift test\` alone is not equivalent to the full release campaign. Consult [local testing](docs/LOCAL_TESTING.md), [release readiness](docs/RELEASE_READINESS.md), and the pinned packaging scripts before rebuilding. **No GitHub Actions** are used; builds and acceptance testing remain local.
+Some integration tests require a locally built native PDF helper and explicit environment configuration; `swift test` alone is not equivalent to the full release campaign. Consult [local testing](docs/LOCAL_TESTING.md), [release readiness](docs/RELEASE_READINESS.md), and the pinned packaging scripts before rebuilding. **No GitHub Actions** are used; builds and acceptance testing remain local.
 
 ### Architecture
 
-- \`SignumApp\`: SwiftUI/AppKit GUI and PDFKit preview.
-- \`SignumCore\`, \`SignumPKCS11Worker\`, \`SignumCLI\`: signing/verification primitives, immutable jobs, worker supervision and CLI.
-- \`SignumTrustCore\`, \`SignumTrustAuthentication\`, \`SignumTrustIntegration\`, \`SignumCertificateValidation\`: European trust, authentication and certificate/evidence assessment.
-- \`Tools/PAdESPrototype\`, native C bridges and \`scripts/\`: PDF signing, security boundaries, packaging and local validation.
+- `SignumApp`: SwiftUI/AppKit GUI and PDFKit preview.
+- `SignumCore`, `SignumPKCS11Worker`, `SignumCLI`: signing/verification primitives, immutable jobs, worker supervision and CLI.
+- `SignumTrustCore`, `SignumTrustAuthentication`, `SignumTrustIntegration`, `SignumCertificateValidation`: European trust, authentication and certificate/evidence assessment.
+- `Tools/PAdESPrototype`, native C bridges and `scripts/`: PDF signing, security boundaries, packaging and local validation.
 
 ## Next steps
 
