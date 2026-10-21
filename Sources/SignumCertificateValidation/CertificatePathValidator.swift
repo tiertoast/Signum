@@ -44,20 +44,14 @@ public enum CertificatePathValidator {
         var result: [Identity] = []
         for provider in catalog.usableProviders {
             for service in provider.services {
-                // Each historical state carries its OWN identity. Never borrow today's key.
-                var events = service.history.map { ($0.statusSince, $0.typeURI, $0.statusURI, $0.certificateDERs) }
-                events.append((service.statusSince, service.typeURI, service.statusURI, service.certificateDERs))
-                guard Set(events.map { $0.0 }).count == events.count,
-                      service.statusSince <= catalog.document.issuedAt,
-                      service.history.allSatisfy({ $0.statusSince < service.statusSince }) else { continue }
-                events.sort { $0.0 < $1.0 }
-                for (index, event) in events.enumerated() where event.1 == caQC && event.0 <= now {
-                    let end = index + 1 < events.count ? events[index + 1].0 : nil
-                    let historical = end.map { $0 <= now } ?? false
-                    for der in event.3 {
-                        let match = CertificateServiceMatch(provider: provider.name, service: service.name, country: catalog.document.territory,
-                            status: event.2, statusSince: event.0, listSequence: catalog.document.sequenceNumber, historical: historical, identitySHA256: hash(der))
-                        result.append(.init(match: match, der: der, eligible: !historical && event.2 == granted))
+                guard let events = service.timeline(issuedAt:catalog.document.issuedAt) else { continue }
+                for event in events where event.typeURI == caQC && event.start <= now {
+                    let historical = !event.contains(now)
+                    for der in TLServiceIdentityResolver.certificates(event,service:service) {
+                        let match = CertificateServiceMatch(provider:provider.name,service:service.name,country:catalog.document.territory,
+                            status:event.statusURI,statusSince:event.start,listSequence:catalog.document.sequenceNumber,
+                            historical:historical,identitySHA256:hash(der))
+                        result.append(.init(match:match,der:der,eligible:!historical && event.statusURI == granted))
                     }
                 }
             }

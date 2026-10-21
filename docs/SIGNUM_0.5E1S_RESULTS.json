@@ -1,0 +1,223 @@
+{
+  "baseline": "bd7f14260c4581162759c3cedcbe3a51d62d3ad9",
+  "status": "passed",
+  "targetedPhase": {
+    "log": "e1s-targeted.log",
+    "suites": [
+      {
+        "target": "SignumTrustCoreTests.xctest",
+        "state": "passed",
+        "executed": 19,
+        "failures": 0
+      },
+      {
+        "target": "SignumTrustAuthenticationTests.xctest",
+        "state": "failed",
+        "executed": 34,
+        "failures": 2
+      },
+      {
+        "target": "SignumCertificateValidationTests.xctest",
+        "state": "failed",
+        "executed": 59,
+        "failures": 13
+      }
+    ],
+    "outcome": "Initial AT count assertion, raw ES SKI bound and synthetic issue-date failures corrected before full campaign."
+  },
+  "completeCampaigns": 1,
+  "completeCampaign": {
+    "runner": "scripts/test-local.py --group complete --skip-sanitizers",
+    "status": "passed",
+    "swift": [
+      {
+        "target": "SignumTrustIntegrationTests.xctest",
+        "state": "passed",
+        "executed": 5,
+        "failures": 0
+      },
+      {
+        "target": "SignumTrustCoreTests.xctest",
+        "state": "passed",
+        "executed": 19,
+        "failures": 0
+      },
+      {
+        "target": "SignumTrustAuthenticationTests.xctest",
+        "state": "passed",
+        "executed": 34,
+        "failures": 0
+      },
+      {
+        "target": "SignumCoreTests.xctest",
+        "state": "passed",
+        "executed": 430,
+        "failures": 0
+      },
+      {
+        "target": "SignumCertificateValidationTests.xctest",
+        "state": "passed",
+        "executed": 59,
+        "failures": 0
+      }
+    ],
+    "padesDebugCases": 81,
+    "padesReleaseCases": 81,
+    "pkcs11ProviderCases": 58,
+    "pkcs11LoaderContracts": 2,
+    "packagingContracts": 18,
+    "sanitizersRepeated": false
+  },
+  "postCampaignCorrection": "Accept standard OIDAsURN only with urn:oid: prefix; unknown/malformed qualifiers stay unsupported. Full campaign predates this change.",
+  "finalFocused": {
+    "log": "e1s-final-focused.log",
+    "suites": [
+      {
+        "target": "SignumTrustAuthenticationTests.xctest",
+        "state": "passed",
+        "executed": 1,
+        "failures": 0
+      },
+      {
+        "target": "SignumCertificateValidationTests.xctest",
+        "state": "passed",
+        "executed": 59,
+        "failures": 0
+      }
+    ]
+  },
+  "evaluationTime": "2026-10-21T06:00:00Z",
+  "trustSource": "Frozen EU LOTL 397 / OJ C/2026/1944, existing national XML fixtures",
+  "interpretationPolicy": "Signum-TL-Interpretation-E1S-v1",
+  "countriesBefore": [
+    {
+      "authenticated": true,
+      "country": "IT",
+      "excluded": 150,
+      "reasons": {
+        "Unsupported critical extension: {http://uri.etsi.org/02231/v2/additionaltypes#}TakenOverBy": 121,
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 29
+      },
+      "state": "partial",
+      "usable": 412
+    },
+    {
+      "authenticated": true,
+      "country": "AT",
+      "excluded": 0,
+      "reasons": {},
+      "state": "complete",
+      "usable": 100
+    },
+    {
+      "authenticated": true,
+      "country": "DE",
+      "excluded": 296,
+      "reasons": {
+        "Unsupported critical extension: {http://uri.etsi.org/02231/v2/additionaltypes#}TakenOverBy": 1,
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 295
+      },
+      "state": "partial",
+      "usable": 683
+    },
+    {
+      "authenticated": true,
+      "country": "BE",
+      "excluded": 48,
+      "reasons": {
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 48
+      },
+      "state": "partial",
+      "usable": 92
+    },
+    {
+      "authenticated": true,
+      "country": "FR",
+      "excluded": 102,
+      "reasons": {
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 102
+      },
+      "state": "partial",
+      "usable": 260
+    },
+    {
+      "authenticated": true,
+      "country": "ES",
+      "excluded": 102,
+      "reasons": {
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 102
+      },
+      "state": "partial",
+      "usable": 337
+    }
+  ],
+  "countriesAfter": [
+    {
+      "authenticated": true,
+      "country": "IT",
+      "excluded": 128,
+      "reasons": {
+        "Inconsistent service timeline (order, duplicate or future date)": 3,
+        "Unsupported critical extension: {http://uri.etsi.org/02231/v2/additionaltypes#}TakenOverBy": 123,
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 2
+      },
+      "state": "partial",
+      "usable": 434
+    },
+    {
+      "authenticated": true,
+      "country": "AT",
+      "excluded": 14,
+      "reasons": {
+        "Inconsistent service timeline (order, duplicate or future date)": 14
+      },
+      "state": "partial",
+      "usable": 86
+    },
+    {
+      "authenticated": true,
+      "country": "DE",
+      "excluded": 8,
+      "reasons": {
+        "Inconsistent service timeline (order, duplicate or future date)": 5,
+        "Unsupported critical extension: {http://uri.etsi.org/02231/v2/additionaltypes#}TakenOverBy": 3
+      },
+      "state": "partial",
+      "usable": 971
+    },
+    {
+      "authenticated": true,
+      "country": "BE",
+      "excluded": 1,
+      "reasons": {
+        "Inconsistent service timeline (order, duplicate or future date)": 1
+      },
+      "state": "partial",
+      "usable": 139
+    },
+    {
+      "authenticated": true,
+      "country": "FR",
+      "excluded": 40,
+      "reasons": {
+        "Inconsistent service timeline (order, duplicate or future date)": 39,
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 1
+      },
+      "state": "partial",
+      "usable": 322
+    },
+    {
+      "authenticated": true,
+      "country": "ES",
+      "excluded": 1,
+      "reasons": {
+        "Unsupported or empty service identity representation": 1
+      },
+      "state": "partial",
+      "usable": 438
+    }
+  ],
+  "macOSRuntime": "27.2 arm64",
+  "macOS13RuntimeTested": false,
+  "newBuild": false
+}

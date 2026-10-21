@@ -45,7 +45,7 @@ def setup(args):
     poppler = full or bool(set(selected) & set(manifest['requires']['poppler']))
     ui = full or args.group == 'sanitizers' or bool(set(selected) & set(manifest['requires']['windowserver']))
     native = helper or args.group in ('complete', 'pkcs11', 'sanitizers')
-    config = {'group': args.group, 'selected': selected, 'fullSwift': full, 'helper': helper, 'ui': ui,
+    config = {'group': args.group, 'selected': selected, 'fullSwift': full, 'helper': helper, 'ui': ui, 'skipSanitizers': getattr(args, 'skip_sanitizers', False),
               'swift': executable('/usr/bin/swift', 'Swift'), 'cc': executable('/usr/bin/cc', 'C compiler'),
               'openssl': executable('/usr/bin/openssl', 'OpenSSL fixture tool')}
     if native:
@@ -145,7 +145,7 @@ class Run:
             self.env['SIGNUM_TEST_LOCK_REFUSAL_WORKER'] = str(binary)
         if group in ('complete', 'packaging'):
             self.command('packaging', [sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts/tests', '-v'])
-        if group in ('complete', 'sanitizers'):
+        if group == 'sanitizers' or (group == 'complete' and not self.config['skipSanitizers']):
             if group == 'sanitizers':
                 self.command('sanitizer-control-worker', [self.config['swift'], 'build', '--scratch-path', self.root/'swift', '--product', 'SignumPKCS11Worker', '--jobs', '4'], 600)
                 text = self.command('swift-bin-path', [self.config['swift'], 'build', '--scratch-path', self.root/'swift', '--show-bin-path'], 60)
@@ -166,6 +166,7 @@ def main():
     parser.add_argument('--ctest', default=os.environ.get('SIGNUM_CTEST', 'ctest'))
     parser.add_argument('--poppler', default=os.environ.get('SIGNUM_TEST_POPPLER', 'pdftoppm'))
     parser.add_argument('--output-root', default=str(ROOT / '.build/local-tests'))
+    parser.add_argument('--skip-sanitizers', action='store_true', help='Omit sanitizer reruns for Swift-only changes; all regular complete gates remain mandatory')
     parser.add_argument('--check', action='store_true', help='Validate prerequisites without creating a test run')
     args = parser.parse_args()
     try: config = setup(args)

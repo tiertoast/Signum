@@ -23,7 +23,7 @@ public struct InterpretedTrustCatalog: Sendable {
     public let excludedServices: [TLExcludedService]
     public let interpretationState: TLInterpretationState
     public let interpretationReason: String?
-    public let interpretationPolicy = "Signum-TL-Interpretation-E1R-v1"
+    public let interpretationPolicy = "Signum-TL-Interpretation-E1S-v1"
     public var usableServiceCount: Int { usableProviders.reduce(0) { $0 + $1.services.count } }
     fileprivate init(source: AuthenticatedTLDocument, providers: [TLUsableProvider], excluded: [TLExcludedService], blocked: String?) {
         self.source = source; usableProviders = providers; excludedServices = excluded
@@ -33,21 +33,19 @@ public struct InterpretedTrustCatalog: Sendable {
 }
 
 public enum TLInterpreter {
-    // A syntax pass through the SAME existing D rule evaluator. Values are deliberately
-    // meaningless: only nil (unsupported syntax), never the boolean match, is consumed.
-    private struct SyntaxFacts: TLQualificationMaterial {
-        let policies: Set<String> = []
-        let keyUsage = Dictionary(uniqueKeysWithValues: ["digitalSignature","nonRepudiation","keyEncipherment","dataEncipherment","keyAgreement","keyCertSign","crlSign","encipherOnly","decipherOnly"].map { ($0, false) })
-    }
     public static func interpret(_ source: AuthenticatedTLDocument) -> InterpretedTrustCatalog {
         let blocked = source.unscopedCriticalContent ? "Critical content outside an isolatable service scope" : nil
         var providers = [TLUsableProvider](), excluded = [TLExcludedService]()
         for (pi, provider) in source.document.providers.enumerated() {
             var services = [TLService]()
             for (si, service) in provider.services.enumerated() {
-                // Until historical interpretation is implemented, one unknown event excludes
-                // this whole service, never independently interpretable sibling services.
-                let reason = blocked ?? unsupported(service.extensions) ?? service.history.compactMap { unsupported($0.extensions) }.first
+                // One unknown event still excludes the service; siblings remain independent.
+                let dates = service.timeline(issuedAt:source.document.issuedAt)
+                let identityUnsupported = ([service.subjectKeyIdentifiers] + service.history.map(\.subjectKeyIdentifiers)).joined().contains { $0.isEmpty || $0.count > 128 }
+                    || ([service.subjectNames] + service.history.map(\.subjectNames)).joined().contains { $0.isEmpty }
+                let reason = blocked ?? (dates == nil ? "Inconsistent service timeline (order, duplicate or future date)" : nil)
+                    ?? (identityUnsupported ? "Unsupported or empty service identity representation" : nil)
+                    ?? unsupported(service.extensions,typeURI:service.typeURI) ?? service.history.compactMap { unsupported($0.extensions,typeURI:$0.typeURI) }.first
                 if let reason { excluded.append(.init(providerIndex: pi, serviceIndex: si, provider: provider.name, service: service.name, reason: reason)) }
                 else { services.append(service) }
             }
@@ -55,7 +53,7 @@ public enum TLInterpreter {
         }
         return .init(source: source, providers: providers, excluded: excluded, blocked: blocked)
     }
-    private static func unsupported(_ extensions: [TLServiceExtension]) -> String? {
+    private static func unsupported(_ extensions: [TLServiceExtension], typeURI: String) -> String? {
         let tl = TLQualificationRules.tl, sie = TLQualificationRules.sie
         for ext in extensions {
             let critical = ["true", "1"].contains(ext.attributes["Critical"] ?? "")
@@ -65,7 +63,8 @@ public enum TLInterpreter {
             }
             let node = ext.children[0]
             if node.namespace == sie && node.name == "Qualifications" {
-                guard TLQualificationRules.evaluate([ext], material: SyntaxFacts()) != nil else {
+                guard typeURI == "http://uri.etsi.org/TrstSvc/Svctype/CA/QC" else { return "Qualifications extension outside CA/QC context" }
+                guard TLQualificationRules.supports([ext]) else {
                     return "Unsupported qualification criterion or qualifier (including legacy semantics)"
                 }
             } else if node.namespace == tl && node.name == "AdditionalServiceInformation" {

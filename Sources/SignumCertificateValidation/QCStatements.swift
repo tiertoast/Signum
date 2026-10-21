@@ -86,12 +86,20 @@ struct CertificateQualificationMaterial {
     var qc = QCStatements()
     var policies = Set<String>()
     var keyUsage: [String:Bool] = [:]
+    var subjectAttributes: Set<String>? = []
+    var extendedKeyUsage: Set<String>? = []
+    var subjectKeyIdentifier: Data?
+    let identityKey: Data
+    let subjectDN: [[String]]
     let notBefore: Date
     init(_ certificate: Data) throws {
         guard certificate.count <= 65536 else { throw QualificationDER.Failure.unsupported }
         let cert = try QualificationDER(certificate).children(); guard cert.count == 3 else { throw QualificationDER.Failure.malformed }
         let tbs = try cert[0].children(); let offset = tbs.first?.tag == 0xa0 ? 1 : 0
         guard tbs.count >= offset + 6 else { throw QualificationDER.Failure.malformed }
+        subjectDN = try TLServiceIdentityResolver.subject(tbs[offset+4])
+        subjectAttributes = Set(try tbs[offset+4].children().flatMap { try $0.children(0x31).map { try $0.children()[0].oid() } })
+        identityKey = Data(tbs[offset+4].bytes + tbs[offset+5].bytes)
         let validity = try tbs[offset+3].children(); guard validity.count == 2 else { throw QualificationDER.Failure.malformed }
         notBefore = try validity[0].date()
         let containers = tbs.dropFirst(offset+6).filter { $0.tag == 0xa3 }
@@ -103,6 +111,16 @@ struct CertificateQualificationMaterial {
             let fields = try ext.children(); guard fields.count == 2 || fields.count == 3 else { throw QualificationDER.Failure.malformed }
             let oid = try fields[0].oid(); guard seen.insert(oid).inserted, let value = fields.last, value.tag == 4 else { throw QualificationDER.Failure.malformed }
             if fields.count == 3 { guard fields[1].tag == 1, fields[1].bytes == [255] else { throw QualificationDER.Failure.malformed } }
+            if oid == "2.5.29.14" {
+                let ski = try QualificationDER(Data(value.bytes))
+                guard ski.tag == 4, !ski.bytes.isEmpty, ski.bytes.count <= 128 else { throw QualificationDER.Failure.malformed }
+                subjectKeyIdentifier = Data(ski.bytes)
+            }
+            if oid == "2.5.29.37" {
+                let values = try QualificationDER(Data(value.bytes)).children().map { try $0.oid() }
+                guard !values.isEmpty, Set(values).count == values.count else { throw QualificationDER.Failure.malformed }
+                extendedKeyUsage = Set(values)
+            }
             if oid == "1.3.6.1.5.5.7.1.3" { qc = try Self.statements(Data(value.bytes)) }
             if oid == "2.5.29.32" {
                 for p in try QualificationDER(Data(value.bytes)).children() { let v = try p.children(); guard !v.isEmpty else { throw QualificationDER.Failure.malformed }; policies.insert(try v[0].oid()) }

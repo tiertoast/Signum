@@ -30,6 +30,8 @@ public struct TLServiceExtension: Sendable {
 }
 
 public struct TLService: Sendable {
+    public var subjectNames: [String] = []
+    public var subjectKeyIdentifiers: [Data] = []
     public let name: String
     public let typeURI: String
     public let statusURI: String
@@ -40,6 +42,8 @@ public struct TLService: Sendable {
 }
 
 public struct TLServiceHistory: Sendable {
+    public var subjectNames: [String] = []
+    public var subjectKeyIdentifiers: [Data] = []
     public var extensions: [TLServiceExtension] = []
     public let certificateDERs: [Data]
     public let typeURI: String
@@ -101,6 +105,7 @@ private final class Collector: NSObject, XMLParserDelegate {
         var services: [TLService] = []
     }
     struct ServiceDraft {
+        var subjectNames: [String] = [], skis: [Data] = []
         var name = ""
         var type = ""
         var status = ""
@@ -110,6 +115,7 @@ private final class Collector: NSObject, XMLParserDelegate {
         var extensions: [TLServiceExtension] = []
     }
     struct HistoryDraft {
+        var subjectNames: [String] = [], skis: [Data] = []
         var extensions: [TLServiceExtension] = []
         var certs: [Data] = []
         var type = ""
@@ -227,6 +233,18 @@ private final class Collector: NSObject, XMLParserDelegate {
                 if matches(["ServiceInformation", "ServiceDigitalIdentity", "DigitalId", "X509Certificate"]) {
                     appendCertificate(value, toPointer: false)
                 }
+                for (field, historical) in [("ServiceInformation",false),("ServiceHistoryInstance",true)] {
+                    if matches([field,"ServiceDigitalIdentity","DigitalId","X509SubjectName"]) {
+                        guard value.utf8.count <= 16384 else { failure = .invalidStructure; parser.abortParsing(); return }
+                        if historical { history?.subjectNames.append(value) } else { service?.subjectNames.append(value) }
+                    }
+                    if matches([field,"ServiceDigitalIdentity","DigitalId","X509SKI"]) {
+                        let compact = value.filter { !$0.isWhitespace }
+                        if compact.count <= 128 * 1024, let ski = Data(base64Encoded:compact), ski.count <= 96 * 1024 {
+                            if historical { history?.skis.append(ski) } else { service?.skis.append(ski) }
+                        } else { failure = .invalidStructure }
+                    }
+                }
                 if history != nil {
                     if matches(["ServiceHistoryInstance", "ServiceDigitalIdentity", "DigitalId", "X509Certificate"]) { appendCertificate(value, toPointer: false, toHistory: true) }
                     if matches(["ServiceHistoryInstance", "ServiceTypeIdentifier"]) { history?.type = value }
@@ -235,13 +253,13 @@ private final class Collector: NSObject, XMLParserDelegate {
                 }
                 if matches(["ServiceHistory", "ServiceHistoryInstance"]) {
                     if let h = history, let date = Self.date(h.date), !h.type.isEmpty, !h.status.isEmpty {
-                        service?.history.append(TLServiceHistory(extensions: h.extensions, certificateDERs: h.certs, typeURI: h.type, statusURI: h.status, statusSince: date))
+                        service?.history.append(TLServiceHistory(subjectNames: h.subjectNames, subjectKeyIdentifiers: h.skis, extensions: h.extensions, certificateDERs: h.certs, typeURI: h.type, statusURI: h.status, statusSince: date))
                     } else { failure = .invalidStructure }
                     history = nil
                 }
                 if matches(["TSPServices", "TSPService"]) {
                     if let s = service, let date = Self.date(s.date), !s.type.isEmpty, !s.status.isEmpty {
-                        provider?.services.append(TLService(name: s.name, typeURI: s.type,
+                        provider?.services.append(TLService(subjectNames: s.subjectNames, subjectKeyIdentifiers: s.skis, name: s.name, typeURI: s.type,
                             statusURI: s.status, statusSince: date, certificateDERs: s.certs, history: s.history, extensions: s.extensions))
                     } else { failure = .invalidStructure }
                     service = nil

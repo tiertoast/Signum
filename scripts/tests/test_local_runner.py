@@ -26,6 +26,27 @@ class LocalRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Missing native prerequisite'):
             runner.setup(args)
 
+    def test_complete_skip_sanitizers_preserves_all_regular_gates(self):
+        run = runner.Run.__new__(runner.Run)
+        run.config = dict(group='complete', helper=True, fullSwift=True, selected=[],
+                          swift='/synthetic/swift', skipSanitizers=True)
+        run.env = {}
+        calls = []
+        def native(name, *args, **kwargs):
+            calls.append(name)
+            return Path('/synthetic/native')
+        def swift(*args, **kwargs):
+            calls.append('swift')
+            return Path('/synthetic/swift')
+        def command(name, *args, **kwargs):
+            calls.append(name)
+            return '/synthetic/bin\n'
+        run.native, run.swift, run.command = native, swift, command
+        run.write_summary = lambda status: calls.append(status)
+        run.run()
+        self.assertEqual(calls, ['pades-debug', 'pades-release', 'pkcs11-debug',
+                                 'swift', 'swift-bin-path', 'packaging', 'passed'])
+
     def test_sanitizer_selection_preserves_14a_and_covers_14b(self):
         for name in ['OneShotContextTests','PostLoginCertificateTests','SigningReviewTests','VerificationDropLifecycleTests','PAdESSourcePreflightTests','SignumFileOutputTests','FileAcquisitionTests']:
             self.assertIn(name, runner.SANITIZER_FILTER)

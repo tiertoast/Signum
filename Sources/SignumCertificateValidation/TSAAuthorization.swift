@@ -49,19 +49,15 @@ public enum TSAAuthorization {
         var identities = [CertificatePathValidator.Identity]()
         for list in authenticatedLists {
             for provider in list.usableProviders { for service in provider.services {
-                var events = service.history.map { ($0.statusSince,$0.typeURI,$0.statusURI,$0.certificateDERs) }
-                events.append((service.statusSince,service.typeURI,service.statusURI,service.certificateDERs))
-                guard Set(events.map { $0.0 }).count == events.count, service.statusSince <= list.document.issuedAt,
-                      service.history.allSatisfy({ $0.statusSince < service.statusSince }) else { continue }
-                events.sort { $0.0 < $1.0 }
-                guard let index = events.lastIndex(where: { $0.0 <= at }) else { continue }
-                let event = events[index]
-                guard event.0 <= first, (index+1 == events.count || events[index+1].0 > last), ["http://uri.etsi.org/TrstSvc/Svctype/TSA/QTST","http://uri.etsi.org/TrstSvc/Svctype/TSA/TST"].contains(event.1),
-                      event.2 == CertificatePathValidator.granted else { continue }
-                for der in event.3 {
-                    identities.append(.init(match: .init(provider: provider.name,service: service.name,country: list.document.territory,
-                        status: event.2,statusSince: event.0,listSequence: list.document.sequenceNumber,historical: index < events.count-1,
-                        identitySHA256: CertificatePathValidator.hash(der)),der: der,eligible: true))
+                guard let events = service.timeline(issuedAt:list.document.issuedAt),
+                      let event = events.first(where:{ $0.contains(at) }), event.start <= first,
+                      event.end.map({ $0 > last }) ?? true,
+                      ["http://uri.etsi.org/TrstSvc/Svctype/TSA/QTST","http://uri.etsi.org/TrstSvc/Svctype/TSA/TST"].contains(event.typeURI),
+                      event.statusURI == CertificatePathValidator.granted else { continue }
+                for der in TLServiceIdentityResolver.certificates(event,service:service) {
+                    identities.append(.init(match:.init(provider:provider.name,service:service.name,country:list.document.territory,
+                        status:event.statusURI,statusSince:event.start,listSequence:list.document.sequenceNumber,historical:event.fromHistory,
+                        identitySHA256:CertificatePathValidator.hash(der)),der:der,eligible:true))
                 }
             } }
         }

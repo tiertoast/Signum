@@ -81,22 +81,26 @@ public struct SignatureQualificationService: Sendable {
         guard path.state == .verified, let match = path.service else { return result("Servizio CA/QC non granted o percorso non verificato al tempo comprovato: " + path.reason) }
         guard path.alternativeServices.isEmpty else { return result("Più servizi TL applicabili: qualificazione ambigua, nessuna scelta predefinita.") }
         // Select the exact event/identity of the verified anchor, including its OWN extensions.
-        struct Event { let start: Date; let type: String, status: String; let certs: [Data]; let extensions: [TLServiceExtension] }
         var applicable = [[TLServiceExtension]]()
         for list in lists where list.document.territory == match.country && list.document.sequenceNumber == match.listSequence {
             for provider in list.usableProviders where provider.name == match.provider {
                 for s in provider.services where s.name == match.service {
-                    var events = s.history.map { Event(start:$0.statusSince,type:$0.typeURI,status:$0.statusURI,certs:$0.certificateDERs,extensions:$0.extensions) }
-                    events.append(.init(start:s.statusSince,type:s.typeURI,status:s.statusURI,certs:s.certificateDERs,extensions:s.extensions))
-                    guard Set(events.map(\.start)).count == events.count else { continue }
-                    events.sort { $0.start < $1.start }
-                    guard let e = events.last(where: { $0.start <= time }), e.start == match.statusSince,
-                          e.type == CertificatePathValidator.caQC, e.status == CertificatePathValidator.granted,
-                          e.certs.contains(where: { CertificatePathValidator.hash($0) == match.identitySHA256 }) else { continue }
-                    // Conservative subset: no inference across a service/identity/qualifier transition.
-                    // Issuance and proof must be covered by this same authenticated event.
-                    guard material.notBefore >= e.start else { return result("Lo storico TL non copre emissione e tempo comprovato nello stesso stato del servizio; profilo storico non supportato.") }
-                    historyUsed = e.start < s.statusSince
+                    guard let events = s.timeline(issuedAt:list.document.issuedAt),
+                          let e = events.first(where:{ $0.contains(time) }), e.start == match.statusSince,
+                          e.typeURI == CertificatePathValidator.caQC, e.statusURI == CertificatePathValidator.granted,
+                          TLServiceIdentityResolver.certificates(e,service:s).contains(where:{ CertificatePathValidator.hash($0) == match.identitySHA256 }) else { continue }
+                    // Issuance is correlated with its OWN state, not today's qualifiers.
+                    guard let issuance = events.first(where:{ $0.contains(material.notBefore) }) else {
+                        return result("Lo storico TL non copre l’emissione del certificato.")
+                    }
+                    let covered = events.filter { $0.start <= time && ($0.end.map { $0 > material.notBefore } ?? true) }
+                    guard let qualifiers = TLQualificationRules.evaluate(e.extensions,material:material),
+                          covered.allSatisfy({ event in
+                              event.typeURI == e.typeURI && event.statusURI == CertificatePathValidator.granted &&
+                              TLServiceIdentityResolver.certificates(event,service:s).contains(where:{ CertificatePathValidator.hash($0) == match.identitySHA256 }) &&
+                              TLQualificationRules.evaluate(event.extensions,material:material) == qualifiers
+                          }) else { return result("Transizione di identità, stato o qualificatori fra emissione e tempo comprovato: evidenze storiche insufficienti.") }
+                    historyUsed = e.fromHistory || issuance.fromHistory
                     applicable.append(e.extensions)
                 }
             }
@@ -114,14 +118,15 @@ public struct SignatureQualificationService: Sendable {
         guard let qualifiers = TLQualificationRules.evaluate(applicable[0],material:material) else { return result("Qualificatori, criteri o estensioni critiche TL non supportati o ambigui.") }
         let has: (String)->Bool = { qualifiers.contains(TLQualificationRules.prefix + $0) }
         guard !(has("QCStatement") && has("NotQualified")), !(has("QCWithQSCD") && has("QCNoQSCD")),
-              !(has("QCNoQSCD") && material.qc.sscd), !(has("NotQualified") && material.qc.compliance),
+              !(["QCNoQSCD","QCNoSSCD"].contains(where:has) && material.qc.sscd), !(has("NotQualified") && material.qc.compliance),
               !has("QCQSCDManagedOnBehalf") else { return result("Evidenze TL/certificato contrastanti o QSCD gestito per conto non supportato.") }
         guard material.qc.compliance || has("QCStatement") || !material.policies.contains(where: { $0.hasPrefix("0.4.0.1456.") || $0.hasPrefix("0.4.0.194112.") }) else { return result("Determinazione mediante policy QCP/legacy non supportata; nessuna classificazione dedotta dalle sole policy.") }
         let qualified = (material.qc.compliance || has("QCStatement")) && !has("NotQualified")
         if !qualified { return result("Certificato non qualificato nel profilo supportato. Accertata solo firma elettronica; requisiti di firma avanzata non dimostrati.",.electronic,.notDemonstrated) }
-        guard !has("QCForESeal"), !has("QCForWSA"), material.qc.types == ["0.4.0.1862.1.6.1"] || (has("QCForESig") && material.qc.types.isEmpty) else { return result("Tipo di certificato non univocamente per firma elettronica (sigillo/web/legacy non risolti).",.indeterminate,.demonstrated) }
-        let qscd = material.qc.sscd || has("QCWithQSCD")
-        guard qscd, !has("QCNoQSCD") else { return result("Certificato qualificato per firma; QSCD non dimostrato. Nessuna classificazione QES o avanzata automatica.",.indeterminate,.demonstrated) }
+        guard !has("QCForESeal"), !has("QCForWSA"), !has("QCForLegalPerson"), material.qc.types == ["0.4.0.1862.1.6.1"] || (has("QCForESig") && material.qc.types.isEmpty) else { return result("Tipo di certificato non univocamente per firma elettronica (sigillo/web/legacy non risolti).",.indeterminate,.demonstrated) }
+        let device = TLQualificationRules.deviceEvidence(qualifiers:qualifiers,sscd:material.qc.sscd,policies:material.policies,at:time)
+        if device == .indeterminate { return result("Evidenze SSCD/QSCD incompatibili, di altro regime o insufficienti.",.indeterminate,.demonstrated,.indeterminate) }
+        guard device == .yes else { return result("Certificato qualificato per firma; QSCD non dimostrato. Nessuna classificazione QES o avanzata automatica.",.indeterminate,.demonstrated) }
         guard material.keyUsage["nonRepudiation"] == true else { return result("Profilo del certificato: Key Usage contentCommitment non dimostrato.",.indeterminate,.demonstrated,.demonstrated) }
         return result("Profilo QES verificato al limite superiore del tempo comprovato: integrità, percorso CA/QC granted, revoca, certificato per firma e QSCD. Nessuna attestazione LTV o accettabilità delle modifiche successive.",.qualified,.demonstrated,.demonstrated)
     }

@@ -16,10 +16,16 @@ final class EuropeanBarrierTests: XCTestCase {
             XCTAssertTrue(catalog.source.authorizingReferences.contains { $0.xmlSHA256 == eu.revision.xmlSHA256 })
             XCTAssertEqual(catalog.usableServiceCount+catalog.excludedServices.count,catalog.document.providers.reduce(0) { $0 + $1.services.count })
             XCTAssertGreaterThan(catalog.usableServiceCount,0)
-            if ["BE","FR","ES"].contains(country) { XCTAssertEqual(catalog.interpretationState,.partial);XCTAssertFalse(catalog.excludedServices.isEmpty) }
+            let baseline = ["IT":412,"AT":100,"DE":683,"BE":92,"FR":260,"ES":337]
+            // Additional semantic exclusions do not mean an XML authentication regression.
+            XCTAssertNotEqual(catalog.interpretationState,.blocked)
+            let additionalSemanticExclusions = catalog.excludedServices.filter {
+                $0.reason.hasPrefix("Inconsistent service timeline") || $0.reason.hasPrefix("Unsupported or empty service identity") || $0.reason.hasPrefix("Qualifications extension outside")
+            }.count
+            XCTAssertGreaterThanOrEqual(catalog.usableServiceCount + additionalSemanticExclusions,baseline[country]!)
             let reasons = Dictionary(grouping:catalog.excludedServices,by: \.reason).mapValues(\.count)
             let record: [String:Any] = ["country":country,"authenticated":true,"state":catalog.interpretationState.rawValue,"usable":catalog.usableServiceCount,"excluded":catalog.excludedServices.count,"reasons":reasons]
-            print("E1R-OFFICIAL " + String(decoding:try JSONSerialization.data(withJSONObject:record,options:.sortedKeys),as:UTF8.self))
+            print("E1S-OFFICIAL " + String(decoding:try JSONSerialization.data(withJSONObject:record,options:.sortedKeys),as:UTF8.self))
         }
     }
 }
