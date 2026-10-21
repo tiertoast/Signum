@@ -40,23 +40,23 @@ public enum CertificatePathValidator {
         let eligible: Bool
     }
     static func hash(_ data: Data) -> String { TLAuthenticator.sha256(data).map { String(format: "%02x", $0) }.joined() }
-    static func identities(_ document: UntrustedTLDocument, now: Date) -> [Identity] {
+    static func identities(_ catalog: InterpretedTrustCatalog, now: Date) -> [Identity] {
         var result: [Identity] = []
-        for provider in document.providers {
+        for provider in catalog.usableProviders {
             for service in provider.services {
                 // Each historical state carries its OWN identity. Never borrow today's key.
                 var events = service.history.map { ($0.statusSince, $0.typeURI, $0.statusURI, $0.certificateDERs) }
                 events.append((service.statusSince, service.typeURI, service.statusURI, service.certificateDERs))
                 guard Set(events.map { $0.0 }).count == events.count,
-                      service.statusSince <= document.issuedAt,
+                      service.statusSince <= catalog.document.issuedAt,
                       service.history.allSatisfy({ $0.statusSince < service.statusSince }) else { continue }
                 events.sort { $0.0 < $1.0 }
                 for (index, event) in events.enumerated() where event.1 == caQC && event.0 <= now {
                     let end = index + 1 < events.count ? events[index + 1].0 : nil
                     let historical = end.map { $0 <= now } ?? false
                     for der in event.3 {
-                        let match = CertificateServiceMatch(provider: provider.name, service: service.name, country: document.territory,
-                            status: event.2, statusSince: event.0, listSequence: document.sequenceNumber, historical: historical, identitySHA256: hash(der))
+                        let match = CertificateServiceMatch(provider: provider.name, service: service.name, country: catalog.document.territory,
+                            status: event.2, statusSince: event.0, listSequence: catalog.document.sequenceNumber, historical: historical, identitySHA256: hash(der))
                         result.append(.init(match: match, der: der, eligible: !historical && event.2 == granted))
                     }
                 }
@@ -64,13 +64,13 @@ public enum CertificatePathValidator {
         }
         return result
     }
-    public static func evaluate(signer: Data, intermediates: [Data], authenticatedLists: [AuthenticatedTL], now: Date = Date(), isCancelled: @Sendable () -> Bool = { false }) -> CertificatePathResult {
+    public static func evaluate(signer: Data, intermediates: [Data], authenticatedLists: [InterpretedTrustCatalog], now: Date = Date(), isCancelled: @Sendable () -> Bool = { false }) -> CertificatePathResult {
         guard authenticatedLists.count <= 32,
               authenticatedLists.allSatisfy({ $0.document.territory != "EU" && $0.document.issuedAt <= now && $0.document.nextUpdate > now }) else {
             return .unavailable("Trusted Lists assenti, obsolete o fuori dal periodo valutato.", now: now)
         }
         return evaluate(signer: signer, intermediates: intermediates,
-                        identities: authenticatedLists.flatMap { identities($0.document, now: now) }, now: now, isCancelled: isCancelled)
+                        identities: authenticatedLists.flatMap { identities($0, now: now) }, now: now, isCancelled: isCancelled)
     }
     // Internal synthetic identities bypass only TL acquisition, never X.509 validation.
     static func evaluate(signer: Data, intermediates: [Data], identities: [Identity], now: Date, timestampPurpose: Bool = false, isCancelled: @Sendable () -> Bool = { false }) -> CertificatePathResult {

@@ -37,3 +37,13 @@ Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.bin -text -diff
 
 # Preserve exact national TL XML signature bytes (including publisher CRLF).
 Tests/SignumTrustAuthenticationTests/Fixtures/European/*.xml -text -diff -whitespace
+
+# Exact signed E1R corpus, public certificates and evidence only.
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.xml -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.der -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.cms -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.pdf -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.ocsp -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.crl -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.tst -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.bin -text -diff -whitespace

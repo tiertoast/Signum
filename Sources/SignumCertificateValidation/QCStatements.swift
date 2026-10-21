@@ -1,4 +1,5 @@
 import Foundation
+import SignumTrustCore
 
 public struct QCLimitValue: Equatable, Sendable {
     public let currency: String
@@ -154,3 +155,6 @@ struct CertificateQualificationMaterial {
         return r
     }
 }
+
+// Shared interpretation rules; certificate decoding remains in this module.
+extension CertificateQualificationMaterial: TLQualificationMaterial {}

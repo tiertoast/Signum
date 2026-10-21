@@ -31,7 +31,7 @@ struct TimestampMaterial {
     }
 }
 public enum TSAAuthorization {
-    public static func evaluate(token: Data, signatureValue: Data, authenticatedLists: [AuthenticatedTL], observedAt: Date = Date(),
+    public static func evaluate(token: Data, signatureValue: Data, authenticatedLists: [InterpretedTrustCatalog], observedAt: Date = Date(),
                                 isCancelled: @Sendable () -> Bool = { false }) -> TSAAuthorizationResult {
         let material = TimestampMaterial.inspect(token: token,value: signatureValue)
         func result(_ state: TSAAuthorizationState,_ reason: String, time: Date? = nil, path: CertificatePathResult? = nil) -> TSAAuthorizationResult {
@@ -48,7 +48,7 @@ public enum TSAAuthorization {
         }
         var identities = [CertificatePathValidator.Identity]()
         for list in authenticatedLists {
-            for provider in list.document.providers { for service in provider.services {
+            for provider in list.usableProviders { for service in provider.services {
                 var events = service.history.map { ($0.statusSince,$0.typeURI,$0.statusURI,$0.certificateDERs) }
                 events.append((service.statusSince,service.typeURI,service.statusURI,service.certificateDERs))
                 guard Set(events.map { $0.0 }).count == events.count, service.statusSince <= list.document.issuedAt,

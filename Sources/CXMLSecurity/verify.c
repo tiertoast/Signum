@@ -10,6 +10,7 @@
 #include <xmlsec/crypto.h>
 #include <xmlsec/xmltree.h>
 #include <openssl/evp.h>
+#include <openssl/rsa.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/asn1t.h>
@@ -40,6 +41,43 @@ static int prop(xmlNodePtr n,const char *key,const char *value) {
     xmlFree(v); return ok;
 }
 static int alg(xmlNodePtr n,const char *value) { return prop(n,"Algorithm",value); }
+/* URI registry: fixed-parameter RFC 9231 2.3.10 only. The existing global
+ * no-child-parameters check rejects #rsa-pss and all explicit overrides.
+ * xmlsec 1.3.12 fixes PSS salt length to digest size; OpenSSL verifies MGF1
+ * with the signature digest for unrestricted RSA keys and the EMSA-PSS trailer.
+ * RSA-PSS SPKI restrictions are checked against explicit XML profile parameters
+ * below; embedded MGF constraints must not override the backend default. */
+static int signatureAlgorithm(xmlNodePtr node) {
+    static const char *const uris[] = {
+        "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+        "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384",
+        "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+        "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256",
+        "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384",
+        "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512",
+        "http://www.w3.org/2007/05/xmldsig-more#sha256-rsa-MGF1",
+        "http://www.w3.org/2007/05/xmldsig-more#sha384-rsa-MGF1",
+        "http://www.w3.org/2007/05/xmldsig-more#sha512-rsa-MGF1"
+    };
+    for(size_t i=0;i<sizeof(uris)/sizeof(uris[0]);i++) if(alg(node,uris[i])) return i >= 6 ? 2 : 1;
+    return 0;
+}
+/* Validate key constraints through the existing OpenSSL verification API. xmlsec
+ * sets padding/salt itself, but does not explicitly set MGF1: a constrained SPKI
+ * may change that default. All setters must accept this exact fixed profile. */
+static int pssKeyCompatible(EVP_PKEY *key,xmlNodePtr method) {
+    int type=EVP_PKEY_base_id(key);
+    if(type!=EVP_PKEY_RSA && type!=EVP_PKEY_RSA_PSS) return 0;
+    const EVP_MD *md=alg(method,"http://www.w3.org/2007/05/xmldsig-more#sha256-rsa-MGF1") ? EVP_sha256() :
+                     alg(method,"http://www.w3.org/2007/05/xmldsig-more#sha384-rsa-MGF1") ? EVP_sha384() : EVP_sha512();
+    EVP_PKEY_CTX *ctx=EVP_PKEY_CTX_new(key,NULL);
+    int ok=ctx && EVP_PKEY_verify_init(ctx)>0 &&
+        EVP_PKEY_CTX_set_rsa_padding(ctx,RSA_PKCS1_PSS_PADDING)>0 &&
+        EVP_PKEY_CTX_set_signature_md(ctx,md)>0 &&
+        EVP_PKEY_CTX_set_rsa_mgf1_md(ctx,md)>0 &&
+        EVP_PKEY_CTX_set_rsa_pss_saltlen(ctx,EVP_MD_get_size(md))>0;
+    EVP_PKEY_CTX_free(ctx); return ok;
+}
 static const EVP_MD *digest(xmlNodePtr n) {
     if(alg(n,"http://www.w3.org/2001/04/xmlenc#sha256")) return EVP_sha256();
     if(alg(n,"http://www.w3.org/2001/04/xmldsig-more#sha384")) return EVP_sha384();
@@ -80,37 +118,6 @@ static int issuerSerialMatches(xmlNodePtr node, X509 *cert) {
     OPENSSL_free(der); SignumIssuerSerial_free(is); return ok;
 }
 
-/* Narrow critical-extension vocabulary implemented by this PoC. These fields
-   remain authenticated metadata, never qualification decisions. Unknown values
-   fail closed, including extension points within recognized containers. */
-static int criticalVocabulary(xmlXPathContextPtr xp) {
-    xmlXPathObjectPtr o=query(xp,"//*[@Critical='true' or @Critical='1']//t:AdditionalServiceInformation/t:URI | //*[@Critical='true' or @Critical='1']//s:Qualifier/@uri");
-    if(!o || !o->nodesetval) { if(o) xmlXPathFreeObject(o); return 0; }
-    static const char *allowed[]={
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/ForWebSiteAuthentication",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/ForeSeals",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/ForeSignatures",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/RootCA-QC",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForLegalPerson",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCQSCDManagedOnBehalf",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCWithQSCD",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCWithSSCD",
-      /* Qualification vocabulary interpreted fail-closed by the D evaluator. */
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCNoQSCD",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCQSCDStatusAsInCert",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForESig",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForESeal",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCForWSA",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/QCStatement",
-      "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/NotQualified"};
-    int ok=1;
-    for(int i=0;i<o->nodesetval->nodeNr;i++) {
-        xmlChar *v=xmlNodeGetContent(o->nodesetval->nodeTab[i]); int found=0;
-        for(size_t j=0;j<sizeof(allowed)/sizeof(allowed[0]);j++) if(v && xmlStrEqual(v,BAD_CAST allowed[j])) found=1;
-        xmlFree(v); if(!found) ok=0;
-    }
-    xmlXPathFreeObject(o); return ok;
-}
 /* Register only globally unique, unqualified Id attributes; reject all aliases.
    This table is shared by preflight resolution and xmlsec verification. */
 static int ids(xmlDocPtr doc,xmlNodePtr n,int depth,int *nodes) {
@@ -154,14 +161,14 @@ int signum_xml_verify(const unsigned char *xml,size_t size,const unsigned char *
     xmlXPathRegisterNs(xp,BAD_CAST "s",BAD_CAST "http://uri.etsi.org/TrstSvc/SvcInfoExt/eSigDir-1999-93-EC-TrustedList/#");
     xmlNodePtr root=one(xp,"/t:TrustServiceStatusList");
     CHECK(root && count(xp,"//t:TrustServiceStatusList")==1 && count(xp,"/t:TrustServiceStatusList/t:SchemeInformation")==1,"ambiguous TL root/scheme");
-    CHECK(count(xp,"//*[@Critical='true' or @Critical='1'][not(self::t:Extension) or count(*)!=1 or not(t:AdditionalServiceInformation or a:TakenOverBy or s:Qualifications)]")==0,"unsupported critical extension");
     CHECK(count(xp,"//d:Signature")==1 && count(xp,"/t:TrustServiceStatusList/d:Signature")==1,"signature placement/count");
     xmlNodePtr sig=one(xp,"/t:TrustServiceStatusList/d:Signature");
     CHECK(count(xp,"//d:RetrievalMethod|//d:KeyInfoReference|//d:Manifest|//d:KeyValue|//d:X509SKI")==0,"indirect/ambiguous key or manifest");
     CHECK(count(xp,"//d:SignedInfo")==1 && count(xp,"//d:SignatureValue")==1 && count(xp,"//d:KeyInfo")==1,"ambiguous signature structure");
     CHECK(alg(one(xp,"//d:SignedInfo/d:CanonicalizationMethod"),EX),"unsupported SignedInfo canonicalization");
     xmlNodePtr sm=one(xp,"//d:SignedInfo/d:SignatureMethod");
-    CHECK(alg(sm,"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256") || alg(sm,"http://www.w3.org/2001/04/xmldsig-more#rsa-sha384") || alg(sm,"http://www.w3.org/2001/04/xmldsig-more#rsa-sha512") || alg(sm,"http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256") || alg(sm,"http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384") || alg(sm,"http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512"),"unsupported signature algorithm");
+    int signatureProfile=signatureAlgorithm(sm);
+    CHECK(signatureProfile,"unsupported signature algorithm");
     CHECK(count(xp,"//x:QualifyingProperties")==1 && count(xp,"//x:SignedProperties")==1,"XAdES properties count");
     CHECK(count(xp,"//d:Object")==1 && count(xp,"//d:Object/*")==1,"unsigned signature objects/wrapping forbidden");
     xmlNodePtr qp=one(xp,"/t:TrustServiceStatusList/d:Signature/d:Object/x:QualifyingProperties");
@@ -173,13 +180,13 @@ int signum_xml_verify(const unsigned char *xml,size_t size,const unsigned char *
     xmlFree(sid); xmlFree(target); CHECK(targetOK && sp,"QualifyingProperties target");
     CHECK(count(xp,"//x:SignedSignatureProperties")==1 && count(xp,"//x:SigningTime")==1 && count(xp,"//x:SigningCertificateV2")==1 && count(xp,"//x:SigningCertificate")==0,"TLv6 requires baseline signed certificate V2/time");
     CHECK(count(xp,"//x:SignedDataObjectProperties/x:DataObjectFormat[x:MimeType='text/xml']")>=1,"missing signed data object format");
-    CHECK(criticalVocabulary(xp),"unsupported critical extension vocabulary");
-    CHECK(count(xp,"//s:otherCriteriaList/*")==0,"unsupported critical qualification criteria");
     CHECK(count(xp,"//d:KeyInfo/*")==1 && count(xp,"//d:KeyInfo/d:X509Data/*")==1,"ambiguous signer metadata");
     CHECK(count(xp,"//d:X509Certificate")==1,"PoC requires one explicit signer certificate");
     CHECK(b64equal(one(xp,"//d:KeyInfo/d:X509Data/d:X509Certificate"),cert,cert_size),"signer certificate is not the authorized certificate");
     const unsigned char *cp=cert; x509=d2i_X509(NULL,&cp,cert_size); CHECK(x509 && cp==cert+cert_size,"invalid signer DER");
     pub=X509_get_pubkey(x509); CHECK(pub && EVP_PKEY_get_security_bits(pub)>=112,"weak signing key");
+    CHECK(signatureProfile!=2 || pssKeyCompatible(pub,sm),
+          "RSA key constraints incompatible with fixed XML PSS parameters");
     xmlNodePtr cd=one(xp,"//x:SignedProperties/x:SignedSignatureProperties/x:SigningCertificateV2/x:Cert/x:CertDigest");
     CHECK(cd && count(xp,"//x:SigningCertificateV2/x:Cert")==1,"ambiguous signed certificate binding");
     xp->node=cd;

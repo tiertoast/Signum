@@ -37,7 +37,7 @@ public struct CompleteSignatureValidationResult: Equatable, Sendable {
 public struct SignatureQualificationService: Sendable {
     private let evidence: SignatureEvidenceValidationService
     public init(cache: RevocationEvidenceCache? = nil) { evidence = .init(cache:cache) }
-    public func validate(_ report: VerificationReport, authenticatedLists: [AuthenticatedTL], mode: RevocationMode = .offline,
+    public func validate(_ report: VerificationReport, authenticatedLists: [InterpretedTrustCatalog], mode: RevocationMode = .offline,
                          observedAt: Date = Date(), isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [CompleteSignatureValidationResult] {
         let start = ProcessInfo.processInfo.systemUptime
         let assessments = await evidence.validate(report,authenticatedLists:authenticatedLists,mode:mode,observedAt:observedAt,isCancelled:isCancelled)
@@ -57,7 +57,7 @@ public struct SignatureQualificationService: Sendable {
         }
         return results
     }
-    static func assess(_ signature: SignatureVerificationResult, evidence: SignatureEvidenceValidationResult, lists: [AuthenticatedTL],
+    static func assess(_ signature: SignatureVerificationResult, evidence: SignatureEvidenceValidationResult, lists: [InterpretedTrustCatalog],
                        mode: RevocationMode, observedAt: Date, isCancelled: @Sendable () -> Bool = { false }) -> SignatureQualificationResult {
         var qc: QCStatements?, service: CertificateServiceMatch?, at: Date?
         var historyUsed = false
@@ -76,7 +76,7 @@ public struct SignatureQualificationService: Sendable {
         guard !lists.isEmpty, lists.count <= 32, lists.allSatisfy({ $0.document.territory == "IT" && $0.document.issuedAt <= observedAt && $0.document.nextUpdate > observedAt }) else { return result("Copertura TL autenticata insufficiente o obsoleta: profilo attuale limitato all’Italia.") }
 
         let path = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,
-            identities:lists.flatMap { CertificatePathValidator.identities($0.document,now:time) },now:time,isCancelled:isCancelled)
+            identities:lists.flatMap { CertificatePathValidator.identities($0,now:time) },now:time,isCancelled:isCancelled)
         service = path.service
         guard path.state == .verified, let match = path.service else { return result("Servizio CA/QC non granted o percorso non verificato al tempo comprovato: " + path.reason) }
         guard path.alternativeServices.isEmpty else { return result("Più servizi TL applicabili: qualificazione ambigua, nessuna scelta predefinita.") }
@@ -84,7 +84,7 @@ public struct SignatureQualificationService: Sendable {
         struct Event { let start: Date; let type: String, status: String; let certs: [Data]; let extensions: [TLServiceExtension] }
         var applicable = [[TLServiceExtension]]()
         for list in lists where list.document.territory == match.country && list.document.sequenceNumber == match.listSequence {
-            for provider in list.document.providers where provider.name == match.provider {
+            for provider in list.usableProviders where provider.name == match.provider {
                 for s in provider.services where s.name == match.service {
                     var events = s.history.map { Event(start:$0.statusSince,type:$0.typeURI,status:$0.statusURI,certs:$0.certificateDERs,extensions:$0.extensions) }
                     events.append(.init(start:s.statusSince,type:s.typeURI,status:s.statusURI,certs:s.certificateDERs,extensions:s.extensions))
@@ -108,7 +108,7 @@ public struct SignatureQualificationService: Sendable {
         guard let authority = evidence.time.authorities.first(where: { $0.state == .authorized && $0.latestTime == time }),
               let earliest = authority.earliestTime, earliest <= time,
               !evidence.revocation.certificates.isEmpty, evidence.revocation.certificates.allSatisfy({ $0.state == .good && ($0.thisUpdate.map { $0 <= earliest } ?? false) && ($0.nextUpdate.map { $0 >= observedAt } ?? false) }) else { return result("Evidenze di revoca non coprono l’intera finestra temporale comprovata.") }
-        let earlyPath = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,identities:lists.flatMap { CertificatePathValidator.identities($0.document,now:earliest) },now:earliest,isCancelled:isCancelled)
+        let earlyPath = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,identities:lists.flatMap { CertificatePathValidator.identities($0,now:earliest) },now:earliest,isCancelled:isCancelled)
         guard earlyPath.state == .verified, earlyPath.service == path.service, earlyPath.path == path.path else { return result("Percorso o stato TL variabile nella finestra di accuratezza: indeterminato.") }
         guard material.qc.unsupported.isEmpty, material.qc.issue.isEmpty else { return result("QCStatements ulteriori o malformati non supportati.") }
         guard let qualifiers = TLQualificationRules.evaluate(applicable[0],material:material) else { return result("Qualificatori, criteri o estensioni critiche TL non supportati o ambigui.") }
@@ -124,71 +124,5 @@ public struct SignatureQualificationService: Sendable {
         guard qscd, !has("QCNoQSCD") else { return result("Certificato qualificato per firma; QSCD non dimostrato. Nessuna classificazione QES o avanzata automatica.",.indeterminate,.demonstrated) }
         guard material.keyUsage["nonRepudiation"] == true else { return result("Profilo del certificato: Key Usage contentCommitment non dimostrato.",.indeterminate,.demonstrated,.demonstrated) }
         return result("Profilo QES verificato al limite superiore del tempo comprovato: integrità, percorso CA/QC granted, revoca, certificato per firma e QSCD. Nessuna attestazione LTV o accettabilità delle modifiche successive.",.qualified,.demonstrated,.demonstrated)
-    }
-}
-
-enum TLQualificationRules {
-    static let tl = "http://uri.etsi.org/02231/v2#"
-    static let sie = "http://uri.etsi.org/TrstSvc/SvcInfoExt/eSigDir-1999-93-EC-TrustedList/#"
-    static let xades = "http://uri.etsi.org/01903/v1.3.2#"
-    static let prefix = "http://uri.etsi.org/TrstSvc/TrustedList/SvcInfoExt/"
-    static func evaluate(_ extensions: [TLServiceExtension], material: CertificateQualificationMaterial) -> Set<String>? {
-        var output = Set<String>()
-        let known = Set(["QCStatement","NotQualified","QCForESig","QCForESeal","QCForWSA","QCWithQSCD","QCNoQSCD","QCQSCDStatusAsInCert","QCQSCDManagedOnBehalf"].map { prefix+$0 })
-        for ext in extensions {
-            guard ext.namespace == tl, ext.name == "Extension", ext.children.count == 1,
-                  ["true","false","1","0"].contains(ext.attributes["Critical"] ?? "") else { return nil }
-            let child = ext.children[0]
-            if child.namespace == sie && child.name == "Qualifications" {
-                guard !child.children.isEmpty else { return nil }
-                for rule in child.children {
-                    guard rule.namespace == sie, rule.name == "QualificationElement", rule.children.count == 2,
-                          rule.children[0].namespace == sie, rule.children[0].name == "Qualifiers",
-                          rule.children[1].namespace == sie, rule.children[1].name == "CriteriaList" else { return nil }
-                    guard let applies = criteria(rule.children[1],material:material,depth:0) else { return nil }
-                    var values = [String]()
-                    for q in rule.children[0].children {
-                        guard q.namespace == sie, q.name == "Qualifier", q.children.isEmpty, let uri = q.attributes["uri"], known.contains(uri) else { return nil }; values.append(uri)
-                    }
-                    guard !values.isEmpty else { return nil }
-                    if applies { output.formUnion(values) }
-                }
-            } else if child.namespace == tl && child.name == "AdditionalServiceInformation" {
-                guard child.children.count == 1, child.children[0].namespace == tl, child.children[0].name == "URI",
-                      child.children[0].text == prefix+"ForeSignatures" else { return nil }
-            } else if ["true","1"].contains(ext.attributes["Critical"] ?? "") { return nil }
-        }
-        if output.contains(prefix+"QCQSCDStatusAsInCert") && ["QCWithQSCD","QCNoQSCD","QCQSCDManagedOnBehalf"].contains(where: { output.contains(prefix+$0) }) { return nil }
-        return output
-    }
-    static func criteria(_ node: TLServiceExtension, material: CertificateQualificationMaterial, depth: Int) -> Bool? {
-        guard depth <= 12, node.namespace == sie, node.name == "CriteriaList", let assertion = node.attributes["assert"], ["all","atLeastOne","none"].contains(assertion) else { return nil }
-        var matches = [Bool]()
-        for child in node.children {
-            guard child.namespace == sie else { return nil }
-            switch child.name {
-            case "CriteriaList": guard let r = criteria(child,material:material,depth:depth+1) else { return nil }; matches.append(r)
-            case "Description": continue
-            case "KeyUsage":
-                guard !child.children.isEmpty, !material.keyUsage.isEmpty else { return nil }
-                var bits = Set<String>(), ok = true
-                for bit in child.children {
-                    guard bit.namespace == sie, bit.name == "KeyUsageBit", let name = bit.attributes["name"], let actual = material.keyUsage[name], bits.insert(name).inserted, ["true","1","false","0"].contains(bit.text) else { return nil }
-                    ok = ok && actual == ["true","1"].contains(bit.text)
-                }; matches.append(ok)
-            case "PolicySet":
-                guard !child.children.isEmpty else { return nil }
-                var policies = [String]()
-                for p in child.children {
-                    guard p.namespace == sie, p.name == "PolicyIdentifier", let id = p.children.first,
-                          id.namespace == xades, id.name == "Identifier", id.attributes["Qualifier"] == "OIDAsURI", id.text.hasPrefix("urn:oid:") else { return nil }
-                    policies.append(String(id.text.dropFirst(8)))
-                }
-                matches.append(policies.allSatisfy { material.policies.contains($0) })
-            default: return nil
-            }
-        }
-        guard !matches.isEmpty else { return nil }
-        switch assertion { case "all": return matches.allSatisfy { $0 }; case "atLeastOne": return matches.contains(true); default: return !matches.contains(true) }
     }
 }

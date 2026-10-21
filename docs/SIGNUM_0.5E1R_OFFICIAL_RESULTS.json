@@ -1,0 +1,69 @@
+{
+  "baseline": "81c6af9545dcd55c3dce48856d30193fc5b8652d",
+  "evaluationTime": "2026-10-21T06:00:00Z",
+  "trustSource": "EU LOTL 397, OJ C/2026/1944, frozen official bytes",
+  "cryptographicPolicy": "Signum-TLv6-XAdES-BB-RFC9231-v1",
+  "interpretationPolicy": "Signum-TL-Interpretation-E1R-v1",
+  "countries": [
+    {
+      "authenticated": true,
+      "country": "IT",
+      "excluded": 150,
+      "reasons": {
+        "Unsupported critical extension: {http://uri.etsi.org/02231/v2/additionaltypes#}TakenOverBy": 121,
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 29
+      },
+      "state": "partial",
+      "usable": 412
+    },
+    {
+      "authenticated": true,
+      "country": "AT",
+      "excluded": 0,
+      "reasons": {},
+      "state": "complete",
+      "usable": 100
+    },
+    {
+      "authenticated": true,
+      "country": "DE",
+      "excluded": 296,
+      "reasons": {
+        "Unsupported critical extension: {http://uri.etsi.org/02231/v2/additionaltypes#}TakenOverBy": 1,
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 295
+      },
+      "state": "partial",
+      "usable": 683
+    },
+    {
+      "authenticated": true,
+      "country": "BE",
+      "excluded": 48,
+      "reasons": {
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 48
+      },
+      "state": "partial",
+      "usable": 92
+    },
+    {
+      "authenticated": true,
+      "country": "FR",
+      "excluded": 102,
+      "reasons": {
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 102
+      },
+      "state": "partial",
+      "usable": 260
+    },
+    {
+      "authenticated": true,
+      "country": "ES",
+      "excluded": 102,
+      "reasons": {
+        "Unsupported qualification criterion or qualifier (including legacy semantics)": 102
+      },
+      "state": "partial",
+      "usable": 337
+    }
+  ]
+}

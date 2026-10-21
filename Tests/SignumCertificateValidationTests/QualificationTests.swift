@@ -72,9 +72,9 @@ final class QualificationTests: XCTestCase {
             if name == "historical" {
                 XCTAssertTrue(values.allSatisfy { $0.qualification.serviceStateFromHistory })
                 let time = try now().addingTimeInterval(-120)
-                let identities = CertificatePathValidator.identities(list.document,now:time)
+                let identities = CertificatePathValidator.identities(list,now:time)
                 XCTAssertTrue(identities.contains { $0.eligible }) // Own history identity is actually parsed.
-                XCTAssertFalse(CertificatePathValidator.identities(list.document,now:try now()).contains { $0.eligible })
+                XCTAssertFalse(CertificatePathValidator.identities(list,now:try now()).contains { $0.eligible })
             }
         }
     }

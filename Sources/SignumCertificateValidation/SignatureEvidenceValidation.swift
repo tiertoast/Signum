@@ -35,14 +35,14 @@ public struct SignatureEvidenceValidationService: Sendable {
     private let transport: any RevocationTransport
     public init(cache: RevocationEvidenceCache? = nil) { self.cache = cache;self.transport = SystemRevocationTransport() }
     init(cache: RevocationEvidenceCache? = nil,transport: any RevocationTransport) { self.cache = cache;self.transport = transport }
-    public func validate(_ report: VerificationReport, authenticatedLists: [AuthenticatedTL],mode: RevocationMode = .offline,
+    public func validate(_ report: VerificationReport, authenticatedLists: [InterpretedTrustCatalog],mode: RevocationMode = .offline,
                          observedAt: Date = Date(),isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [SignatureEvidenceValidationResult] {
         let startedAt = ProcessInfo.processInfo.systemUptime
         let session = RevocationSession(cache: cache,transport: transport)
         let listsCurrent = !authenticatedLists.isEmpty && authenticatedLists.count <= 32 && authenticatedLists.allSatisfy {
             $0.document.territory != "EU" && $0.document.issuedAt <= observedAt && $0.document.nextUpdate > observedAt
         }
-        let tlCertificates = listsCurrent ? authenticatedLists.flatMap { $0.document.providers.flatMap { $0.services.flatMap { $0.certificateDERs + $0.history.flatMap(\.certificateDERs) } } } : []
+        let tlCertificates = listsCurrent ? authenticatedLists.flatMap { $0.usableProviders.flatMap { $0.services.flatMap { $0.certificateDERs + $0.history.flatMap(\.certificateDERs) } } } : []
         var output = [SignatureEvidenceValidationResult]()
         for signature in report.signatures {
             if isCancelled() || Task.isCancelled { break }

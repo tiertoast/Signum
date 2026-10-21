@@ -1,5 +1,10 @@
 # Signum 0.5-E — E1 interoperability gate blocked
 
+> Historical E1 report. [E1R](SIGNUM_0.5E1R_TRUST_BARRIER.md) supersedes the
+> authentication/interpretation coupling and records successful cryptographic
+> authentication of the six frozen lists, with unsupported services excluded.
+> This does not declare full European qualification or start E2/E3/E4.
+
 21 October 2026. Baseline `c307431147a84f13d2945edbe23ce906e2c4f529`.
 Branch `feature/signum-0.5e-european-trust`.
 

@@ -29,6 +29,7 @@ public enum LOTLPivotChain {
             // anchor transition must still verify. Their output is never a current TL.
             let verified = try TLAuthenticator.authenticate(pivot.xml, authorizedCertificateSHA256: anchors,
                 territory: "EU", now: observation.issuedAt)
+            guard verified.interpretationState != .blocked else { throw TLAuthenticationError.rejected("uninterpretable LOTL authorization scope") }
             if let last {
                 guard verified.document.sequenceNumber > last.document.sequenceNumber,
                       verified.document.issuedAt >= last.document.issuedAt else {
@@ -47,6 +48,7 @@ public enum LOTLPivotChain {
         }
         let currentTL = try TLAuthenticator.authenticate(current, authorizedCertificateSHA256: anchors,
             territory: "EU", now: now, previous: previous)
+        guard currentTL.interpretationState != .blocked else { throw TLAuthenticationError.rejected("uninterpretable LOTL authorization scope") }
         guard try pivotURLs(in: currentTL) == pivotsOldestFirst.reversed().map(\.location) else {
             throw TLAuthenticationError.rejected("missing/unexpected post-reset pivot")
         }
@@ -68,7 +70,8 @@ public enum LOTLPivotChain {
                 throw TLAuthenticationError.rejected("current LOTL precedes pivot")
             }
         }
-        return currentTL
+        return TLAuthenticator.recording(currentTL, references: [.init(location: EUTrustPolicy.journal), .init(location: EUTrustPolicy.location)],
+            pivots: pivotsOldestFirst.map { .init(location: $0.location, xmlSHA256: TLAuthenticator.sha256($0.xml)) })
     }
     private static func pivotURLs(in tl: AuthenticatedTL) throws -> [String] {
         try pivotURLs(in: tl.schemeInformationURIs)

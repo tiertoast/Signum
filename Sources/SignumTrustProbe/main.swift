@@ -9,6 +9,8 @@ func show(_ value: AuthenticatedTL) {
     let d = value.document
     print("\(d.territory) TLv\(d.version) sequence=\(d.sequenceNumber) providers=\(d.providers.count) services=\(d.providers.reduce(0) { $0 + $1.services.count })")
     print("issue=\(d.issuedAt.ISO8601Format()) nextUpdate=\(d.nextUpdate.ISO8601Format())")
+    print("interpretation=\(value.interpretationState.rawValue) usableServices=\(value.usableServiceCount) excludedServices=\(value.excludedServices.count)")
+    for item in value.excludedServices { print("excluded: \(item.reason)") }
     print("signerSHA256=\(value.signerSHA256.map { String(format: "%02x", $0) }.joined())")
 }
 func show(_ view: TLRefreshView) {
