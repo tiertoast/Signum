@@ -14,6 +14,14 @@ public enum SignatureQualificationState: String, Sendable {
         }
     }
 }
+/// Historical E2 remains the API default; bestAvailable never treats a
+/// declared signingTime as proof and resolves independently for every signer.
+public enum SignatureEvaluationMode: String, Sendable {
+    case historical, currentTime, bestAvailable
+    func resolved(for time: SignatureTimeResult) -> Self {
+        self == .bestAvailable ? (time.state == .proven ? .historical : .currentTime) : self
+    }
+}
 public enum QualificationEvidenceState: String, Sendable { case demonstrated, notDemonstrated, indeterminate }
 public struct SignatureQualificationResult: Equatable, Sendable {
     public let signatureID: Int
@@ -25,6 +33,8 @@ public struct SignatureQualificationResult: Equatable, Sendable {
     public let reason: String
     public let statements: QCStatements?
     public var serviceStateFromHistory: Bool = false
+    public var evaluationMode: SignatureEvaluationMode = .historical
+    public var verificationDate: Date? = nil
 }
 public struct CompleteSignatureValidationResult: Equatable, Sendable {
     public let signatureID: Int
@@ -38,47 +48,58 @@ public struct SignatureQualificationService: Sendable {
     private let evidence: SignatureEvidenceValidationService
     public init(cache: RevocationEvidenceCache? = nil) { evidence = .init(cache:cache) }
     public func validate(_ report: VerificationReport, authenticatedLists: [InterpretedTrustCatalog], mode: RevocationMode = .offline,
-                         observedAt: Date = Date(), isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [CompleteSignatureValidationResult] {
+                         observedAt: Date = Date(), evaluationMode: SignatureEvaluationMode = .historical, isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [CompleteSignatureValidationResult] {
         let start = ProcessInfo.processInfo.systemUptime
-        let assessments = await evidence.validate(report,authenticatedLists:authenticatedLists,mode:mode,observedAt:observedAt,isCancelled:isCancelled)
+        let assessments = await evidence.validate(report,authenticatedLists:authenticatedLists,mode:mode,observedAt:observedAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
         var results = [CompleteSignatureValidationResult]()
         for signature in report.signatures {
             guard !isCancelled(), !Task.isCancelled, let c = assessments.first(where: { $0.signatureID == signature.id }) else { break }
-            let clock = observedAt.addingTimeInterval(ProcessInfo.processInfo.systemUptime - start)
-            let q = Self.assess(signature,evidence:c,lists:authenticatedLists,mode:mode,observedAt:clock,isCancelled:isCancelled)
-            let path = signature.signerDER.map { CertificatePathValidator.evaluate(signer:$0,intermediates:signature.embeddedCertificateDERs,authenticatedLists:authenticatedLists,now:clock,isCancelled:isCancelled) } ?? .unavailable("Certificato DER assente.",now:clock)
+            // One fixed observation instant binds current path, revocation and qualification.
+            let q = Self.assess(signature,evidence:c,lists:authenticatedLists,mode:mode,observedAt:observedAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
+            let path = signature.signerDER.map { CertificatePathValidator.evaluate(signer:$0,intermediates:signature.embeddedCertificateDERs,authenticatedLists:authenticatedLists,now:observedAt,isCancelled:isCancelled) } ?? .unavailable("Certificato DER assente.",now:observedAt)
             results.append(.init(signatureID:signature.id,path:path,evidence:c,qualification:q))
         }
         guard !isCancelled(), !Task.isCancelled else { return [] }
         // A finite assessment may cross a list expiration; never publish a stale positive.
         let finalClock = observedAt.addingTimeInterval(ProcessInfo.processInfo.systemUptime - start)
-        if authenticatedLists.contains(where: { $0.document.nextUpdate <= finalClock }) {
-            return results.map { .init(signatureID:$0.signatureID,path:$0.path,evidence:$0.evidence,qualification:.init(signatureID:$0.signatureID,state:.indeterminate,qualifiedCertificate:.indeterminate,qscd:.indeterminate,evaluatedAt:nil,service:nil,reason:"Trusted List scaduta durante la verifica.",statements:$0.qualification.statements)) }
+        return results.map { value in
+            let expired = authenticatedLists.contains { $0.document.nextUpdate <= finalClock } ||
+                (value.qualification.evaluationMode == .currentTime && value.evidence.revocation.certificates.contains { ($0.nextUpdate ?? .distantPast) <= finalClock })
+            guard expired else { return value }
+            return .init(signatureID:value.signatureID,path:value.path,evidence:value.evidence,qualification:.init(signatureID:value.signatureID,state:.indeterminate,qualifiedCertificate:.indeterminate,qscd:.indeterminate,evaluatedAt:nil,service:nil,reason:"Trusted List o evidenza di revoca scaduta durante la verifica.",statements:value.qualification.statements,evaluationMode:value.qualification.evaluationMode,verificationDate:observedAt))
         }
-        return results
     }
     static func assess(_ signature: SignatureVerificationResult, evidence: SignatureEvidenceValidationResult, lists inputLists: [InterpretedTrustCatalog],
-                       mode: RevocationMode, observedAt: Date, isCancelled: @Sendable () -> Bool = { false }) -> SignatureQualificationResult {
+                       mode: RevocationMode, observedAt: Date, evaluationMode requestedMode: SignatureEvaluationMode = .historical, isCancelled: @Sendable () -> Bool = { false }) -> SignatureQualificationResult {
         let lists = inputLists.filter { EuropeanQualificationPolicy.testedCountries.contains($0.document.territory) }
         var qc: QCStatements?, service: CertificateServiceMatch?, at: Date?
+        let evaluationMode = requestedMode.resolved(for:evidence.time)
         var historyUsed = false
         func result(_ reason: String, _ state: SignatureQualificationState = .indeterminate,
                     _ cert: QualificationEvidenceState = .indeterminate, _ qscd: QualificationEvidenceState = .indeterminate) -> SignatureQualificationResult {
-            .init(signatureID:signature.id,state:state,qualifiedCertificate:cert,qscd:qscd,evaluatedAt:at,service:service,reason:reason,statements:qc,serviceStateFromHistory:historyUsed)
+            .init(signatureID:signature.id,state:state,qualifiedCertificate:cert,qscd:qscd,evaluatedAt:at,service:service,reason:reason,statements:qc,serviceStateFromHistory:historyUsed,evaluationMode:evaluationMode,verificationDate:observedAt)
         }
         guard !isCancelled(), evidence.signatureID == signature.id else { return result("Valutazione annullata o evidenza non associata.") }
         guard signature.integrity == .verified else { return result("Integrità crittografica non verificata: nessuna classificazione positiva.") }
         guard let der = signature.signerDER, let material = try? CertificateQualificationMaterial(der) else { return result("Certificato o QCStatements non interpretabili.") }
         qc = material.qc
-        guard evidence.time.state == .proven, let time = evidence.time.provenTime, time <= observedAt else { return result("Tempo non comprovato nel profilo Signum: signingTime è dichiarato e non è una prova temporale. QCStatements del certificato: QcCompliance \(material.qc.compliance ? "presente" : "assente"), QcSSCD \(material.qc.sscd ? "presente" : "assente"). Qualificazione e QSCD della firma non determinati al tempo di apposizione.") }
-        at = time
+        let time: Date
+        if evaluationMode == .currentTime {
+            at = observedAt
+            guard evidence.time.state != .invalid else { return result("Marca temporale non valida: nessuna promozione automatica alla valutazione corrente.") }
+            time = observedAt
+        } else {
+            guard evidence.time.state == .proven, let provenTime = evidence.time.provenTime, provenTime <= observedAt else { return result("Tempo non comprovato nel profilo Signum: signingTime è dichiarato e non è una prova temporale. QCStatements del certificato: QcCompliance \(material.qc.compliance ? "presente" : "assente"), QcSSCD \(material.qc.sscd ? "presente" : "assente"). Qualificazione e QSCD della firma non determinati al tempo di apposizione.") }
+            time = provenTime
+            at = time
+        }
         guard time.timeIntervalSince1970 >= 1467324000 else { return result("Regime precedente al 1 luglio 2016 non supportato: qualificazione storica indeterminata.") }
         guard !lists.isEmpty, lists.count <= 32, lists.allSatisfy({ EuropeanQualificationPolicy.testedCountries.contains($0.document.territory) && $0.document.issuedAt <= observedAt && $0.document.nextUpdate > observedAt }) else { return result("Copertura TL autenticata insufficiente, obsoleta o fuori dai Paesi/profili collaudati E2.") }
 
         let path = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,
             identities:lists.flatMap { CertificatePathValidator.identities($0,now:time) },now:time,isCancelled:isCancelled)
         service = path.service
-        guard path.state == .verified, let match = path.service else { return result("Servizio CA/QC non granted o percorso non verificato al tempo comprovato: " + path.reason) }
+        guard path.state == .verified, let match = path.service else { return result("Servizio CA/QC non granted o percorso non verificato all’istante valutato: " + path.reason) }
         guard path.path.count == 2 else { return result("Qualificazione E2 limitata al profilo di emissione diretta CA/QC; catena X.509 distinta.") }
         guard path.alternativeServices.isEmpty else { return result("Più servizi TL applicabili: qualificazione ambigua, nessuna scelta predefinita.") }
         // Select the exact event/identity of the verified anchor, including its OWN extensions.
@@ -95,7 +116,7 @@ public struct SignatureQualificationService: Sendable {
                         return result("Lo storico TL non copre l’emissione del certificato.")
                     }
                     guard HistoricalQualification.covers(events,service:s,identity:match.identitySHA256,material:material,proof:time) else {
-                        return result("Transizione di identità, stato o qualificatori fra emissione e tempo comprovato: evidenze storiche insufficienti.")
+                        return result("Transizione di identità, stato o qualificatori fra emissione e istante valutato: evidenze storiche insufficienti.")
                     }
                     historyUsed = e.fromHistory || issuance.fromHistory
                     applicable.append(e.extensions)
@@ -106,14 +127,24 @@ public struct SignatureQualificationService: Sendable {
         guard evidence.revocation.state == .good else { return result(evidence.revocation.state == .revoked ? "Revoca accertata: nessuna classificazione QES." : "Revoca indeterminata: evidenze insufficienti per QES.") }
         guard let revocationPath = evidence.revocationPath, revocationPath.state == .verified, revocationPath.evaluatedAt == time,
               revocationPath.path.map(\.sha256) == path.path.map(\.sha256) else {
-            return result("Revoca C non associata al percorso valutato al tempo comprovato; verifica storica indeterminata.")
+            return result("Revoca non associata allo stesso percorso e istante valutato: qualificazione indeterminata.")
         }
-        guard let authority = evidence.time.authorities.first(where: { $0.state == .authorized && $0.latestTime == time }),
-              authority.service.map({ EuropeanQualificationPolicy.testedCountries.contains($0.country) }) == true,
-              let earliest = authority.earliestTime, earliest <= time,
-              !evidence.revocation.certificates.isEmpty, evidence.revocation.certificates.allSatisfy({ $0.state == .good && ($0.thisUpdate.map { $0 <= earliest } ?? false) && ($0.nextUpdate.map { $0 >= observedAt } ?? false) }) else { return result("Evidenze di revoca non coprono l’intera finestra temporale comprovata.") }
-        let earlyPath = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,identities:lists.flatMap { CertificatePathValidator.identities($0,now:earliest) },now:earliest,isCancelled:isCancelled)
-        guard earlyPath.state == .verified, earlyPath.service == path.service, earlyPath.path == path.path else { return result("Percorso o stato TL variabile nella finestra di accuratezza: indeterminato.") }
+        if evaluationMode == .currentTime {
+            guard !evidence.revocation.certificates.isEmpty,
+                  evidence.revocation.certificates.count >= path.path.count - 1,
+                  evidence.revocation.certificates.allSatisfy({
+                      $0.state == .good && $0.evaluatedAt >= observedAt &&
+                      ($0.thisUpdate.map { $0 <= observedAt } ?? false) &&
+                      ($0.nextUpdate.map { $0 > observedAt } ?? false)
+                  }) else { return result("Revoca corrente non dimostrata all’istante di verifica: evidenze mancanti, obsolete o non pertinenti.") }
+        } else {
+            guard let authority = evidence.time.authorities.first(where: { $0.state == .authorized && $0.latestTime == time }),
+                  authority.service.map({ EuropeanQualificationPolicy.testedCountries.contains($0.country) }) == true,
+                  let earliest = authority.earliestTime, earliest <= time,
+                  !evidence.revocation.certificates.isEmpty, evidence.revocation.certificates.allSatisfy({ $0.state == .good && ($0.thisUpdate.map { $0 <= earliest } ?? false) && ($0.nextUpdate.map { $0 >= observedAt } ?? false) }) else { return result("Evidenze di revoca non coprono l’intera finestra temporale comprovata.") }
+            let earlyPath = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,identities:lists.flatMap { CertificatePathValidator.identities($0,now:earliest) },now:earliest,isCancelled:isCancelled)
+            guard earlyPath.state == .verified, earlyPath.service == path.service, earlyPath.path == path.path else { return result("Percorso o stato TL variabile nella finestra di accuratezza: indeterminato.") }
+        }
         guard material.qc.unsupported.isEmpty, material.qc.issue.isEmpty else { return result("QCStatements ulteriori o malformati non supportati.") }
         guard let qualifiers = TLQualificationRules.evaluate(applicable[0],material:material) else { return result("Qualificatori, criteri o estensioni critiche TL non supportati o ambigui.") }
         let has: (String)->Bool = { qualifiers.contains(TLQualificationRules.prefix + $0) }
@@ -128,6 +159,6 @@ public struct SignatureQualificationService: Sendable {
         if device == .indeterminate { return result("Evidenze SSCD/QSCD incompatibili, di altro regime o insufficienti.",.indeterminate,.demonstrated,.indeterminate) }
         guard device == .yes else { return result("Certificato qualificato per firma; QSCD non dimostrato. Nessuna classificazione QES o avanzata automatica.",.indeterminate,.demonstrated,.notDemonstrated) }
         guard material.keyUsage["nonRepudiation"] == true else { return result("Profilo del certificato: Key Usage contentCommitment non dimostrato.",.indeterminate,.demonstrated,.demonstrated) }
-        return result("Profilo QES verificato al limite superiore del tempo comprovato: integrità, percorso CA/QC granted, revoca, certificato per firma e QSCD. Nessuna attestazione LTV o accettabilità delle modifiche successive.",.qualified,.demonstrated,.demonstrated)
+        return result((evaluationMode == .currentTime ? "Profilo QES verificato alla data corrente di verifica, senza attestazione dell’istante di apposizione: " : "Profilo QES verificato al limite superiore del tempo comprovato: ") + " integrità, percorso CA/QC granted, revoca, certificato per firma e QSCD. Nessuna attestazione LTV o accettabilità delle modifiche successive.",.qualified,.demonstrated,.demonstrated)
     }
 }

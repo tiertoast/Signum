@@ -107,12 +107,12 @@ enum VerificationDropLoader {
                 let observedAt = validationClock()
                 let assessment = Task.detached(priority: .utility) {
                     if let european {
-                        let result = await service.validate(assessmentReport, catalog: european.europeanService, mode: online ? .online : .offline, observedAt: observedAt,
+                        let result = await service.validate(assessmentReport, catalog: european.europeanService, mode: online ? .online : .offline, observedAt: observedAt, evaluationMode: .bestAvailable,
                             isCancelled: { control.isCancellationRequested })
                         if !control.isCancellationRequested, let view = result.catalog { await european.didUpdate(view) }
                         return result.signatures
                     }
-                    return await service.validate(assessmentReport,authenticatedLists:list.map { [$0] } ?? [],mode:.online,observedAt:observedAt,
+                    return await service.validate(assessmentReport,authenticatedLists:list.map { [$0] } ?? [],mode:.online,observedAt:observedAt,evaluationMode:.bestAvailable,
                         isCancelled:{ control.isCancellationRequested })
                 }
                 let values = await withTaskCancellationHandler(operation: { await assessment.value }, onCancel: { assessment.cancel() })
@@ -228,10 +228,15 @@ struct UnifiedVerificationPane: View {
         Text("Tempo: " + (value.evidence.time.state == .proven ? "comprovato" : value.evidence.time.state == .invalid ? "evidenza non valida" : "non comprovato"))
         Text(value.evidence.time.reason)
         if let date = value.evidence.time.provenTime { Text("Esistenza comprovata entro: " + date.formatted(date:.abbreviated,time:.standard)) }
-        Text("Qualificazione eIDAS: " + value.qualification.state.description)
+        if let date = value.qualification.verificationDate { Text("Data della verifica: " + date.formatted(date:.abbreviated,time:.standard)) }
+        if let date = value.qualification.evaluatedAt {
+            Text((value.qualification.evaluationMode == .currentTime ? "Valutazione corrente al: " : "Valutazione storica al: ") + date.formatted(date:.abbreviated,time:.standard))
+        }
+        Text("Certificato qualificato: " + (value.qualification.qualifiedCertificate == .demonstrated ? "dimostrato" : value.qualification.qualifiedCertificate == .notDemonstrated ? "non dimostrato" : "indeterminato"))
+        Text("Qualificazione eIDAS della firma: " + value.qualification.state.description)
         Text(value.qualification.reason)
         if let service = value.qualification.service {
-            Text("Servizio al tempo comprovato: " + service.provider + " · " + service.service + " · " + service.country + (value.qualification.serviceStateFromHistory ? " · stato storico" : ""))
+            Text("Servizio all’istante valutato: " + service.provider + " · " + service.service + " · " + service.country + (value.qualification.serviceStateFromHistory ? " · stato storico" : ""))
         }
         Text("QSCD: " + (value.qualification.qscd == .demonstrated ? "dimostrato" : value.qualification.qscd == .notDemonstrated ? "non dimostrato" : "indeterminato: valutazione non conclusa"))
     }

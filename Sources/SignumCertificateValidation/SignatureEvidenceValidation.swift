@@ -38,7 +38,7 @@ public struct SignatureEvidenceValidationService: Sendable {
     public init(cache: RevocationEvidenceCache? = nil) { self.cache = cache;self.transport = SystemRevocationTransport() }
     init(cache: RevocationEvidenceCache? = nil,transport: any RevocationTransport) { self.cache = cache;self.transport = transport }
     public func validate(_ report: VerificationReport, authenticatedLists: [InterpretedTrustCatalog],mode: RevocationMode = .offline,
-                         observedAt: Date = Date(),isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [SignatureEvidenceValidationResult] {
+                         observedAt: Date = Date(),evaluationMode: SignatureEvaluationMode = .historical,isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [SignatureEvidenceValidationResult] {
         let startedAt = ProcessInfo.processInfo.systemUptime
         let session = RevocationSession(cache: cache,transport: transport)
         let listsCurrent = !authenticatedLists.isEmpty && authenticatedLists.count <= 32 && authenticatedLists.allSatisfy {
@@ -116,7 +116,7 @@ public struct SignatureEvidenceValidationService: Sendable {
                     session: session,mode: mode,now: observedAt,covering: (earliest,latest),isCancelled: isCancelled)
                 if tsaRevocation.state == .good { proven.append(latest) }
             }
-            if let at = proven.min(), let historical = historicalPaths[at], historical.state == .verified,
+            if evaluationMode != .currentTime, let at = proven.min(), let historical = historicalPaths[at], historical.state == .verified,
                let authority = authorities.first(where:{ $0.state == .authorized && $0.latestTime == at }), let earliest = authority.earliestTime {
                 // A current good statement alone is insufficient: its authenticated window
                 // must cover the complete proof interval AND the observation time.
