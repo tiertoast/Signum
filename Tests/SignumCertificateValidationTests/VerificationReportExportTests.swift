@@ -37,7 +37,7 @@ final class VerificationReportExportTests: XCTestCase {
     }
     func testBothFormatsRetainFiveTypedOutcomesReasonsAndDistinctDates() throws {
         let d=try document(),text=d.plainText,pdf=try XCTUnwrap(PDFDocument(data:VerificationReportPDF.data(d))),pdfText=try XCTUnwrap(pdf.string)
-        for value in ["Integrità crittografica","Attendibilità X.509","Revoca","Evidenze temporali","Qualificazione eIDAS",String(repeating:"a",count:64),"Oct 20 07:22:23 2026 GMT",VerificationReportDocument.date(at),VerificationReportDocument.date(later),"Tempo non comprovato","Indeterminata","La data dichiarata non è una prova temporale."] {
+        for value in ["Integrità crittografica","Attendibilità X.509","Revoca","Evidenze temporali","Qualificazione eIDAS",String(repeating:"a",count:64),"20/10/2026 07:22:23 UTC",VerificationReportDocument.date(at),VerificationReportDocument.date(later),"Tempo non comprovato","Indeterminata","La data dichiarata non è una prova temporale."] {
             XCTAssertTrue(text.contains(value),value);XCTAssertTrue(pdfText.contains(value),value)
         }
         for secret in ["SECRET_DER","SECRET_TIMESTAMP_TOKEN","SECRET_ORIGINAL_PREVIEW","SECRET_ORIGINAL_DOCUMENT"] {XCTAssertFalse(text.contains(secret));XCTAssertFalse(pdfText.contains(secret))}
@@ -107,7 +107,7 @@ final class VerificationReportExportTests: XCTestCase {
                 let ct=CTLineCreateWithAttributedString(line.text)
                 let width=CTLineGetTypographicBounds(ct,nil,nil,nil)-CTLineGetTrailingWhitespaceWidth(ct)
                 XCTAssertLessThanOrEqual(line.x+width,552,"Overflow: "+line.text.string)
-                if line.x==44,line.ink.r==ReportPDFLayout.Ink.muted.r,
+                if line.x==44,line.height==15,line.ink.r==ReportPDFLayout.Ink.accent.r,
                    let font=line.text.attribute(NSAttributedString.Key(kCTFontAttributeName as String),at:0,effectiveRange:nil),CTFontGetSize(font as! CTFont)==9 {
                     XCTAssertLessThanOrEqual(width,120.1,"Etichetta troppo vicina al valore: "+line.text.string)
                 }
@@ -179,11 +179,53 @@ final class VerificationReportExportTests: XCTestCase {
         workspace.cancel()
         XCTAssertEqual(workspace.rows.first?.verificationDate,date)
     }
+    func testBurgundyBrandColorAndTextualOutcomesRemainIndependentOfColor() throws {
+        let color=ReportPDFLayout.Ink.accent
+        XCTAssertEqual(color.r,100.0/255,accuracy:1e-12);XCTAssertEqual(color.g,49.0/255,accuracy:1e-12);XCTAssertEqual(color.b,62.0/255,accuracy:1e-12)
+        let d=try document(signatures:[signature(integrity:.invalid)],validations:[validation(path:.notVerifiable,revocation:.indeterminate)])
+        let pdf=try XCTUnwrap(PDFDocument(data:VerificationReportPDF.data(d))?.string)
+        for label in ["Integrità crittografica non valida","Percorso non verificabile","Indeterminata"] {XCTAssertTrue(pdf.contains(label));XCTAssertTrue(d.plainText.contains(label))}
+    }
+    func testDeclaredDatesNormalizeGMTISOOffsetsAndFractionsWithoutChangingSource() throws {
+        let values=[("Oct 20 07:22:23 2026 GMT","20/10/2026 07:22:23 UTC"),
+                    ("Oct  2 07:22:23 2026 GMT","02/10/2026 07:22:23 UTC"),
+                    ("2026-10-20T09:22:23+02:00","20/10/2026 07:22:23 UTC"),
+                    ("2026-10-20T05:22:23-02:00","20/10/2026 07:22:23 UTC"),
+                    ("2026-10-20T07:22:23.999999999Z","20/10/2026 07:22:23 UTC"),
+                    ("2026-01-01T00:15:00+01:00","31/12/2025 23:15:00 UTC")]
+        for (raw,expected) in values {XCTAssertEqual(VerificationReportDocument.declaredDate(raw),expected)}
+        let source=signature();let original=source.declaredTime
+        let d=try document(signatures:[source])
+        XCTAssertEqual(source.declaredTime,original)
+        XCTAssertTrue(d.plainText.contains("Data dichiarata (signingTime): 20/10/2026 07:22:23 UTC"))
+        for raw in ["Oct 32 07:22:23 2026 GMT","2026-02-30T10:00:00Z","2026-10-20T07:22:23","2026-10-20T07:22:23Z injected","Oct 20 07:22:23 2026 GMT\n","2026-10-20T07:22:23Z\n"] {
+            XCTAssertEqual(VerificationReportDocument.declaredDate(raw),raw+" (formato originale non riconosciuto; non convertito)")
+        }
+        XCTAssertEqual(VerificationReportDocument.declaredDate(""),"Assente / non disponibile")
+    }
+    func testServiceStartIsNeverPresentedAsTrustedListUpdate() throws {
+        let base=validation()
+        let service=CertificateServiceMatch(provider:"Prestatore sintetico",service:"Servizio di prova",country:"IT",status:"granted",statusSince:at.addingTimeInterval(-86400),listSequence:123,historical:false,identitySHA256:String(repeating:"d",count:64))
+        let path=CertificatePathResult(state:base.path.state,evaluatedAt:base.path.evaluatedAt,path:base.path.path,service:service,alternativeServices:[],reason:base.path.reason)
+        let value=CompleteSignatureValidationResult(signatureID:0,path:path,evidence:base.evidence,qualification:base.qualification)
+        let d=try document(validations:[value]),details=d.signers[0].details
+        XCTAssertTrue(details.contains{$0.label=="Stato del servizio dal" && $0.value==VerificationReportDocument.date(service.statusSince)})
+        XCTAssertTrue(details.contains{$0.label=="Sequenza TL" && $0.value=="123"})
+        XCTAssertTrue(details.contains{$0.label=="Aggiornamento Trusted List" && $0.value=="Data non disponibile nei risultati del motore."})
+        XCTAssertTrue(details.contains{$0.label=="Dettagli OCSP/CRL" && $0.value.contains("non disponibili")})
+    }
     func testWriteSyntheticExamplesForVisualAcceptance() throws {
         guard let path=ProcessInfo.processInfo.environment["SIGNUM_TEST_REPORT_OUTPUT"] else {return}
         let root=URL(fileURLWithPath:path);try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         let a=signature(name:"Alex Test - Certificato sintetico"),b=signature(1,parent:a.evidence!.signatureKey,name:"Èlodie Müller - Controfirmataria di prova")
-        let d=try document(signatures:[a,b],validations:[validation(),validation(1,path:.notVerifiable,revocation:.indeterminate,time:.invalid,reason:"Qualificazione indeterminata: prove temporali e copertura fiduciaria insufficienti.")])
+        let base=validation()
+        let evidence=SignatureEvidenceValidationResult(signatureID:0,revocation:.init(state:.good,reason:base.evidence.revocation.reason,certificates:[
+            .init(state:.good,kind:.ocsp,evaluatedAt:at,thisUpdate:at.addingTimeInterval(-3600),nextUpdate:later,revokedAt:nil,reason:"Risposta OCSP sintetica: stato non revocato, intervallo dell’evidenza disponibile.")
+        ]),time:base.evidence.time,associations:base.evidence.associations)
+        let first=CompleteSignatureValidationResult(signatureID:0,path:base.path,evidence:evidence,qualification:base.qualification)
+        let unresolved=validation(1,path:.notVerifiable,revocation:.indeterminate,time:.invalid,reason:"Qualificazione indeterminata: prove temporali e copertura fiduciaria insufficienti.")
+        let second=CompleteSignatureValidationResult(signatureID:1,path:.init(state:.notVerifiable,evaluatedAt:at,path:[],service:nil,alternativeServices:[],reason:unresolved.path.reason),evidence:unresolved.evidence,qualification:unresolved.qualification)
+        let d=try document(signatures:[a,b],validations:[first,second])
         try VerificationReportExporter.write(d,format:.pdf,to:root.appendingPathComponent("Signum-rapporto-esempio.pdf"))
         try VerificationReportExporter.write(d,format:.text,to:root.appendingPathComponent("Signum-rapporto-esempio.txt"))
     }

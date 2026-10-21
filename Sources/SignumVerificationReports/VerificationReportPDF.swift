@@ -6,7 +6,7 @@ import CoreText
 struct ReportPDFLayout {
     struct Ink { let r: CGFloat,g: CGFloat,b: CGFloat
         var color: CGColor {CGColor(red:r,green:g,blue:b,alpha:1)}
-        static let text=Ink(r:0.12,g:0.17,b:0.22), muted=Ink(r:0.34,g:0.39,b:0.44), accent=Ink(r:0.00,g:0.40,b:0.44)
+        static let text=Ink(r:0.12,g:0.17,b:0.22), muted=Ink(r:0.34,g:0.39,b:0.44), accent=Ink(r:100.0/255,g:49.0/255,b:62.0/255)
     }
     struct Line { let text: NSAttributedString; let x,y,height: CGFloat; let ink: Ink }
     struct Box { let rect: CGRect; let ink: Ink }
@@ -56,7 +56,7 @@ struct ReportPDFLayout {
         try ensure(min(CGFloat(rows),4)*height+7)
         for i in 0..<rows {
             try ensure(height)
-            if i<labels.count {pages[pages.count-1].lines.append(.init(text:labels[i],x:Self.margin,y:y,height:height,ink:.muted))}
+            if i<labels.count {pages[pages.count-1].lines.append(.init(text:labels[i],x:Self.margin,y:y,height:height,ink:.accent))}
             if i<values.count {pages[pages.count-1].lines.append(.init(text:values[i],x:Self.margin+156,y:y,height:height,ink:.text))}
             y+=height
         };y+=7
@@ -73,7 +73,7 @@ struct ReportPDFLayout {
         for line in titleLines {pages[pages.count-1].lines.append(.init(text:line,x:Self.margin+14,y:y,height:17,ink:.text));y+=17}
         y+=5
         for (i,outcome) in signer.outcomes.enumerated() {
-            pages[pages.count-1].lines.append(.init(text:Self.attributed(outcome.label,size:9),x:Self.margin+14,y:y,height:15,ink:.muted))
+            pages[pages.count-1].lines.append(.init(text:Self.attributed(outcome.label,size:9),x:Self.margin+14,y:y,height:15,ink:.accent))
             for line in rows[i] {pages[pages.count-1].lines.append(.init(text:line,x:Self.margin+154,y:y,height:15,ink:.text));y+=15}
         };y+=11
     }
@@ -134,17 +134,17 @@ public enum VerificationReportPDF {
             context.setFillColor(CGColor(gray:1,alpha:1));context.fill(rect)
             context.setFillColor(ReportPDFLayout.Ink.accent.color);context.fill(CGRect(x:0,y:ReportPDFLayout.height-4,width:ReportPDFLayout.width,height:4))
             draw(ReportPDFLayout.attributed("SIGNUM",size:21,bold:true),x:44,y:31,ink:.text)
-            draw(ReportPDFLayout.attributed("Digital signatures. Simply native.",size:8.5),x:44,y:59,ink:.muted)
-            draw(ReportPDFLayout.attributed("RAPPORTO DI VERIFICA",size:8,bold:true),x:385,y:37,ink:.muted)
+            draw(ReportPDFLayout.attributed("Digital signatures. Simply native.",size:8.5),x:44,y:59,ink:.accent)
+            draw(ReportPDFLayout.attributed("RAPPORTO DI VERIFICA",size:8,bold:true),x:385,y:37,ink:.accent)
             draw(ReportPDFLayout.attributed(VerificationReportDocument.date(document.verificationDate),size:8),x:385,y:53,ink:.muted)
-            context.setStrokeColor(CGColor(gray:0.85,alpha:1));context.setLineWidth(0.5)
+            context.setStrokeColor(ReportPDFLayout.Ink.accent.color);context.setLineWidth(0.5)
             context.move(to:CGPoint(x:44,y:759));context.addLine(to:CGPoint(x:551,y:759));context.strokePath()
             draw(ReportPDFLayout.attributed(page.section,size:8),x:44,y:88,ink:.muted)
             for box in page.boxes {
                 context.setFillColor(box.ink.color);context.fill(CGRect(x:box.rect.minX,y:ReportPDFLayout.height-box.rect.maxY,width:box.rect.width,height:box.rect.height))
             }
             for line in page.lines {draw(line.text,x:line.x,y:line.y,ink:line.ink)}
-            context.setStrokeColor(CGColor(gray:0.85,alpha:1));context.move(to:CGPoint(x:44,y:46));context.addLine(to:CGPoint(x:551,y:46));context.strokePath()
+            context.setStrokeColor(ReportPDFLayout.Ink.accent.color);context.move(to:CGPoint(x:44,y:46));context.addLine(to:CGPoint(x:551,y:46));context.strokePath()
             draw(ReportPDFLayout.attributed("SIGNUM  |  "+String(document.sha256.prefix(20)),size:8),x:44,y:806,ink:.muted)
             draw(ReportPDFLayout.attributed("\(i+1) / \(layout.pages.count)",size:8),x:510,y:806,ink:.muted)
             context.endPDFPage()
