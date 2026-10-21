@@ -27,6 +27,8 @@ public struct SignatureEvidenceValidationResult: Equatable, Sendable {
     public let revocation: SignatureRevocationResult
     public let time: SignatureTimeResult
     public let associations: [EvidenceAssociationResult]
+    /// Exact path whose certificates were checked; prevents reusing a good result on another path.
+    public var revocationPath: CertificatePathResult? = nil
 }
 /// Off-main, caller-owned, finite validation. No scheduler and no GUI coupling.
 /// New assessments do not modify legacy integrity/trust/qualification fields.
@@ -70,7 +72,18 @@ public struct SignatureEvidenceValidationService: Sendable {
             let pool = (signature.signerDER.map { [$0] } ?? []) + signature.embeddedCertificateDERs + extraCertificates +
                 tlCertificates + authorities.flatMap(\.certificates)
             let certMap = Dictionary(pool.map { (CertificatePathValidator.hash($0),$0) },uniquingKeysWith: { a,_ in a })
+            var historicalPaths = [Date:CertificatePathResult]()
+            if listsCurrent, let signer = signature.signerDER {
+                for authority in authorities.prefix(8) where authority.state == .authorized {
+                    if let at = authority.latestTime {
+                        historicalPaths[at] = CertificatePathValidator.evaluate(signer:signer,
+                            intermediates:signature.embeddedCertificateDERs+extraCertificates,
+                            identities:authenticatedLists.flatMap { CertificatePathValidator.identities($0,now:at) },now:at,isCancelled:isCancelled)
+                    }
+                }
+            }
             var targets = Set<String>()
+            for path in historicalPaths.values where path.state == .verified { targets.formUnion(path.path.dropLast().map(\.sha256)) }
             if let path = signerPath, path.state == .verified { targets.formUnion(path.path.dropLast().map(\.sha256)) }
             for authority in authorities where authority.state == .authorized {
                 if let path = authority.path {
@@ -91,7 +104,9 @@ public struct SignatureEvidenceValidationService: Sendable {
                 if linked, let value { bound.append(value) }
             }
             var revocation = SignatureRevocationResult(state: .indeterminate,reason: "Percorso del firmatario non verificato o certificato assente.",certificates: [])
+            var assessedPath: CertificatePathResult?
             if let path = signerPath, path.state == .verified {
+                assessedPath = path
                 revocation = await Self.checkPath(path,pool: pool,bound: bound,forceLeaf: false,session: session,
                     mode: mode,now: observedAt,covering: nil,isCancelled: isCancelled)
             }
@@ -100,6 +115,14 @@ public struct SignatureEvidenceValidationService: Sendable {
                 let tsaRevocation = await Self.checkPath(path,pool: pool,bound: bound,forceLeaf: true,
                     session: session,mode: mode,now: observedAt,covering: (earliest,latest),isCancelled: isCancelled)
                 if tsaRevocation.state == .good { proven.append(latest) }
+            }
+            if let at = proven.min(), let historical = historicalPaths[at], historical.state == .verified,
+               let authority = authorities.first(where:{ $0.state == .authorized && $0.latestTime == at }), let earliest = authority.earliestTime {
+                // A current good statement alone is insufficient: its authenticated window
+                // must cover the complete proof interval AND the observation time.
+                revocation = await Self.checkPath(historical,pool:pool,bound:bound,forceLeaf:false,
+                    session:session,mode:mode,now:observedAt,covering:(earliest,at),isCancelled:isCancelled)
+                assessedPath = historical
             }
             var time: SignatureTimeResult
             if let first = proven.min() {
@@ -119,7 +142,7 @@ public struct SignatureEvidenceValidationService: Sendable {
                     reason: "Trusted List scaduta durante la verifica; nessuna promozione del tempo.",authorities: authorities)
             }
             guard !isCancelled(), !Task.isCancelled else { break }
-            output.append(.init(signatureID: signature.id,revocation: revocation,time: time,associations: associations))
+            output.append(.init(signatureID: signature.id,revocation: revocation,time: time,associations: associations,revocationPath:assessedPath))
         }
         return output
     }

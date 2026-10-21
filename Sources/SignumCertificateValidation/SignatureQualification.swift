@@ -57,8 +57,9 @@ public struct SignatureQualificationService: Sendable {
         }
         return results
     }
-    static func assess(_ signature: SignatureVerificationResult, evidence: SignatureEvidenceValidationResult, lists: [InterpretedTrustCatalog],
+    static func assess(_ signature: SignatureVerificationResult, evidence: SignatureEvidenceValidationResult, lists inputLists: [InterpretedTrustCatalog],
                        mode: RevocationMode, observedAt: Date, isCancelled: @Sendable () -> Bool = { false }) -> SignatureQualificationResult {
+        let lists = inputLists.filter { EuropeanQualificationPolicy.testedCountries.contains($0.document.territory) }
         var qc: QCStatements?, service: CertificateServiceMatch?, at: Date?
         var historyUsed = false
         func result(_ reason: String, _ state: SignatureQualificationState = .indeterminate,
@@ -69,16 +70,16 @@ public struct SignatureQualificationService: Sendable {
         guard signature.integrity == .verified else { return result("Integrità crittografica non verificata: nessuna classificazione positiva.") }
         guard let der = signature.signerDER, let material = try? CertificateQualificationMaterial(der) else { return result("Certificato o QCStatements non interpretabili.") }
         qc = material.qc
-        guard mode == .online else { return result("Modalità offline: qualificazione indeterminata; i risultati locali di integrità, catena, revoca e tempo restano separati.") }
         guard evidence.time.state == .proven, let time = evidence.time.provenTime, time <= observedAt else { return result("Tempo non comprovato dalla 0.5-C; signingTime dichiarato non utilizzato.") }
         at = time
         guard time.timeIntervalSince1970 >= 1467324000 else { return result("Regime precedente al 1 luglio 2016 non supportato: qualificazione storica indeterminata.") }
-        guard !lists.isEmpty, lists.count <= 32, lists.allSatisfy({ $0.document.territory == "IT" && $0.document.issuedAt <= observedAt && $0.document.nextUpdate > observedAt }) else { return result("Copertura TL autenticata insufficiente o obsoleta: profilo attuale limitato all’Italia.") }
+        guard !lists.isEmpty, lists.count <= 32, lists.allSatisfy({ EuropeanQualificationPolicy.testedCountries.contains($0.document.territory) && $0.document.issuedAt <= observedAt && $0.document.nextUpdate > observedAt }) else { return result("Copertura TL autenticata insufficiente, obsoleta o fuori dai Paesi/profili collaudati E2.") }
 
         let path = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,
             identities:lists.flatMap { CertificatePathValidator.identities($0,now:time) },now:time,isCancelled:isCancelled)
         service = path.service
         guard path.state == .verified, let match = path.service else { return result("Servizio CA/QC non granted o percorso non verificato al tempo comprovato: " + path.reason) }
+        guard path.path.count == 2 else { return result("Qualificazione E2 limitata al profilo di emissione diretta CA/QC; catena X.509 distinta.") }
         guard path.alternativeServices.isEmpty else { return result("Più servizi TL applicabili: qualificazione ambigua, nessuna scelta predefinita.") }
         // Select the exact event/identity of the verified anchor, including its OWN extensions.
         var applicable = [[TLServiceExtension]]()
@@ -93,13 +94,9 @@ public struct SignatureQualificationService: Sendable {
                     guard let issuance = events.first(where:{ $0.contains(material.notBefore) }) else {
                         return result("Lo storico TL non copre l’emissione del certificato.")
                     }
-                    let covered = events.filter { $0.start <= time && ($0.end.map { $0 > material.notBefore } ?? true) }
-                    guard let qualifiers = TLQualificationRules.evaluate(e.extensions,material:material),
-                          covered.allSatisfy({ event in
-                              event.typeURI == e.typeURI && event.statusURI == CertificatePathValidator.granted &&
-                              TLServiceIdentityResolver.certificates(event,service:s).contains(where:{ CertificatePathValidator.hash($0) == match.identitySHA256 }) &&
-                              TLQualificationRules.evaluate(event.extensions,material:material) == qualifiers
-                          }) else { return result("Transizione di identità, stato o qualificatori fra emissione e tempo comprovato: evidenze storiche insufficienti.") }
+                    guard HistoricalQualification.covers(events,service:s,identity:match.identitySHA256,material:material,proof:time) else {
+                        return result("Transizione di identità, stato o qualificatori fra emissione e tempo comprovato: evidenze storiche insufficienti.")
+                    }
                     historyUsed = e.fromHistory || issuance.fromHistory
                     applicable.append(e.extensions)
                 }
@@ -107,9 +104,12 @@ public struct SignatureQualificationService: Sendable {
         }
         guard applicable.count == 1 else { return result("Stato/identità del servizio TL non univoci.") }
         guard evidence.revocation.state == .good else { return result(evidence.revocation.state == .revoked ? "Revoca accertata: nessuna classificazione QES." : "Revoca indeterminata: evidenze insufficienti per QES.") }
-        let currentPath = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,authenticatedLists:lists,now:observedAt,isCancelled:isCancelled)
-        guard currentPath.state == .verified, currentPath.path.map(\.sha256) == path.path.map(\.sha256) else { return result("Revoca C e percorso al tempo comprovato non coprono lo stesso percorso; verifica storica indeterminata.") }
+        guard let revocationPath = evidence.revocationPath, revocationPath.state == .verified, revocationPath.evaluatedAt == time,
+              revocationPath.path.map(\.sha256) == path.path.map(\.sha256) else {
+            return result("Revoca C non associata al percorso valutato al tempo comprovato; verifica storica indeterminata.")
+        }
         guard let authority = evidence.time.authorities.first(where: { $0.state == .authorized && $0.latestTime == time }),
+              authority.service.map({ EuropeanQualificationPolicy.testedCountries.contains($0.country) }) == true,
               let earliest = authority.earliestTime, earliest <= time,
               !evidence.revocation.certificates.isEmpty, evidence.revocation.certificates.allSatisfy({ $0.state == .good && ($0.thisUpdate.map { $0 <= earliest } ?? false) && ($0.nextUpdate.map { $0 >= observedAt } ?? false) }) else { return result("Evidenze di revoca non coprono l’intera finestra temporale comprovata.") }
         let earlyPath = CertificatePathValidator.evaluate(signer:der,intermediates:signature.embeddedCertificateDERs,identities:lists.flatMap { CertificatePathValidator.identities($0,now:earliest) },now:earliest,isCancelled:isCancelled)

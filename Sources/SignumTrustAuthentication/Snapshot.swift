@@ -41,12 +41,7 @@ public enum TLSnapshot {
     }
     static func save(_ bundle: TLBundle, to url: URL, now: Date, anchors: Set<Data>, currentTime: (() -> Date)? = nil) throws {
         let current = try verify(bundle, now: now, allowExpired: false, anchors: anchors)
-        // Stable sidecar lock, never the inode replaced by atomic rename.
-        let fd = open(url.path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
-        guard fd >= 0 else { throw TLAuthenticationError.rejected("cache lock open: \(errno)") }
-        defer { close(fd) }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw TLAuthenticationError.rejected("cache writer busy") }
-        defer { _ = flock(fd, LOCK_UN) }
+        try withExclusiveLock(url) {
         if FileManager.default.fileExists(atPath: url.path) {
             let old = try readVerified(url, now: currentTime?() ?? now, anchors: anchors)
             guard old.bundle.country == bundle.country else { throw TLAuthenticationError.rejected("cache territory changed") }
@@ -70,6 +65,17 @@ public enum TLSnapshot {
         }
         // A.1 Foundation atomic replacement: failures leave the previous file intact.
         try encoded.write(to: url, options: .atomic)
+        }
+    }
+    /// Reused by the coordinated LOTL journal and its short cross-country commits.
+    static func withExclusiveLock<T>(_ url: URL, _ body: () throws -> T) throws -> T {
+        // Stable sidecar lock, never the inode replaced by atomic rename.
+        let fd = open(url.path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        guard fd >= 0 else { throw TLAuthenticationError.rejected("cache lock open: \(errno)") }
+        defer { close(fd) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw TLAuthenticationError.rejected("cache writer busy") }
+        defer { _ = flock(fd, LOCK_UN) }
+        return try body()
     }
     public static func load(from url: URL, now: Date) throws -> (AuthenticatedTL, AuthenticatedTL) {
         let verified = try readVerified(url, now: now)
@@ -103,9 +109,7 @@ public enum TLSnapshot {
         // Historical evaluation verifies provenance, never promotes an expired pair to current.
         let evaluationDate = expired ? historicalDate : now
         let eu = try LOTLPivotChain.validate(current: bundle.lotl, pivotsOldestFirst: bundle.pivots, now: evaluationDate, initialAnchors: anchors)
-        let it: AuthenticatedTL
-        if bundle.country == "IT" { it = try TLAuthenticator.authenticateItaly(bundle.italy, lotl: eu, now: evaluationDate) }
-        else { it = try TLAuthenticator.authenticateNational(bundle.italy, country: bundle.country, lotl: eu, now: evaluationDate) }
+        let it = try TLAuthenticator.authenticateNational(bundle.italy,country:bundle.country,lotl:eu,now:evaluationDate)
         return VerifiedSnapshot(bundle: bundle, europe: eu, italy: it, expired: expired)
     }
 }

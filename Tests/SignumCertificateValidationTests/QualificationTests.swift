@@ -63,12 +63,14 @@ final class QualificationTests: XCTestCase {
             if name == "authorized" { XCTAssertEqual(q.qualifiedCertificate,.demonstrated); XCTAssertEqual(q.qscd,.notDemonstrated) }
         }
     }
-    func testWithdrawnHistoricalAndConflictingServiceNeverQES() async throws {
+    func testHistoricalQualifiedPeriodAndWithdrawnOrConflictingService() async throws {
         for name in ["withdrawn","historical","conflict"] {
             let list = try list(name)
             let values = await SignatureQualificationService().validate(try report(),authenticatedLists:[list],mode:.online,observedAt:try now())
             XCTAssertEqual(values.count,2)
-            XCTAssertTrue(values.allSatisfy { $0.qualification.state != .qualified })
+            if name == "historical" {
+                XCTAssertEqual(values.first { $0.qualification.statements?.compliance == true }?.qualification.state,.qualified)
+            } else { XCTAssertTrue(values.allSatisfy { $0.qualification.state != .qualified }) }
             if name == "historical" {
                 XCTAssertTrue(values.allSatisfy { $0.qualification.serviceStateFromHistory })
                 let time = try now().addingTimeInterval(-120)
@@ -78,7 +80,7 @@ final class QualificationTests: XCTestCase {
             }
         }
     }
-    func testNoProvenTimeNoCoverageRevokedAndOfflineNeverQES() async throws {
+    func testInsufficientEvidenceNeverQESAndOfflineUsesSufficientEvidence() async throws {
         let report = try report()
         let c = await SignatureEvidenceValidationService().validate(report,authenticatedLists:[try list()],observedAt:try now())
         let signature = try XCTUnwrap(report.signatures.first { $0.signerDER == (try? data("leaf","der")) })
@@ -91,7 +93,8 @@ final class QualificationTests: XCTestCase {
         let revoked = SignatureEvidenceValidationResult(signatureID:signature.id,revocation:.init(state:.revoked,reason:"test",certificates:[]),time:evidence.time,associations:[])
         XCTAssertEqual(SignatureQualificationService.assess(signature,evidence:revoked,lists:[try list()],mode:.online,observedAt:try now()).state,.indeterminate)
         let offline = await SignatureQualificationService().validate(report,authenticatedLists:[try list()],mode:.offline,observedAt:try now())
-        XCTAssertTrue(offline.allSatisfy { $0.qualification.state == .indeterminate && $0.qualification.reason.contains("offline") })
+        XCTAssertEqual(offline.first { $0.qualification.statements?.compliance == true }?.qualification.state,.qualified)
+        XCTAssertEqual(offline.first { $0.qualification.statements?.compliance == false }?.qualification.state,.electronic)
         XCTAssertTrue(offline.allSatisfy { $0.evidence.time.state == .proven }) // Independent local results retained.
     }
     func testExtensionNamespacesAndHistoryCannotBorrowQualifiers() throws {

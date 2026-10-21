@@ -1,0 +1,230 @@
+{
+  "baseline": "8052dcd37e8e32549cbbf7f60c54c6203eb0c498",
+  "branch": "feature/signum-0.5e-european-trust",
+  "status": "passed",
+  "completeCampaigns": 1,
+  "swiftTests": {
+    "SignumTrustIntegrationTests.xctest": 5,
+    "SignumTrustCoreTests.xctest": 19,
+    "SignumTrustAuthenticationTests.xctest": 34,
+    "SignumCoreTests.xctest": 430,
+    "SignumCertificateValidationTests.xctest": 67
+  },
+  "swiftTotal": 555,
+  "native": {
+    "PAdESDebug": 81,
+    "PAdESRelease": 81,
+    "PKCS11Provider": 58,
+    "PKCS11Loader": 2
+  },
+  "packagingContracts": 18,
+  "finalFailures": 0,
+  "skippedTests": 0,
+  "sanitizers": "Not repeated: Swift orchestration only, no native or memory-unsafe boundary changes",
+  "targetedPhase": {
+    "Authentication": {
+      "passed": 34
+    },
+    "CertificateValidation": {
+      "tests": 67,
+      "initialFailed": 1,
+      "reason": "Test assumed exactly one provenance reference; corrected to assert actual LOTL URL and digest. Final complete campaign passed all 67."
+    }
+  },
+  "officialFrozenXMLCountries": [
+    "IT",
+    "AT",
+    "DE",
+    "BE",
+    "FR",
+    "ES"
+  ],
+  "qualificationPolicy": "Signum-E2-direct-CAQC-eSig-2016-v1",
+  "positiveQualificationEvidence": "Synthetic direct signer-to-CA/QC electronic signatures with proven RFC3161 time and fully covering bound revocation evidence; no six-country real-signature QES claim",
+  "offline": "Positive only with fresh authenticated TLs and complete bound evidence; incomplete evidence remains indeterminate",
+  "unpassedMandatoryGates": [],
+  "limitations": [
+    "TakenOverBy, incoherent timelines and unsupported criteria excluded",
+    "No general pre-2016 classification, archived TL key search or LTV/LT/LTA claim",
+    "Other EU/EEA territories cacheable; positive qualification restricted to six tested countries and direct CA/QC profile",
+    "GUI wiring and Build 6 excluded; engine API integration only",
+    "No new DSS execution or macOS 13 runtime test"
+  ],
+  "runner": {
+    "status": "passed",
+    "source": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/Signum",
+    "setup": {
+      "group": "complete",
+      "selected": [
+        "AppVersionTests",
+        "BatchWorkspaceSummaryTests",
+        "CAdESInputTests",
+        "CAdESTests",
+        "CAdESMemoryContractTests",
+        "CertificateIdentityTests",
+        "MiddlewareRegistryTests",
+        "PAdESInputContractTests",
+        "SigningWorkspaceSelectionTests",
+        "SignumCoreTests",
+        "BatchDestinationTests",
+        "BatchSigningTests",
+        "DynamicSigningFormatTests",
+        "LargeDocumentTests",
+        "OneShotContextTests",
+        "PAdESSourcePreflightTests",
+        "PAdESStatusIntegrationTests",
+        "SigningFormatStabilizationTests",
+        "UnifiedVerificationTests",
+        "PAdESDefaultSigningTests",
+        "PAdESOrientationOutputTests",
+        "PAdESStabilizationSigningTests",
+        "AutomaticCertificateSelectionTests",
+        "BatchAuthIntegrationTests",
+        "BatchAuthenticationTests",
+        "CertificateSigningGateTests",
+        "DeviceSelectionTests",
+        "MiddlewareDiscoveryTests",
+        "PKCS11LifecycleIntegrationTests",
+        "PKCS11WorkerTests",
+        "SupervisedProcessTests",
+        "PostLoginCertificateTests",
+        "ProcessCoordinationTests",
+        "SecureBatchNativeTests",
+        "SigningInteractionTests",
+        "SigningJobTests",
+        "SigningOperationTests",
+        "SigningReviewTests",
+        "AutomaticSelectionConsentTests",
+        "BatchAuthenticationPreferenceTests",
+        "BatchCleanupContractTests",
+        "CAdESVerificationIntegrationTests",
+        "CertificateEligibilityTests",
+        "CertificateVisibilityTests",
+        "DiscoveryExperienceTests",
+        "DocumentSnapshotTests",
+        "FileAcquisitionTests",
+        "FixtureInfrastructureTests",
+        "PAdESHelperProcessTests",
+        "PAdESRenderCoordinationTests",
+        "ProviderSelectionTests",
+        "SecurePINBufferTests",
+        "SignumFileOutputTests",
+        "VerificationDropLifecycleTests",
+        "SnapshotRetirementTests",
+        "PDFPreviewPreparationTests",
+        "ConcurrencyOwnershipTests",
+        "DynamicFormatWorkspaceTests",
+        "PAdESAppearanceTests",
+        "PAdESDefaultPlacementTests",
+        "PAdESGeometryStabilizationTests",
+        "PAdESOrientationPerformanceTests",
+        "PAdESOrientationTests",
+        "PAdESOrientationWorkflowTests",
+        "PAdESPlacementPerformanceTests",
+        "LegacyPAdESPreviewReferenceTests",
+        "SignaturePlacementOverlayTests",
+        "SigningWorkspaceTests"
+      ],
+      "fullSwift": true,
+      "helper": true,
+      "ui": true,
+      "skipSanitizers": true,
+      "swift": "/usr/bin/swift",
+      "cc": "/usr/bin/cc",
+      "openssl": "/usr/bin/openssl",
+      "cmake": "/opt/homebrew/Cellar/cmake/4.4.4/bin/cmake",
+      "ctest": "/opt/homebrew/Cellar/cmake/4.4.4/bin/ctest",
+      "prefix": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/a3-native-v3/prefix",
+      "poppler": "/opt/homebrew/Cellar/poppler/26.10.0/bin/pdftoppm",
+      "optionalGroupsNotSelected": []
+    },
+    "results": [
+      {
+        "name": "pades-debug-configure",
+        "exit": 0,
+        "seconds": 0.89,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pades-debug-configure.log"
+      },
+      {
+        "name": "pades-debug-build",
+        "exit": 0,
+        "seconds": 2.491,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pades-debug-build.log"
+      },
+      {
+        "name": "pades-debug",
+        "exit": 0,
+        "seconds": 2.758,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pades-debug.log"
+      },
+      {
+        "name": "pades-release-configure",
+        "exit": 0,
+        "seconds": 0.553,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pades-release-configure.log"
+      },
+      {
+        "name": "pades-release-build",
+        "exit": 0,
+        "seconds": 4.3,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pades-release-build.log"
+      },
+      {
+        "name": "pades-release",
+        "exit": 0,
+        "seconds": 1.974,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pades-release.log"
+      },
+      {
+        "name": "pkcs11-debug-configure",
+        "exit": 0,
+        "seconds": 0.613,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pkcs11-debug-configure.log"
+      },
+      {
+        "name": "pkcs11-debug-build",
+        "exit": 0,
+        "seconds": 0.781,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pkcs11-debug-build.log"
+      },
+      {
+        "name": "pkcs11-debug",
+        "exit": 0,
+        "seconds": 5.791,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/pkcs11-debug.log"
+      },
+      {
+        "name": "swift",
+        "exit": 0,
+        "seconds": 553.537,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/swift.log"
+      },
+      {
+        "name": "swift-bin-path",
+        "exit": 0,
+        "seconds": 0.567,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/swift-bin-path.log"
+      },
+      {
+        "name": "packaging",
+        "exit": 0,
+        "seconds": 0.131,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e2-final-campaign/20261021T105539Z-3a136b6925/evidence/packaging.log"
+      }
+    ]
+  },
+  "evidenceSHA256": {
+    "packaging.log": "8981a63fba44116d3ba52ce17a6c932ec741de3eb6a3216cd0140de89ddb9b9e",
+    "pades-debug-build.log": "2d008f35074918621292c3314e74990aa4062ebcbef5b90a4290877e95799a38",
+    "pades-debug-configure.log": "e6a00881ceb54d6e6fa17806a657caa51067df21270f8daa4a89f930b71a8d88",
+    "pades-debug.log": "e1ff09c33cca3d1b299df5910066708a74a3684405866ada42913e137b0c495d",
+    "pades-release-build.log": "2eba67a154fb75902900f00adb7c96e34d66d9eba7a32d2653451b94eeecbdc3",
+    "pades-release-configure.log": "c0376b257ce240738586004d8aa544223c2c567e98229e2cce747aa122855316",
+    "pades-release.log": "350a46fa595a4eb0d0ad67a4f6254377992e1074b8c152e1dfb26581d65bc529",
+    "pkcs11-debug-build.log": "dcb870f8717cbf464593609ff6e8bfcb85d4a4a5fdea39883a6c718133287c21",
+    "pkcs11-debug-configure.log": "5ecbe0355f966e2b30a88ce6e1d4a63025d05f68d2efd95e562ac9ff77977934",
+    "pkcs11-debug.log": "ca9f56aec2680c4a4f8cf546c6d900b712ce031ab51969af213ce0eef5435467",
+    "swift-bin-path.log": "12866f83dbc9dce1449fe4a1c00ce84c0cfb26ae3deaedf8c2242b50088b7e9b",
+    "swift.log": "95682010ad82f6ac85941348f037798bf5fe6c628e2f0ff308b3135df456ca1d"
+  }
+}

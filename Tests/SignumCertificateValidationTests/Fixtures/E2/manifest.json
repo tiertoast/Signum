@@ -1,0 +1,17 @@
+{
+  "AT-rotated-old.xml": "9c4e2a45394e103f82058e9b0ae08a8b5ad02515132bbec704e874b5def5d064",
+  "AT-rotated.xml": "c930211cbdc74ab3a10c40dca6352cc50a21a4fc9d28602701528657739bdee2",
+  "AT.xml": "99bbc7f3553da13f6f54d672d842010d7f420174ea53c8483b4337a27a7e3140",
+  "BE.xml": "275b2cb5edd8364c2d803ccbb2d0125c8bd8a07d58e7bf450e79dec2d72c7a5a",
+  "BG.xml": "60e45e3f2cc965b5d17d5b2dfe7a451bbe11e32a5f4b6f3afc336597b798f620",
+  "DE.xml": "66bada680a06f3d3b425ff9169ae5e24ca941016a89d2ee9d8b3740d7e45879d",
+  "ES.xml": "6facca1f0c77fe0832768350001573b814674f7de51d4d4401a53acbbbfb2a08",
+  "FR.xml": "4d007ac798be16f5b8222b6f47a74adbb555eeddf0a7f6d2f20df8cca4fe7bf8",
+  "IT.xml": "d55466a858ab10eedf8a0b647f7b911481349f55aacc57b17d8c57d9e0aa3485",
+  "europe-rotated-national.xml": "1c81d3c400e57fa25cc92d36f2867aad7e7fcd96b993f6994c01d90b803880bc",
+  "europe.xml": "b2f62e5cbe2fb2d3ae8e0e8b7b8def5bac33e9ded33dbcb6b789be8bbc8fa152",
+  "signer0.der": "e96c6c4bbbd0abfd58953068040fac8b4116a9401c62944c9d8a374734762eee",
+  "signer1.der": "53eb02aa9de25d2ad1c33685a1a05b3f1a6c3f8d0a80d08333404f8402134496",
+  "transition-equivalent.xml": "56bccddf242b1b3fb180d15e6559e360b20a69a49fdfa2791194c2e67a445c56",
+  "transition-negative.xml": "bbf17aaf4005f290cea445fa0d3a95668fd5367fb81005a891c8cd56e093d8f3"
+}
