@@ -90,3 +90,29 @@ Passed one complete official regular campaign: **598 Swift tests** (SignumTrustI
 application source correction or repeated suite. Native/Swift sanitizers were not
 repeated. The output root is `outputs/signum-0.6-consolidation`; the complete original
 run and logs are in `work/06-complete-campaign/20261021T183435Z-07b63ab219`.
+
+## Delivered Preview
+
+Build source commit: `61038047f2385fa52fccfab50163679712b912b1`, with
+`sourceTrackedDirty=false` in the sealed BuildManifest. Only this delivery report
+is added after packaging; application/native/test sources and packaging scripts
+remain exactly those tested and built. No rebuild is required for that report.
+
+All checks passed: bundled dependency/architecture/minimum-OS audit, ad hoc codesign,
+helper/worker synthetic IPC smoke, relocation, GUI alive after four seconds with
+system-only PATH and loader audit, isolated authenticated offline EU/IT cache read
+with byte preservation. The GUI smoke closes only its own process and finalizes logs.
+ZIP extraction preserves all file bytes and symlink targets; the extracted app's
+code signature verifies. No real document, token or PIN was used.
+
+Artifacts in the task workspace:
+
+- `outputs/signum-0.6-consolidation/Signum 0.6 Development Preview — Build 1.app`
+- `outputs/signum-0.6-consolidation/Signum 0.6 Development Preview — Build 1.zip`
+- `outputs/signum-0.6-consolidation/SHA256SUMS.txt` and `results.json`
+- `outputs/signum-0.6-consolidation/validation/Relocated/` retains the smoke-tested copy.
+
+ZIP SHA-256: `6745f12363213e376e8d5ef546a074e279a3a974c1750b5310a4a24707a23299`.
+
+No PR, main merge, tag, release, GitHub Action or modification to the 0.5 release,
+other repositories or previous app bundles. Stop after local Preview delivery.
