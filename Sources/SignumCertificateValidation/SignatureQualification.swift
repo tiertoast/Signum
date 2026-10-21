@@ -63,14 +63,14 @@ public struct SignatureQualificationService: Sendable {
         var qc: QCStatements?, service: CertificateServiceMatch?, at: Date?
         var historyUsed = false
         func result(_ reason: String, _ state: SignatureQualificationState = .indeterminate,
-                    _ cert: QualificationEvidenceState = .indeterminate, _ qscd: QualificationEvidenceState = .notDemonstrated) -> SignatureQualificationResult {
+                    _ cert: QualificationEvidenceState = .indeterminate, _ qscd: QualificationEvidenceState = .indeterminate) -> SignatureQualificationResult {
             .init(signatureID:signature.id,state:state,qualifiedCertificate:cert,qscd:qscd,evaluatedAt:at,service:service,reason:reason,statements:qc,serviceStateFromHistory:historyUsed)
         }
         guard !isCancelled(), evidence.signatureID == signature.id else { return result("Valutazione annullata o evidenza non associata.") }
         guard signature.integrity == .verified else { return result("Integrità crittografica non verificata: nessuna classificazione positiva.") }
         guard let der = signature.signerDER, let material = try? CertificateQualificationMaterial(der) else { return result("Certificato o QCStatements non interpretabili.") }
         qc = material.qc
-        guard evidence.time.state == .proven, let time = evidence.time.provenTime, time <= observedAt else { return result("Tempo non comprovato dalla 0.5-C; signingTime dichiarato non utilizzato.") }
+        guard evidence.time.state == .proven, let time = evidence.time.provenTime, time <= observedAt else { return result("Tempo non comprovato nel profilo Signum: signingTime è dichiarato e non è una prova temporale. QCStatements del certificato: QcCompliance \(material.qc.compliance ? "presente" : "assente"), QcSSCD \(material.qc.sscd ? "presente" : "assente"). Qualificazione e QSCD della firma non determinati al tempo di apposizione.") }
         at = time
         guard time.timeIntervalSince1970 >= 1467324000 else { return result("Regime precedente al 1 luglio 2016 non supportato: qualificazione storica indeterminata.") }
         guard !lists.isEmpty, lists.count <= 32, lists.allSatisfy({ EuropeanQualificationPolicy.testedCountries.contains($0.document.territory) && $0.document.issuedAt <= observedAt && $0.document.nextUpdate > observedAt }) else { return result("Copertura TL autenticata insufficiente, obsoleta o fuori dai Paesi/profili collaudati E2.") }
@@ -122,11 +122,11 @@ public struct SignatureQualificationService: Sendable {
               !has("QCQSCDManagedOnBehalf") else { return result("Evidenze TL/certificato contrastanti o QSCD gestito per conto non supportato.") }
         guard material.qc.compliance || has("QCStatement") || !material.policies.contains(where: { $0.hasPrefix("0.4.0.1456.") || $0.hasPrefix("0.4.0.194112.") }) else { return result("Determinazione mediante policy QCP/legacy non supportata; nessuna classificazione dedotta dalle sole policy.") }
         let qualified = (material.qc.compliance || has("QCStatement")) && !has("NotQualified")
-        if !qualified { return result("Certificato non qualificato nel profilo supportato. Accertata solo firma elettronica; requisiti di firma avanzata non dimostrati.",.electronic,.notDemonstrated) }
+        if !qualified { return result("Certificato non qualificato nel profilo supportato. Accertata solo firma elettronica; requisiti di firma avanzata non dimostrati.",.electronic,.notDemonstrated,.notDemonstrated) }
         guard !has("QCForESeal"), !has("QCForWSA"), !has("QCForLegalPerson"), material.qc.types == ["0.4.0.1862.1.6.1"] || (has("QCForESig") && material.qc.types.isEmpty) else { return result("Tipo di certificato non univocamente per firma elettronica (sigillo/web/legacy non risolti).",.indeterminate,.demonstrated) }
         let device = TLQualificationRules.deviceEvidence(qualifiers:qualifiers,sscd:material.qc.sscd,policies:material.policies,at:time)
         if device == .indeterminate { return result("Evidenze SSCD/QSCD incompatibili, di altro regime o insufficienti.",.indeterminate,.demonstrated,.indeterminate) }
-        guard device == .yes else { return result("Certificato qualificato per firma; QSCD non dimostrato. Nessuna classificazione QES o avanzata automatica.",.indeterminate,.demonstrated) }
+        guard device == .yes else { return result("Certificato qualificato per firma; QSCD non dimostrato. Nessuna classificazione QES o avanzata automatica.",.indeterminate,.demonstrated,.notDemonstrated) }
         guard material.keyUsage["nonRepudiation"] == true else { return result("Profilo del certificato: Key Usage contentCommitment non dimostrato.",.indeterminate,.demonstrated,.demonstrated) }
         return result("Profilo QES verificato al limite superiore del tempo comprovato: integrità, percorso CA/QC granted, revoca, certificato per firma e QSCD. Nessuna attestazione LTV o accettabilità delle modifiche successive.",.qualified,.demonstrated,.demonstrated)
     }

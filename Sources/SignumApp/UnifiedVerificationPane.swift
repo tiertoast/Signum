@@ -233,7 +233,7 @@ struct UnifiedVerificationPane: View {
         if let service = value.qualification.service {
             Text("Servizio al tempo comprovato: " + service.provider + " · " + service.service + " · " + service.country + (value.qualification.serviceStateFromHistory ? " · stato storico" : ""))
         }
-        Text("QSCD: " + (value.qualification.qscd == .demonstrated ? "dimostrato" : "non dimostrato"))
+        Text("QSCD: " + (value.qualification.qscd == .demonstrated ? "dimostrato" : value.qualification.qscd == .notDemonstrated ? "non dimostrato" : "indeterminato: valutazione non conclusa"))
     }
     private func pathLabel(_ state: CertificatePathState) -> String {
         switch state { case .verified: return "Catena verificata"; case .invalid: return "Catena non valida"; case .notVerifiable: return "Non verificabile" }

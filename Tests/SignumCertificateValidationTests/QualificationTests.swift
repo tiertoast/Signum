@@ -89,7 +89,9 @@ final class QualificationTests: XCTestCase {
         XCTAssertEqual(noCoverage.state,.indeterminate); XCTAssertTrue(noCoverage.reason.contains("Copertura"))
         let noTime = SignatureEvidenceValidationResult(signatureID:signature.id,revocation:evidence.revocation,
             time:.init(state:.notProven,declaredSigningTime:"2000-01-01T00:00:00Z",provenTime:nil,reason:"test",authorities:[]),associations:[])
-        XCTAssertEqual(SignatureQualificationService.assess(signature,evidence:noTime,lists:[try list()],mode:.online,observedAt:try now()).state,.indeterminate)
+        let incomplete = SignatureQualificationService.assess(signature,evidence:noTime,lists:[try list()],mode:.online,observedAt:try now())
+        XCTAssertEqual(incomplete.state,.indeterminate); XCTAssertEqual(incomplete.qscd,.indeterminate)
+        XCTAssertTrue(incomplete.statements?.compliance == true); XCTAssertTrue(incomplete.statements?.sscd == true)
         let revoked = SignatureEvidenceValidationResult(signatureID:signature.id,revocation:.init(state:.revoked,reason:"test",certificates:[]),time:evidence.time,associations:[])
         XCTAssertEqual(SignatureQualificationService.assess(signature,evidence:revoked,lists:[try list()],mode:.online,observedAt:try now()).state,.indeterminate)
         let offline = await SignatureQualificationService().validate(report,authenticatedLists:[try list()],mode:.offline,observedAt:try now())

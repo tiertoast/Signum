@@ -14,7 +14,7 @@ public enum CAdES {
         private let signerIdentifier: Data
         private let digestAlgorithm: Data
 
-        public init(document: Data, certificateDER: Data) throws {
+        public init(document: Data, certificateDER: Data, declaredSigningTime: Date = Date()) throws {
             guard !document.isEmpty && document.count <= CAdES.maximumDocumentBytes else {
                 throw SignumError.module("Serve un documento non vuoto, fino a \(maximumDocumentBytes / 1024 / 1024) MiB.")
             }
@@ -35,6 +35,7 @@ public enum CAdES {
             let attributes = [
                 DER.attribute(oid: DER.contentTypeAttributeOID, value: DER.dataOID),
                 DER.attribute(oid: DER.messageDigestAttributeOID, value: DER.octets(messageDigest)),
+                DER.attribute(oid: DER.signingTimeAttributeOID, value: try DER.signingTime(declaredSigningTime)),
                 DER.attribute(oid: DER.signingCertificateV2AttributeOID, value: signingCertificateV2)
             ]
             // RFC 5652: sign DER-encoded SET OF attributes (tag 0x31).
@@ -97,7 +98,23 @@ enum DER {
     static let rsaEncryptionOID = oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01])
     static let contentTypeAttributeOID = oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x03])
     static let messageDigestAttributeOID = oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x04])
+    static let signingTimeAttributeOID = oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x05])
     static let signingCertificateV2AttributeOID = oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x2F])
+
+    /// RFC 5652 11.3: local declaration at CMS preparation, never a time proof.
+    static func signingTime(_ date: Date) throws -> Data {
+        guard date.timeIntervalSince1970.isFinite else { throw SignumError.module("Data dichiarata CMS non valida.") }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let c = calendar.dateComponents([.era, .year, .month, .day, .hour, .minute, .second], from: date)
+        guard c.era == 1, let year = c.year, (1...9999).contains(year),
+              let month = c.month, let day = c.day, let hour = c.hour,
+              let minute = c.minute, let second = c.second else { throw SignumError.module("Data dichiarata CMS fuori intervallo.") }
+        let utc = (1950...2049).contains(year)
+        let text = String(format: utc ? "%02d%02d%02d%02d%02d%02dZ" : "%04d%02d%02d%02d%02d%02dZ",
+                          utc ? year % 100 : year, month, day, hour, minute, second)
+        return wrap(utc ? 0x17 : 0x18, Data(text.utf8))
+    }
 
     private static func oid(_ bytes: [UInt8]) -> Data { wrap(0x06, Data(bytes)) }
     static func octets(_ bytes: Data) -> Data { wrap(0x04, bytes) }

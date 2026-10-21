@@ -52,7 +52,7 @@ final class CAdESTests: XCTestCase {
             XCTAssertEqual(attr.tag, 0x30)
             attributeCount += 1
         }
-        XCTAssertEqual(attributeCount, 3)
+        XCTAssertEqual(attributeCount, 4)
 
         let wrapped = try prepared.finish(signature: Data(repeating: 0xBC, count: 256))
         let bytes = [UInt8](wrapped)
@@ -60,6 +60,26 @@ final class CAdESTests: XCTestCase {
         let contentInfo = try DER.read(bytes, at: &position, limit: bytes.count)
         XCTAssertEqual(contentInfo.tag, 0x30)
         XCTAssertEqual(position, bytes.count)
+    }
+
+    func testDeclaredSigningTimeDERBoundariesAndSignedAttribute() throws {
+        let parse = ISO8601DateFormatter()
+        for (iso, tag, text) in [
+            ("1949-12-31T23:59:59Z", UInt8(0x18), "19491231235959Z"),
+            ("1950-01-01T00:00:00Z", 0x17, "500101000000Z"),
+            ("2026-10-20T07:22:23Z", 0x17, "261020072223Z"),
+            ("2049-12-31T23:59:59Z", 0x17, "491231235959Z"),
+            ("2050-01-01T00:00:00Z", 0x18, "20500101000000Z")
+        ] {
+            let date = try XCTUnwrap(parse.date(from: iso))
+            let encoded = try DER.signingTime(date)
+            XCTAssertEqual(encoded.first, tag)
+            XCTAssertEqual(String(decoding: encoded.dropFirst(2), as: UTF8.self), text)
+            let prepared = try CAdES.Prepared(document: Data([1]), certificateDER: syntheticCertificate(), declaredSigningTime: date)
+            let attribute = DER.attribute(oid: DER.signingTimeAttributeOID, value: encoded)
+            XCTAssertNotNil(prepared.attributesToSign.range(of: attribute))
+        }
+        XCTAssertThrowsError(try DER.signingTime(Date(timeIntervalSince1970: .nan)))
     }
 
     func testRejectMalformedCertificateAndEmptyDocument() {

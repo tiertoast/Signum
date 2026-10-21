@@ -58,7 +58,8 @@ final class CAdESVerificationIntegrationTests: XCTestCase {
         let attributes = folder.appendingPathComponent("attributes")
         let signature = folder.appendingPathComponent("signature")
         try openssl(["x509", "-in", certificate.path, "-outform", "DER", "-out", der.path])
-        let prepared = try CAdES.Prepared(document: expected, certificateDER: Data(contentsOf: der))
+        let declared = ISO8601DateFormatter().date(from: "2026-10-20T07:22:23Z")!
+        let prepared = try CAdES.Prepared(document: expected, certificateDER: Data(contentsOf: der), declaredSigningTime: declared)
         try prepared.attributesToSign.write(to: attributes)
         try openssl(["dgst", "-sha256", "-sign", key.path, "-out", signature.path, attributes.path])
         let built = try prepared.finish(signature: Data(contentsOf: signature))
@@ -68,6 +69,12 @@ final class CAdESVerificationIntegrationTests: XCTestCase {
             try CAdESVerifier.verifyAttached(data: staged, expectedDocument: expected)
         }
         XCTAssertEqual(try Data(contentsOf: published), built)
+        let helper = try XCTUnwrap(ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"])
+        let current = try SignumVerificationService.verify(data: built, name: "synthetic.p7m", helper: URL(fileURLWithPath: helper))
+        XCTAssertEqual(current.integrity, .verified)
+        XCTAssertEqual(current.signatures.first?.declaredTime, "Oct 20 07:22:23 2026 GMT")
+        XCTAssertTrue(current.signatures.first?.evidence?.timestampTokens.isEmpty == true)
+        XCTAssertEqual(current.signatures.first?.evidence?.signedAttributes.filter { $0.oid == "1.2.840.113549.1.9.5" }.count, 1)
         let rejected = folder.appendingPathComponent("rejected.p7m")
         XCTAssertThrowsError(try SignumFileOutput.writeNew(built, to: rejected) { staged in
             try CAdESVerifier.verifyAttached(data: staged, expectedDocument: Data("Wrong content".utf8))

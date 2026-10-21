@@ -133,6 +133,28 @@ final class EvidenceBindingTests: XCTestCase {
         let count = await absentTransport.calls;XCTAssertLessThanOrEqual(count,8)
         XCTAssertEqual(CertificateEvidenceMaterial.locations(try data("leaf","der")).map(\.url.scheme),["http","https"])
     }
+    func testNoTimestampStillChecksBothSignersRevocationAndNeverPromotesQES() async throws {
+        let original = try report()
+        let signatures = original.signatures.map { value in
+            var s = value
+            if let old = value.evidence { s.evidence = envelope(old, tokens: []) }
+            return s
+        }
+        let current = replace(original, signatures), at = try now(), tl = try list()
+        let values = await SignatureEvidenceValidationService().validate(current, authenticatedLists: [tl], mode: .offline, observedAt: at)
+        XCTAssertEqual(values.count, 2)
+        for s in signatures {
+            let value = try XCTUnwrap(values.first { $0.signatureID == s.id })
+            XCTAssertEqual(value.revocation.state, s.signerDER == (try data("leaf", "der")) ? .good : .revoked)
+            XCTAssertEqual(value.time.state, .notProven)
+            let qualification = SignatureQualificationService.assess(s, evidence: value, lists: [tl], mode: .offline, observedAt: at)
+            XCTAssertEqual(qualification.state, .indeterminate)
+            XCTAssertEqual(qualification.qscd, .indeterminate)
+            XCTAssertNotNil(qualification.statements)
+        }
+
+    }
+
     func testEndpointPolicyRejectsArbitrarySchemesPrivateAddressesAndCancellation() async throws {
         for value in ["file:///etc/passwd","ftp://example.org/a","http://127.0.0.1/a","http://user@example.org/a","https://example.org:8443/a","http://x.local/a"] {
             XCTAssertFalse(EndpointPolicy.valid(try XCTUnwrap(URL(string: value))))
