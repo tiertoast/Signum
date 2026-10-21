@@ -4,16 +4,19 @@ import SignumTrustCore
 
 /// Raw signed bytes, never a trust assertion. Legacy A.1 envelopes decode with zero pivots.
 public struct TLBundle: Codable, Sendable {
+    public let country: String
     public let lotl: Data
+    /// Legacy envelope key retained for A compatibility; contains the national XML for `country`.
     public let italy: Data
     public let pivots: [LOTLPivotChain.Pivot]
     public let refreshedAt: Date?
-    public init(lotl: Data, italy: Data, pivots: [LOTLPivotChain.Pivot] = [], refreshedAt: Date? = nil) {
-        self.lotl = lotl; self.italy = italy; self.pivots = pivots; self.refreshedAt = refreshedAt
+    public init(lotl: Data, italy: Data, pivots: [LOTLPivotChain.Pivot] = [], refreshedAt: Date? = nil, country: String = "IT") {
+        self.country = country; self.lotl = lotl; self.italy = italy; self.pivots = pivots; self.refreshedAt = refreshedAt
     }
-    enum CodingKeys: String, CodingKey { case lotl, italy, pivots, refreshedAt }
+    enum CodingKeys: String, CodingKey { case country, lotl, italy, pivots, refreshedAt }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        country = try c.decodeIfPresent(String.self, forKey: .country) ?? "IT"
         lotl = try c.decode(Data.self, forKey: .lotl); italy = try c.decode(Data.self, forKey: .italy)
         pivots = try c.decodeIfPresent([LOTLPivotChain.Pivot].self, forKey: .pivots) ?? []
         refreshedAt = try c.decodeIfPresent(Date.self, forKey: .refreshedAt)
@@ -28,7 +31,7 @@ struct VerifiedSnapshot: Sendable {
 }
 
 /// Exact signed XML is reauthenticated on every read. One atomic envelope binds
-/// the EU list, complete pivot history and Italy; flock serializes local writers.
+/// the EU list, complete pivot history and one national TL; flock serializes local writers.
 public enum TLSnapshot {
     public static func save(lotl: Data, italy: Data, to url: URL, now: Date) throws {
         try save(TLBundle(lotl: lotl, italy: italy, refreshedAt: now), to: url, now: now)
@@ -46,6 +49,7 @@ public enum TLSnapshot {
         defer { _ = flock(fd, LOCK_UN) }
         if FileManager.default.fileExists(atPath: url.path) {
             let old = try readVerified(url, now: currentTime?() ?? now, anchors: anchors)
+            guard old.bundle.country == bundle.country else { throw TLAuthenticationError.rejected("cache territory changed") }
             for (candidate, previous) in [(current.europe, old.europe), (current.italy, old.italy)] {
                 if case .rejected(let reason) = TLContinuityPolicy.assess(previous: previous.revision, candidate: candidate.revision, now: currentTime?() ?? now) {
                     throw TLAuthenticationError.rejected("saved snapshot rollback: \(reason)")
@@ -99,7 +103,9 @@ public enum TLSnapshot {
         // Historical evaluation verifies provenance, never promotes an expired pair to current.
         let evaluationDate = expired ? historicalDate : now
         let eu = try LOTLPivotChain.validate(current: bundle.lotl, pivotsOldestFirst: bundle.pivots, now: evaluationDate, initialAnchors: anchors)
-        let it = try TLAuthenticator.authenticateItaly(bundle.italy, lotl: eu, now: evaluationDate)
+        let it: AuthenticatedTL
+        if bundle.country == "IT" { it = try TLAuthenticator.authenticateItaly(bundle.italy, lotl: eu, now: evaluationDate) }
+        else { it = try TLAuthenticator.authenticateNational(bundle.italy, country: bundle.country, lotl: eu, now: evaluationDate) }
         return VerifiedSnapshot(bundle: bundle, europe: eu, italy: it, expired: expired)
     }
 }

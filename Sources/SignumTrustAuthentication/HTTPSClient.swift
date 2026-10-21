@@ -2,6 +2,14 @@ import Foundation
 
 public protocol TLTransport: Sendable {
     func fetch(_ url: URL) async throws -> Data
+    func fetchNational(country: String, lotl: AuthenticatedTL, now: Date) async throws -> Data
+}
+
+public extension TLTransport {
+    func fetchNational(country: String, lotl: AuthenticatedTL, now: Date) async throws -> Data {
+        let pointer = try TLAuthenticator.nationalPointer(country: country, lotl: lotl, now: now)
+        return try await fetch(URL(string: pointer.location)!)
+    }
 }
 
 public enum TLRefreshFailure: Error, Equatable, Sendable {
@@ -15,10 +23,15 @@ enum TLDownloadPolicy {
     }
 }
 
-/// Ephemeral HTTPS only. No cookies, credentials, disk cache or automatic redirects.
+/// Fixed HTTPS bootstrap; national HTTP(S) requires an authenticated LOTL pointer.
+/// No cookies, credentials, disk cache or automatic redirects.
 /// Memory is bounded while receiving bytes, not after URLSession.data has buffered them.
 public struct TLHTTPSClient: TLTransport {
     public init() {}
+    public func fetchNational(country: String, lotl: AuthenticatedTL, now: Date) async throws -> Data {
+        let pointer = try TLAuthenticator.nationalPointer(country: country, lotl: lotl, now: now)
+        return try await BoundedTLTransfer(url: URL(string: pointer.location)!).run()
+    }
     public func fetch(_ url: URL) async throws -> Data {
         guard TLDownloadPolicy.allows(url) else { throw TLRefreshFailure.unauthorizedURL }
         return try await BoundedTLTransfer(url: url).run()

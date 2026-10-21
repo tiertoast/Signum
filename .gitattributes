@@ -34,3 +34,6 @@ Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.ocsp -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.crl -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.tst -text -diff
 Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.bin -text -diff
+
+# Preserve exact national TL XML signature bytes (including publisher CRLF).
+Tests/SignumTrustAuthenticationTests/Fixtures/European/*.xml -text -diff -whitespace

@@ -56,6 +56,18 @@ final class TrustedListParserTests: XCTestCase {
         XCTAssertTrue(doc.containsSignatureElement) // presence, not validation
     }
 
+    func testPointerMimeTypeRequiresExactPathNamespaceAndSingleValue() throws {
+        let mime = "<a:MimeType xmlns:a=\"http://uri.etsi.org/02231/v2/additionaltypes#\">application/vnd.etsi.tsl+xml</a:MimeType>"
+        func pointer(_ value: String) -> Data {
+            Data(String(decoding: xml(), as: UTF8.self).replacingOccurrences(of: "</ServiceDigitalIdentities>", with: "</ServiceDigitalIdentities><AdditionalInformation><OtherInformation>\(value)</OtherInformation></AdditionalInformation>").utf8)
+        }
+        XCTAssertEqual(try UntrustedTLParser.parse(pointer(mime)).pointers.first?.mimeType, "application/vnd.etsi.tsl+xml")
+        XCTAssertNil(try UntrustedTLParser.parse(pointer(mime.replacingOccurrences(of: "http://uri.etsi.org/02231/v2/additionaltypes#", with: "https://attacker.invalid"))).pointers.first?.mimeType)
+        XCTAssertThrowsError(try UntrustedTLParser.parse(pointer(mime + mime)))
+        let wrapping = "<ds:Object><SchemeInformation><PointersToOtherTSL><OtherTSLPointer><AdditionalInformation><OtherInformation>\(mime)</OtherInformation></AdditionalInformation></OtherTSLPointer></PointersToOtherTSL></SchemeInformation></ds:Object>"
+        XCTAssertNil(try UntrustedTLParser.parse(xml(extra: wrapping)).pointers.first?.mimeType)
+    }
+
     func testTLv5Compatible() throws {
         XCTAssertEqual(try UntrustedTLParser.parse(xml(version: 5)).version, 5)
     }

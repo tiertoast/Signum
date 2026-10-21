@@ -12,12 +12,22 @@ func show(_ value: AuthenticatedTL) {
     print("signerSHA256=\(value.signerSHA256.map { String(format: "%02x", $0) }.joined())")
 }
 func show(_ view: TLRefreshView) {
-    print("source=\(view.source.rawValue) freshness=\(view.freshness.rawValue) EU=\(view.europeSequence) IT=\(view.italySequence) expires=\(view.expiresAt.ISO8601Format())")
+    print("source=\(view.source.rawValue) freshness=\(view.freshness.rawValue) EU=\(view.europeSequence) \(view.country)=\(view.nationalSequence) expires=\(view.expiresAt.ISO8601Format())")
     if let warning = view.warning { print("refresh warning: \(warning)") }
     fflush(stdout)
 }
 do {
-    if (args.count == 4 || args.count == 5 && args[4] == "--online"), args[1] == "evidence" {
+    if args.count == 4, ["country-refresh", "country-offline"].contains(args[1]) {
+        let country = args[2], cache = URL(fileURLWithPath: args[3])
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let service = try TLRefreshService(cacheURL: cache, country: country)
+        if args[1] == "country-offline" { show(try await service.cached()) }
+        else { show(try await service.refresh(force: true)) }
+    } else if args.count == 5, args[1] == "national" {
+        let now = Date()
+        let lotl = try LOTLPivotChain.authenticate(current: Data(contentsOf: URL(fileURLWithPath: args[2])), pivotsOldestFirst: [], now: now)
+        show(try TLAuthenticator.authenticateNational(Data(contentsOf: URL(fileURLWithPath: args[4])), country: args[3], lotl: lotl, now: now))
+    } else if (args.count == 4 || args.count == 5 && args[4] == "--online"), args[1] == "evidence" {
         let cache = URL(fileURLWithPath: args[2])
         let view = try? await TLRefreshService(cacheURL: cache).cached()
         let report = try SignumVerificationService.verify(file: URL(fileURLWithPath: args[3]))

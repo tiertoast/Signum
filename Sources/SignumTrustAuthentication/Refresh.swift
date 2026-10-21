@@ -5,6 +5,9 @@ public enum TLRefreshSource: String, Sendable { case network, cache }
 
 /// Stale metadata is explicitly labeled. Only a current view exposes authenticated records.
 public struct TLRefreshView: Sendable {
+    public let country: String
+    public let currentNational: AuthenticatedTL?
+    public let nationalSequence: Int
     public let source: TLRefreshSource
     public let freshness: TLCacheFreshness
     public let europeSequence: Int
@@ -15,39 +18,48 @@ public struct TLRefreshView: Sendable {
     public let serviceCount: Int
     public let warning: String?
     public let currentEurope: AuthenticatedTL?
-    public let currentItaly: AuthenticatedTL?
+    public var currentItaly: AuthenticatedTL? { country == "IT" ? currentNational : nil }
     init(_ snapshot: VerifiedSnapshot, source: TLRefreshSource, warning: String? = nil, now: Date? = nil) {
+        country = snapshot.bundle.country
         self.source = source; self.warning = warning
         lastVerifiedUpdate = snapshot.bundle.refreshedAt
         providerCount = snapshot.italy.document.providers.count
         serviceCount = snapshot.italy.document.providers.reduce(0) { $0 + $1.services.count }
         let expired = snapshot.expired || (now.map { min(snapshot.europe.document.nextUpdate, snapshot.italy.document.nextUpdate) <= $0 } ?? false)
         freshness = expired ? .expired : .current
-        europeSequence = snapshot.europe.document.sequenceNumber; italySequence = snapshot.italy.document.sequenceNumber
+        europeSequence = snapshot.europe.document.sequenceNumber
+        nationalSequence = snapshot.italy.document.sequenceNumber
+        italySequence = country == "IT" ? nationalSequence : 0
         expiresAt = min(snapshot.europe.document.nextUpdate, snapshot.italy.document.nextUpdate)
-        currentEurope = expired ? nil : snapshot.europe; currentItaly = expired ? nil : snapshot.italy
+        currentEurope = expired ? nil : snapshot.europe; currentNational = expired ? nil : snapshot.italy
     }
 }
 
 /// One refresh owner; cross-process commits additionally use TLSnapshot's stable lock.
 /// Network work is coalesced even across actor suspension. No failed refresh replaces disk state.
 public actor TLRefreshService {
+    public let country: String
     private let cacheURL: URL
     private let transport: any TLTransport
     private let interval: TimeInterval
     private let anchors: Set<Data>
     private let clock: @Sendable () -> Date
     private var inFlight: Task<TLRefreshView, Error>?
-    public init(cacheURL: URL, transport: any TLTransport = TLHTTPSClient(), refreshInterval: TimeInterval = 6 * 3600) throws {
+    public init(cacheURL: URL, transport: any TLTransport = TLHTTPSClient(), refreshInterval: TimeInterval = 6 * 3600, country: String = "IT") throws {
         guard refreshInterval.isFinite, refreshInterval >= 60, refreshInterval <= 24 * 3600 else { throw TLRefreshFailure.invalidInterval }
+        guard EUTrustPolicy.countries.contains(country) else { throw TLAuthenticationError.rejected("unsupported territory") }
+        self.country = country
         self.cacheURL = cacheURL; self.transport = transport; interval = refreshInterval; anchors = EUTrustPolicy.journalAnchors; clock = { Date() }
     }
     // Synthetic test anchors cannot be selected through the production public initializer.
-    init(cacheURL: URL, transport: any TLTransport, interval: TimeInterval = 6 * 3600, anchors: Set<Data>, clock: @escaping @Sendable () -> Date = { Date() }) {
+    init(cacheURL: URL, transport: any TLTransport, interval: TimeInterval = 6 * 3600, anchors: Set<Data>, clock: @escaping @Sendable () -> Date = { Date() }, country: String = "IT") {
+        self.country = country
         self.cacheURL = cacheURL; self.transport = transport; self.interval = interval; self.anchors = anchors; self.clock = clock
     }
     public func cached(now: Date? = nil) throws -> TLRefreshView {
-        TLRefreshView(try TLSnapshot.readVerified(cacheURL, now: now ?? clock(), anchors: anchors), source: .cache, now: now ?? clock())
+        let snapshot = try TLSnapshot.readVerified(cacheURL, now: now ?? clock(), anchors: anchors)
+        guard snapshot.bundle.country == country else { throw TLAuthenticationError.rejected("cache territory mismatch") }
+        return TLRefreshView(snapshot, source: .cache, now: now ?? clock())
     }
     public func refresh(now: Date? = nil, force: Bool = false) async throws -> TLRefreshView {
         if let inFlight { return try await withTaskCancellationHandler(operation: { try await inFlight.value }, onCancel: { inFlight.cancel() }) }
@@ -64,6 +76,7 @@ public actor TLRefreshService {
         let exists = FileManager.default.fileExists(atPath: cacheURL.path)
         // Corrupt local state must not silently reset the rollback high-water mark.
         let previous = exists ? try TLSnapshot.readVerified(cacheURL, now: now, anchors: anchors) : nil
+        guard previous == nil || previous?.bundle.country == country else { throw TLAuthenticationError.rejected("cache territory mismatch") }
         if !force, let previous, !previous.expired, let refreshed = previous.bundle.refreshedAt,
            refreshed <= now, now.timeIntervalSince(refreshed) < interval,
            min(previous.europe.document.nextUpdate, previous.italy.document.nextUpdate).timeIntervalSince(now) > interval {
@@ -89,12 +102,18 @@ public actor TLRefreshService {
             }
             let eu = try LOTLPivotChain.validate(current: lotl, pivotsOldestFirst: pivots, now: currentTime(),
                                                 previous: previous?.europe, initialAnchors: anchors)
-            let pointer = try TLAuthenticator.italyPointer(lotl: eu, now: currentTime())
             try Task.checkCancellation()
-            let italy = try await transport.fetch(URL(string: pointer.location)!)
-            _ = try TLAuthenticator.authenticateItaly(italy, lotl: eu, now: currentTime(), previous: previous?.italy)
+            let italy: Data
+            if country == "IT" {
+                let pointer = try TLAuthenticator.italyPointer(lotl: eu, now: currentTime())
+                italy = try await transport.fetch(URL(string: pointer.location)!)
+                _ = try TLAuthenticator.authenticateItaly(italy, lotl: eu, now: currentTime(), previous: previous?.italy)
+            } else {
+                italy = try await transport.fetchNational(country: country, lotl: eu, now: currentTime())
+                _ = try TLAuthenticator.authenticateNational(italy, country: country, lotl: eu, now: currentTime(), previous: previous?.italy)
+            }
             try Task.checkCancellation()
-            let bundle = TLBundle(lotl: lotl, italy: italy, pivots: pivots, refreshedAt: currentTime())
+            let bundle = TLBundle(lotl: lotl, italy: italy, pivots: pivots, refreshedAt: currentTime(), country: country)
             try TLSnapshot.save(bundle, to: cacheURL, now: currentTime(), anchors: anchors, currentTime: currentTime)
             return TLRefreshView(try TLSnapshot.readVerified(cacheURL, now: currentTime(), anchors: anchors), source: .network, now: currentTime())
         } catch is CancellationError { throw CancellationError() }

@@ -69,6 +69,32 @@ public enum TLAuthenticator {
         return AuthenticatedTL(document: parsed, signer: sha256(cert), revision: revision, uris: fields.uris)
     }
 
+    /// Select machine-readable national lists solely from an authenticated, current LOTL.
+    /// Country hints select acquisition; only the signed certificate identities authorize it.
+    public static func nationalPointer(country: String, lotl: AuthenticatedTL, now: Date) throws -> TLPointer {
+        guard EUTrustPolicy.countries.contains(country), lotl.document.territory == "EU",
+              lotl.document.issuedAt <= now.addingTimeInterval(300), lotl.document.nextUpdate > now else {
+            throw TLAuthenticationError.rejected("current EU LOTL and EU/EEA territory required")
+        }
+        let pointers = lotl.document.pointers.filter {
+            $0.territory == country && $0.mimeType == "application/vnd.etsi.tsl+xml"
+        }
+        guard pointers.count == 1, !pointers[0].signingCertificateDERs.isEmpty,
+              let url = URL(string: pointers[0].location),
+              ["http", "https"].contains(url.scheme), url.host != nil,
+              url.user == nil, url.password == nil, url.fragment == nil,
+              url.port == nil || url.port == (url.scheme == "https" ? 443 : 80) else {
+            throw TLAuthenticationError.rejected("unique authenticated national XML pointer required")
+        }
+        return pointers[0]
+    }
+    public static func authenticateNational(_ xml: Data, country: String, lotl: AuthenticatedTL,
+                                            now: Date, previous: AuthenticatedTL? = nil) throws -> AuthenticatedTL {
+        let pointer = try nationalPointer(country: country, lotl: lotl, now: now)
+        return try authenticate(xml, authorizedCertificateSHA256: Set(pointer.signingCertificateDERs.map(sha256)),
+                                territory: country, now: now, previous: previous)
+    }
+
     public static func authenticateItaly(_ xml: Data, lotl: AuthenticatedTL, now: Date,
                                          previous: AuthenticatedTL? = nil) throws -> AuthenticatedTL {
         let pointer = try italyPointer(lotl: lotl, now: now)
@@ -88,6 +114,8 @@ public enum TLAuthenticator {
 }
 
 public enum EUTrustPolicy {
+    /// EU + EEA, using the Commission's EL territory code; UK is intentionally excluded.
+    public static let countries: Set<String> = Set("AT BE BG CY CZ DE DK EE EL ES FI FR HR HU IE IS IT LI LT LU LV MT NL NO PL PT RO SE SI SK".split(separator: " ").map(String.init))
     public static let location = "https://ec.europa.eu/tools/lotl/eu-lotl.xml"
     public static let italyLocation = "https://eidas.agid.gov.it/TL/TSL-IT.xml"
     public static let journal = "https://eur-lex.europa.eu/eli/C/2026/1944/oj"

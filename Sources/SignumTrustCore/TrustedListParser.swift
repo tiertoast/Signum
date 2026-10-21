@@ -52,6 +52,7 @@ public struct TLPointer: Sendable {
     public let location: String
     public let territory: String?
     public let signingCertificateDERs: [Data]
+    public var mimeType: String? = nil
 }
 
 public enum TLParseError: Error, Equatable {
@@ -116,6 +117,7 @@ private final class Collector: NSObject, XMLParserDelegate {
         var date = ""
     }
     struct PointerDraft {
+        var mimeType: String?
         var location = ""
         var territory: String?
         var certs: [Data] = []
@@ -195,6 +197,11 @@ private final class Collector: NSObject, XMLParserDelegate {
                 if history != nil { history?.extensions = node.children } else { service?.extensions = node.children }
             } else { extensionStack[extensionStack.count - 1].children.append(node) }
         }
+        if namespaceStack == Array(repeating: Self.tlNS, count: 6) + ["http://uri.etsi.org/02231/v2/additionaltypes#"],
+           stack == ["TrustServiceStatusList", "SchemeInformation", "PointersToOtherTSL", "OtherTSLPointer", "AdditionalInformation", "OtherInformation", "MimeType"] {
+            if pointer?.mimeType != nil { failure = .invalidStructure }
+            pointer?.mimeType = value
+        }
         if ns == Self.tlNS {
             if matches(["SchemeInformation", "TSLVersionIdentifier"]) { version = Int(value) }
             if matches(["SchemeInformation", "TSLSequenceNumber"]) { sequence = Int(value) }
@@ -249,7 +256,7 @@ private final class Collector: NSObject, XMLParserDelegate {
             if matches(["PointersToOtherTSL", "OtherTSLPointer"]) {
                 if let p = pointer, !p.location.isEmpty {
                     pointers.append(TLPointer(location: p.location, territory: p.territory,
-                                              signingCertificateDERs: p.certs))
+                                              signingCertificateDERs: p.certs, mimeType: p.mimeType))
                 } else { failure = .invalidStructure }
                 pointer = nil
             }

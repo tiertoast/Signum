@@ -1,0 +1,90 @@
+{
+  "observedAt": "2026-10-21T06:01:46.012446+00:00",
+  "baseline": "c307431147a84f13d2945edbe23ce906e2c4f529",
+  "lotl": {
+    "source": "committed official fixture, independently reauthenticated with production OJ pins",
+    "sequence": 397,
+    "sha256": "a36d0053df1afa96c88ede817a585b3168afeba84c1984a0e6cc5642453e70e6"
+  },
+  "liveLotlDownload": "HTML Network Error (tcp_error), Connection refused; rejected invalidRoot",
+  "records": [
+    {
+      "country": "AT",
+      "exit": 0,
+      "stdout": "AT TLv6 sequence=75 providers=8 services=100\nissue=2026-06-15T14:44:12Z nextUpdate=2026-12-15T15:44:12Z\nsignerSHA256=5a05d58ab2bcede1affb73024de8796c8c299fb37f2e79036c7e09f45712abe6\n",
+      "stderr": "",
+      "sha256": "f91bbd67a2bf913dfea5f35e9d3bf9157a1bac7d3d2377558ebf071e251e557b",
+      "bytes": 502447,
+      "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+      "authenticated": true,
+      "location": "https://www.signatur.rtr.at/vertrauensliste.xml"
+    },
+    {
+      "country": "BE",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "REJECTED: unsupported critical extension vocabulary\n",
+      "sha256": "cabba95e3100a45edaf923b72d4fb6fa38a5b4bd5ab3a3555c2d79563e83396b",
+      "bytes": 732425,
+      "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+      "authenticated": false,
+      "location": "https://tsl.belgium.be/tsl-be.xml"
+    },
+    {
+      "country": "DE",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "REJECTED: unsupported signature algorithm\n",
+      "sha256": "bed0356c0edb30bfa177bcf9d67b9f8709fd930dc298b9881ffe75e27e6bc7ad",
+      "bytes": 5367120,
+      "signatureAlgorithm": "http://www.w3.org/2007/05/xmldsig-more#sha256-rsa-MGF1",
+      "authenticated": false,
+      "location": "https://tl.bundesnetzagentur.de/TL-DE.xml"
+    },
+    {
+      "country": "ES",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "REJECTED: unsupported critical qualification criteria\n",
+      "sha256": "19edfb5923cd27289ba78548255ca79ae5c9ae4b7dc8a5a334170d4a821a73cf",
+      "bytes": 3042285,
+      "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+      "authenticated": false,
+      "location": "https://tsl.digital.gob.es/TSL.xml"
+    },
+    {
+      "country": "FR",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "REJECTED: unsupported critical extension vocabulary\n",
+      "sha256": "d584a732ff848ebdff0d04b439f82f6486009b224664dda119aff3d2a5560593",
+      "bytes": 2581406,
+      "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+      "authenticated": false,
+      "location": "https://messervices.cyber.gouv.fr/visas/tl-fr_v6.xml"
+    },
+    {
+      "country": "IT",
+      "exit": 0,
+      "stdout": "IT TLv6 sequence=224 providers=56 services=562\nissue=2026-09-24T07:16:56Z nextUpdate=2027-03-24T08:16:56Z\nsignerSHA256=ddf02ac377a55fbda3709158a15fe1a10330743413ff1de72a91edb6ee285661\n",
+      "stderr": "",
+      "sha256": "4dc43dc5ee19c23d1b65262b8df65ac7c4f16f12727e59175fa76e092e0a6889",
+      "bytes": 2861752,
+      "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+      "authenticated": true,
+      "location": "https://eidas.agid.gov.it/TL/TSL-IT.xml"
+    }
+  ],
+  "gate": "E1 blocked; E2-E4 not started",
+  "DSS": "not executed: stopped at E1 before E3",
+  "tests": {
+    "existingAuthenticationRefreshHTTPS": 30,
+    "existingTrustCore": 18,
+    "existingIntegration": 5,
+    "newEuropean": 3,
+    "newParserSecurity": 1,
+    "failures": 0,
+    "distinctTotal": 57,
+    "fullE3Campaign": "not run: E1 blocked"
+  }
+}
