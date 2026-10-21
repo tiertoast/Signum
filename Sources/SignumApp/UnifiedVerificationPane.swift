@@ -142,6 +142,7 @@ struct UnifiedVerificationPane: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button("Verifica .p7s e originale…",action:chooseDetached).disabled(workspace.busy)
                     Button("Apri documenti…", action: choose).disabled(workspace.busy && !workspace.acquiring)
                     if workspace.busy { ProgressView().controlSize(.small); Button("Annulla") { workspace.cancel() } }
                 }
@@ -159,6 +160,7 @@ struct UnifiedVerificationPane: View {
                                 if let report = row.report {
                                     Text("\(format(report.format)) · \(report.signatures.count) firme")
                                         .font(.caption).foregroundStyle(.secondary)
+                                    if let hash=report.detachedContentSHA256 { Text("Contenuto separato · SHA-256: "+hash).font(.caption).textSelection(.enabled) }
                                     Text(report.summary)
                                     ForEach(report.signatures) { signature in
                                         Text("Integrità: " + signature.integrity.description).font(.caption)
@@ -199,6 +201,8 @@ struct UnifiedVerificationPane: View {
                                                     Text("Algoritmo: " + signature.algorithm)
                                                     if !signature.declaredTime.isEmpty { Text("Data dichiarata, non qualificata: " + signature.declaredTime) }
                                                     if let end = signature.signedRevisionEnd { Text("Revisione firmata: byte 0…\(end) · " + (signature.laterChanges ? "byte successivi presenti" : "nessun byte successivo")) }
+                                                    if let parent=signature.counterSignatureOf { Text("Controfirma della SignatureValue SHA-256: "+parent).textSelection(.enabled) }
+                                                    if let path=signature.cmsSignerPath,!path.isEmpty { Text("Percorso firmatario CMS: "+path) }
                                                     if report.format == .cades { Text("Livello CMS \(signature.cmsLayer)") }
                                                     if !signature.reason.isEmpty { Text(signature.reason) }
                                                 }
@@ -245,6 +249,15 @@ struct UnifiedVerificationPane: View {
     }
     private func format(_ format: VerifiedDocumentFormat) -> String {
         switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML / XAdES"; case .asic: return "ASiC / XAdES"; case .unknown: return "Sconosciuto" }
+    }
+    private func chooseDetached() {
+        let signature=NSOpenPanel();signature.title="Seleziona la firma detached .p7s";signature.allowsMultipleSelection=false;signature.canChooseDirectories=false
+        guard signature.runModal() == .OK,let cms=signature.url else {return}
+        let original=NSOpenPanel();original.title="Seleziona il documento originale della firma";original.allowsMultipleSelection=false;original.canChooseDirectories=false
+        guard original.runModal() == .OK,let content=original.url else {return}
+        workspace.start([cms],using:{ signature,control in
+            try SignumVerificationService.verifyDetached(signature:signature,content:content,isCancelled:{control.isCancellationRequested})
+        })
     }
     private func choose() {
         workspace.cancel()

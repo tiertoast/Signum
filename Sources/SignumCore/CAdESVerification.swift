@@ -264,6 +264,24 @@ enum CMSDescription {
                 let signerVersion = try DER.read(bytes, at: &inside, limit: signer.contents.upperBound)
                 let identifier = try DER.read(bytes, at: &inside, limit: signer.contents.upperBound)
                 guard signerVersion.tag == 0x02 else { throw invalid() }
+                // OpenSSL's legacy CMS_verify command checks top-level SignerInfos
+                // only. Never claim full verification while ignoring counters.
+                while inside < signer.contents.upperBound {
+                    let field=try DER.read(bytes,at:&inside,limit:signer.contents.upperBound)
+                    if field.tag == 0xa1 {
+                        var attr=field.contents.lowerBound,count=0
+                        while attr < field.contents.upperBound {
+                            count+=1;guard count<=64 else {throw invalid()}
+                            let value=try DER.read(bytes,at:&attr,limit:field.contents.upperBound)
+                            guard value.tag==0x30 else {throw invalid()}
+                            var position=value.contents.lowerBound
+                            let oid=try DER.read(bytes,at:&position,limit:value.contents.upperBound)
+                            if Data(bytes[oid.full]) == CAdESAdvanced.counterOID {
+                                throw SignumError.module("La verifica legacy non esamina le controfirme: usa il pannello Verifica o SignumVerificationService per tutti i risultati individuali.")
+                            }
+                        }
+                    }
+                }
                 signers.append(embedded[Data(bytes[identifier.full])]
                                ?? "Firmatario (certificato non identificato)")
             }

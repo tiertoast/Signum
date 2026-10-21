@@ -38,7 +38,7 @@ private enum SignumOperation: String, Hashable {
 }
 
 private enum SignumFormat: String, Hashable {
-    case cades, pades, xades, asics, asice
+    case cades, cadesDetached, cadesCoSign, cadesCounterSign, pades, xades, asics, asice
 }
 
 @MainActor struct SignumWindow: View {
@@ -296,6 +296,9 @@ private enum SignumFormat: String, Hashable {
                     Text("ASiC-E — più documenti").tag(SignumFormat.asice)
                         .disabled(selectedDocument.map { $0.format != .asice } ?? false)
                     Text("CAdES — documento .p7m").tag(SignumFormat.cades)
+                    Text("CAdES detached — firma .p7s").tag(SignumFormat.cadesDetached)
+                    Text("Cofirma CAdES — stesso contenuto").tag(SignumFormat.cadesCoSign)
+                    Text("Controfirma CMS — firma selezionata").tag(SignumFormat.cadesCounterSign)
                     Text("XAdES — XML firmato").tag(SignumFormat.xades)
                         .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectXAdES(for:$0.snapshot) } ?? false)
                     Text("PAdES — PDF firmato").tag(SignumFormat.pades)
@@ -311,6 +314,16 @@ private enum SignumFormat: String, Hashable {
                 if let entry=selectedDocument {
                     Text("Documento corrente: " + entry.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
                     Text(entry.format.title).font(.callout.bold())
+                    if entry.format == .cadesCounterSign {
+                        Picker("Firma da controfirmare",selection:Binding(get:{entry.configuration.counterSignatureKey ?? ""},set:{ key in
+                            do {try batch.selectCounterSignature(key,for:entry.id);provider.pin=""} catch {status=error.localizedDescription}
+                        })) {
+                            Text("Seleziona esplicitamente…").tag("")
+                            ForEach(entry.snapshot.cmsSignatureTargets) { target in Text(target.title).tag(target.signatureKey) }
+                        }.disabled(interfaceLocked || batch.isFrozen)
+                        Text("La controfirma riguarda la firma selezionata, non aggiunge un cofirmatario del contenuto.").font(.caption)
+                    }
+                    if entry.format == .cadesDetached { Text("Conserva anche l’originale: la verifica .p7s richiede la selezione separata del contenuto esatto.").font(.caption) }
                     if entry.format.isASiC {
                         Text("Contenuti: " + entry.snapshot.containerPayloadNames.joined(separator:", ")).font(.caption)
                     }
@@ -319,6 +332,9 @@ private enum SignumFormat: String, Hashable {
                             .font(.caption).foregroundStyle(.secondary)
                         Picker("Per i prossimi documenti",selection:$format) {
                             Text("CAdES").tag(SignumFormat.cades)
+                            Text("CAdES detached").tag(SignumFormat.cadesDetached)
+                            Text("Cofirma CAdES").tag(SignumFormat.cadesCoSign)
+                            Text("Controfirma CMS").tag(SignumFormat.cadesCounterSign)
                             Text("XAdES").tag(SignumFormat.xades)
                             Text("ASiC-S").tag(SignumFormat.asics)
                             Text("ASiC-E").tag(SignumFormat.asice)
@@ -858,6 +874,7 @@ private enum SignumFormat: String, Hashable {
             try route.requireCurrentModule()
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
+            else if job.format.isAdvancedCAdES { try job.signAdvancedCAdES(using:IsolatedPKCS11Client(),pin:pin,operation:operation) }
             else if job.format == .xades || job.format.isASiC { try job.signXAdES(using:IsolatedPKCS11Client(),pin:pin,operation:operation) }
             else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
                 field: nil, operation: operation, appearance: job.padesAppearance) }

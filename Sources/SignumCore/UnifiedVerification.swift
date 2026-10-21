@@ -25,6 +25,8 @@ public struct SignatureVerificationResult: Identifiable, Equatable, Sendable {
     public let signedRevisionEnd: Int?
     public let laterChanges: Bool
     public let cmsLayer: Int
+    public var counterSignatureOf: String? = nil
+    public var cmsSignerPath: String? = nil
     public var evidence: SignatureEvidenceEnvelope? = nil
     public var signerDER: Data? = nil
     public var embeddedCertificateDERs: [Data] = []
@@ -45,6 +47,7 @@ public struct VerificationReport: Identifiable, Sendable {
     public let trust = UnassessedValidation.notChecked
     public let revocation = UnassessedValidation.notChecked
     public let qualification = UnassessedValidation.notChecked
+    public var detachedContentSHA256: String? = nil
     public var unassociatedEvidence: [EmbeddedValidationEvidence] = []
     public static let scope = "Attendibilità del certificato non ancora verificata. Revoca, qualificazione eIDAS, marche temporali e LTV non valutate."
     public static let revisionScope = "Le modifiche successive sono rilevate come byte aggiunti: conformità DocMDP/FieldMDP e accettabilità delle revisioni non valutate. Sono esaminate le firme raggiungibili dall'AcroForm corrente, fino a 32."
@@ -64,6 +67,7 @@ public struct VerificationReport: Identifiable, Sendable {
     public func withoutPreview() -> Self {
         var copy = Self(id: id, documentName: documentName, sha256: sha256, format: format,
               signatures: signatures, documentState: documentState, issue: issue, previewPDF: nil, originalContent: nil)
+        copy.detachedContentSHA256 = detachedContentSHA256
         copy.unassociatedEvidence = unassociatedEvidence
         return copy
     }
@@ -89,6 +93,14 @@ public enum SignumVerificationService {
         if FileManager.default.isExecutableFile(atPath: bundle.path) { return bundle }
         return URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().appendingPathComponent("signum-pades-local")
     }
+    public static func verifyDetached(signature: URL, content: URL, helper: URL? = nil,
+                                      isCancelled: () -> Bool = { false }) throws -> VerificationReport {
+        if isCancelled() { throw SupervisedProcess.Failure.cancelled }
+        let signatureBytes=try CAdESVerifier.readInput(file:signature)
+        let contentBytes=try CAdESVerifier.readInput(file:content)
+        return try verify(data:signatureBytes,name:signature.lastPathComponent+" · originale: "+content.lastPathComponent,
+                          detachedContent:contentBytes,helper:helper,isCancelled:isCancelled)
+    }
     private struct WireSignature: Decodable {
         let integrity: CryptographicIntegrity
         let reason, subject, issuer, fingerprint, algorithm, declaredTime: String
@@ -97,6 +109,7 @@ public enum SignumVerificationService {
         let signerDER: String?
         let certificateDERs: [String]?
         let signatureValue, signatureKey, evidenceIssue: String?
+        let parentSignatureKey, signerPath: String?
         let signerIndex: Int?
         let signedAttributes, unsignedAttributes: [ExtractedCMSAttribute]?
         let timestampTokens: [Data]?
@@ -121,9 +134,10 @@ public enum SignumVerificationService {
         return try verify(data: CAdESVerifier.readInput(file: file), name: file.lastPathComponent,
                           helper: helper, timeout: timeout, isCancelled: isCancelled)
     }
-    public static func verify(data: Data, name: String, helper: URL? = nil, timeout: TimeInterval = 30,
+    public static func verify(data: Data, name: String, detachedContent: Data? = nil, helper: URL? = nil, timeout: TimeInterval = 30,
                               isCancelled: () -> Bool = { false }) throws -> VerificationReport {
         guard !data.isEmpty, data.count <= maximumInputBytes else { throw SignumError.module("Documento vuoto o superiore a 132 MiB.") }
+        if detachedContent != nil, SignatureFormatDetector.candidate(data) != .cades { throw SignumError.module("Il contenuto separato richiede una firma CMS detached.") }
         if SignatureFormatDetector.candidate(data) == .asic {
             if isCancelled() { throw SupervisedProcess.Failure.cancelled }
             let report = ASiC.report(data,name:name)
@@ -141,8 +155,14 @@ public enum SignumVerificationService {
             throw SignumError.module("Motore di verifica non presente nel bundle. Nessun middleware o PIN è necessario.")
         }
         var input = data
-        let output = try SupervisedProcess.run(executable: engine, arguments: ["--verify-stdin-v1"], input: &input,
-            maximumInput: maximumInputBytes, maximumOutput: maximumInputBytes + 8*1024*1024 + 8,
+        if let detachedContent {
+            guard !detachedContent.isEmpty, detachedContent.count <= maximumInputBytes else { throw SignumError.module("Contenuto detached vuoto o oltre il limite.") }
+            input = Data()
+            for n in [data.count,detachedContent.count] { var length=UInt32(n).bigEndian;withUnsafeBytes(of:&length) { input.append(contentsOf:$0) } }
+            input.append(data);input.append(detachedContent)
+        }
+        let output = try SupervisedProcess.run(executable: engine, arguments: [detachedContent == nil ? "--verify-stdin-v1" : "--verify-detached-stdin-v1"], input: &input,
+            maximumInput: detachedContent == nil ? maximumInputBytes : 2*maximumInputBytes+8, maximumOutput: maximumInputBytes + 8*1024*1024 + 8,
             maximumResidentBytes: 1024*1024*1024,
             timeout: timeout, isCancelled: isCancelled)
         guard output.count >= 8 else { throw SupervisedProcess.Failure.protocolViolation }
@@ -163,6 +183,12 @@ public enum SignumVerificationService {
                 certificate: s.fingerprint.isEmpty ? nil : .init(subject: s.subject, issuer: s.issuer, sha256: s.fingerprint),
                 algorithm: s.algorithm, declaredTime: s.declaredTime, reason: s.reason,
                 signedRevisionEnd: s.revisionEnd == 0 ? nil : s.revisionEnd, laterChanges: s.laterChanges, cmsLayer: s.layer)
+            if let parent=s.parentSignatureKey, !parent.isEmpty {
+                guard parent.count==64,parent.allSatisfy(\.isHexDigit) else { throw SupervisedProcess.Failure.protocolViolation }
+                record.counterSignatureOf=parent
+            }
+            guard (s.signerPath?.utf8.count ?? 0)<=128 else { throw SupervisedProcess.Failure.protocolViolation }
+            record.cmsSignerPath=s.signerPath
             if let encoded = s.signerDER, !encoded.isEmpty {
                 guard let der = Data(base64Encoded: encoded), der.count <= 65536,
                       DocumentSnapshot.digest(der) == s.fingerprint else { throw SupervisedProcess.Failure.protocolViolation }
@@ -199,6 +225,7 @@ public enum SignumVerificationService {
               (wire.unassociatedEvidence ?? []).allSatisfy({ validEvidence($0, inputSize: data.count) && $0.association == .unassociated }) else { throw SupervisedProcess.Failure.protocolViolation }
         var result = VerificationReport(id: UUID(), documentName: name, sha256: DocumentSnapshot.digest(data), format: wire.format,
             signatures: records, documentState: wire.state, issue: wire.reason, previewPDF: preview, originalContent: original)
+        result.detachedContentSHA256 = detachedContent.map { DocumentSnapshot.digest($0) }
         result.unassociatedEvidence = wire.unassociatedEvidence ?? []
         return result
     }

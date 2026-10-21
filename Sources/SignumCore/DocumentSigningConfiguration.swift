@@ -6,6 +6,7 @@ import CoreGraphics
 /// and identity are independent; an approved SigningJob copies the chosen value.
 public struct DocumentSigningConfiguration: Equatable, Sendable {
     public let snapshotID: UUID
+    public var counterSignatureKey: String? = nil
     public let format: SigningFormat
     public init(snapshotID: UUID, format: SigningFormat) {
         self.snapshotID = snapshotID; self.format = format

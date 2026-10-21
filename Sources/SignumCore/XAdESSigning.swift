@@ -3,10 +3,15 @@ import Foundation
 import Darwin
 
 extension SigningJob {
+    public func signAdvancedCAdES(using worker: IsolatedPKCS11Client,pin: String,operation: SigningOperation,timeout: TimeInterval=120,helper: URL?=nil) throws {
+        guard format.isAdvancedCAdES else { throw SignumError.module("Operazione CAdES avanzata non approvata.") }
+        try signXAdES(using:worker,pin:pin,operation:operation,timeout:timeout,helper:helper)
+    }
+
     /// Only canonical SignedInfo goes to the existing one-shot worker. The exact
     /// approved document and bound certificate remain in the parent process.
     public func signXAdES(using worker: IsolatedPKCS11Client, pin: String,
-                          operation: SigningOperation, timeout: TimeInterval = 120) throws {
+                          operation: SigningOperation, timeout: TimeInterval = 120, helper: URL? = nil) throws {
         defer { snapshot.close() }
         guard operation.state == .idle || operation.state == .preparing else {
             throw SignumError.module("Operazione già avviata o conclusa.")
@@ -21,7 +26,7 @@ extension SigningJob {
         }
         do {
             try operation.checkCancellation()
-            try executeXAdES(io:io,isCancelled:{ operation.isCancellationRequested }) { signedInfo in
+            try executeXAdES(helper:helper,io:io,isCancelled:{ operation.isCancellationRequested }) { signedInfo in
                 operation.transition(to:.waitingForAuthentication)
                 try operation.checkCancellation()
                 operation.transition(to:.signing); submitted = true
@@ -44,14 +49,19 @@ extension SigningJob {
             operation.transition(to:.failed); throw error
         }
     }
-    func executeXAdES(io: SignumFileOutput.OutputIO = .init(), isCancelled: () -> Bool = { false }, sign: (Data) throws -> Data) throws {
+    func executeXAdES(helper: URL?=nil,io: SignumFileOutput.OutputIO = .init(), isCancelled: () -> Bool = { false }, sign: (Data) throws -> Data) throws {
         defer { snapshot.close() }
-        guard format == .xades || format.isASiC else { throw SignumError.module("Formato del job non compatibile con XAdES.") }
+        guard format == .xades || format.isASiC || format.isAdvancedCAdES else { throw SignumError.module("Formato del job non compatibile con XAdES.") }
         try requireAvailableDestination()
         let approved = try verifiedBytes()
         try CertificateEligibility.requireEligible(certificateDER:certificateDER)
         let output: Data
-        if format.isASiC {
+        if format.isAdvancedCAdES {
+            let prepared=try CAdESAdvanced.Prepared(document:approved,format:format,certificateDER:certificateDER,
+                counterSignatureKey:counterSignatureKey,declaredSigningTime:includeSigningTime ? Date():nil,helper:helper,isCancelled:isCancelled)
+            if isCancelled() { throw SupervisedProcess.Failure.cancelled }
+            output=try prepared.finish(signature:sign(prepared.attributesToSign),isCancelled:isCancelled)
+        } else if format.isASiC {
             let prepared = try ASiC.Prepared(unsignedArchive:approved,certificateDER:certificateDER)
             if isCancelled() { throw SupervisedProcess.Failure.cancelled }
             output = try prepared.finish(signature:sign(prepared.attributesToSign))
@@ -65,6 +75,12 @@ extension SigningJob {
         try SignumFileOutput.writeNew(output,to:destination,expectedDirectory:destinationDirectoryIdentity,io:io) { staged in
             if isCancelled() { throw SupervisedProcess.Failure.cancelled }
             _ = try verifiedBytes()
+            if format.isAdvancedCAdES {
+                guard staged==output else { throw SignumError.invalidSignature }
+                let report=try SignumVerificationService.verify(data:staged,name:"staged",detachedContent:format == .cadesDetached ? approved:nil,helper:helper,isCancelled:isCancelled)
+                guard report.integrity == .verified,report.signatures.contains(where:{$0.signerDER==certificateDER}) else { throw SignumError.invalidSignature }
+                return
+            }
             let signer = try format.isASiC ? ASiC.verify(staged).signature.certificateDER : XAdES.verify(staged).certificateDER
             guard staged == output, signer == certificateDER else { throw SignumError.invalidSignature }
         }

@@ -29,6 +29,7 @@
       "PAdESStabilizationSigningTests"
     ],
     "synthetic-pkcs11": [
+      "CAdESAdvancedTests",
       "XAdESTests",
       "ASiCTests",
       "AutomaticCertificateSelectionTests",

@@ -5,7 +5,7 @@ import SignumTrustAuthentication
 @testable import SignumCertificateValidation
 
 final class XAdESTrustIntegrationTests: XCTestCase {
-    func signedXML(container: ASiC.Kind? = nil) throws -> Data {
+    func signedXML(container: ASiC.Kind? = nil, cades: SigningFormat? = nil) throws -> Data {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("signum-xades-trust-"+UUID().uuidString)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])
         defer { try? FileManager.default.removeItem(at:root) }
@@ -18,7 +18,22 @@ final class XAdESTrustIntegrationTests: XCTestCase {
         try run(["x509","-in","cert.pem","-outform","DER","-out","cert.der"])
         let cert = try Data(contentsOf:root.appendingPathComponent("cert.der"))
         let attributes: Data, finish: (Data) throws -> Data
-        if let container {
+        if let cades {
+            let helper=URL(fileURLWithPath:try XCTUnwrap(ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"]))
+            let original=Data("Synthetic advanced CMS trust input".utf8)
+            let input: Data,target: String?
+            if cades == .cadesDetached {input=original;target=nil}
+            else {
+                let base=try CAdES.Prepared(document:original,certificateDER:cert,declaredSigningTime:nil)
+                try base.attributesToSign.write(to:root.appendingPathComponent("message"))
+                try run(["dgst","-sha256","-sign","key.pem","-out","signature","message"])
+                input=try base.finish(signature:Data(contentsOf:root.appendingPathComponent("signature")))
+                target=cades == .cadesCounterSign ? try CAdESAdvanced.targets(in:input)[0].signatureKey:nil
+            }
+            let p=try CAdESAdvanced.Prepared(document:input,format:cades,certificateDER:cert,counterSignatureKey:target,
+                declaredSigningTime:Date(timeIntervalSince1970:1600000000),helper:helper)
+            attributes=p.attributesToSign;finish={try p.finish(signature:$0)}
+        } else if let container {
             let payloads = container == .simple ? [ASiC.Payload(name:"one.txt",data:Data([1]))] : [.init(name:"one.txt",data:Data([1])),.init(name:"two.txt",data:Data([2]))]
             let p = try ASiC.Prepared(unsignedArchive:ASiC.unsignedArchive(kind:container,payloads:payloads),certificateDER:cert,declaredTime:Date(timeIntervalSince1970:1600000000))
             attributes = p.attributesToSign;finish = { try p.finish(signature:$0) }
@@ -29,6 +44,23 @@ final class XAdESTrustIntegrationTests: XCTestCase {
         try attributes.write(to:root.appendingPathComponent("message"))
         try run(["dgst","-sha256","-sign","key.pem","-out","signature","message"])
         return try finish(Data(contentsOf:root.appendingPathComponent("signature")))
+    }
+    func testAdvancedCMSRetainsIndividualTrustAndDoesNotTrustEmbeddedCertificate() async throws {
+        let helper=URL(fileURLWithPath:try XCTUnwrap(ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"]))
+        for format in [SigningFormat.cadesDetached,.cadesCoSign,.cadesCounterSign] {
+            let cms=try signedXML(cades:format)
+            let report=try SignumVerificationService.verify(data:cms,name:"synthetic",detachedContent:format == .cadesDetached ? Data("Synthetic advanced CMS trust input".utf8):nil,helper:helper)
+            XCTAssertEqual(report.integrity,.verified)
+            XCTAssertEqual(report.signatures.count,format == .cadesDetached ? 1:2)
+            if format == .cadesCounterSign { XCTAssertEqual(report.signatures.filter{$0.counterSignatureOf != nil}.count,1) }
+            let values=await SignatureQualificationService().validate(report,authenticatedLists:[],mode:.offline,observedAt:Date(),evaluationMode:.bestAvailable)
+            XCTAssertEqual(values.count,report.signatures.count)
+            for v in values {
+                XCTAssertEqual(v.path.state,.notVerifiable);XCTAssertEqual(v.evidence.revocation.state,.indeterminate)
+                XCTAssertEqual(v.evidence.time.state,.notProven);XCTAssertEqual(v.qualification.state,.indeterminate)
+                XCTAssertEqual(v.qualification.evaluationMode,.currentTime)
+            }
+        }
     }
     func testASiCSignersUseCurrentValidationWithoutTrustingContainerCertificates() async throws {
         for kind in [ASiC.Kind.simple,.extended] {

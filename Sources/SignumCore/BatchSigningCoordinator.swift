@@ -102,6 +102,13 @@ public struct BatchApproval: Sendable {
         documents[index].destination = nil
     }
 
+    public func selectCounterSignature(_ key: String, for id: UUID) throws {
+        guard !isFrozen,!isPreparing,!isRunning,let index=documents.firstIndex(where:{$0.id==id}),
+              documents[index].format == .cadesCounterSign,
+              documents[index].snapshot.cmsSignatureTargets.contains(where:{$0.signatureKey==key}) else { throw Self.failure("Firma da controfirmare non disponibile.") }
+        invalidateReview();revision=UUID();documents[index].configuration.counterSignatureKey=key
+    }
+
     /// Read-only preflight for the main-screen summary. Does not freeze/approve,
     /// create output or ask for a PIN; edits invalidate the plan by revision.
     public func prepareReview(provider: String, slot: UInt, certificate: SignumCertificate,
@@ -114,6 +121,7 @@ public struct BatchApproval: Sendable {
         invalidateReview()
         let request = reviewRequest, version = revision, selected = documents.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
+        let counterKeys=Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.configuration.counterSignatureKey) })
         let control = SigningOperation()
         let cancelled: @Sendable () -> Bool = { control.isCancellationRequested || isCancelled() }
         let work = Task.detached(priority: .userInitiated) {
@@ -129,7 +137,7 @@ public struct BatchApproval: Sendable {
                 try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot, certificate: certificate,
                     certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity,
                     padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper, isCancelled: cancelled) : nil,
-                    padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext, includeSigningTime: includeSigningTime)
+                    padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext, includeSigningTime: includeSigningTime, counterSignatureKey: counterKeys[snapshot.identity.id] ?? nil)
             }
             return BatchApproval(id: UUID(), jobs: jobs)
         }
@@ -248,6 +256,7 @@ public struct BatchApproval: Sendable {
         let request = UUID(); acquisitionID = request
         let selected = documents.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
+        let counterKeys=Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.configuration.counterSignatureKey) })
         do {
             let prepared = try await Task.detached(priority: .userInitiated) {
                 try CertificateEligibility.requireEligible(certificateDER: der)
@@ -257,7 +266,7 @@ public struct BatchApproval: Sendable {
                     try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot,
                         certificate: certificate, certificateDER: der, destination: output.url,
                         destinationDirectoryIdentity: output.directoryIdentity,
-                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil, includeSigningTime: includeSigningTime)
+                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil, includeSigningTime: includeSigningTime, counterSignatureKey: counterKeys[snapshot.identity.id] ?? nil)
                 }
                 return BatchApproval(id: UUID(), jobs: jobs)
             }.value

@@ -78,6 +78,7 @@ std::string json(const Inspection& r) {
             << ",\"fingerprint\":" << quoted(s.fingerprint) << ",\"algorithm\":" << quoted(s.algorithm)
             << ",\"declaredTime\":" << quoted(s.declaredTime) << ",\"revisionEnd\":" << s.revisionEnd
             << ",\"layer\":" << s.layer << ",\"laterChanges\":" << (s.laterChanges?"true":"false")
+            << ",\"parentSignatureKey\":" << quoted(s.parentSignatureKey) << ",\"signerPath\":" << quoted(s.signerPath)
             << ",\"signerDER\":" << quoted(s.signerDER) << ",\"certificateDERs\":[";
         bool firstCert=true;
         for(const auto& cert:s.certificateDERs){if(!firstCert)out<<',';firstCert=false;out<<quoted(cert);}
@@ -95,7 +96,7 @@ bool writeAll(const void* data,size_t n) {
 bool writeCount(size_t n) {uint8_t b[4]={uint8_t(n>>24),uint8_t(n>>16),uint8_t(n>>8),uint8_t(n)};return writeAll(b,4);}
 }
 
-std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detached,Bytes* payload) {
+std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detached,Bytes* payload, const Bytes* counterTarget, size_t depth, const std::string& pathPrefix) {
     auto cms=decode(bytes,detached!=nullptr);
     auto infos=CMS_get0_SignerInfos(cms.get());
     int count=infos?sk_CMS_SignerInfo_num(infos):0;
@@ -103,9 +104,18 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
     auto certs=CMS_get1_certs(cms.get());
     int certificates=certs?sk_X509_num(certs):0;
     std::vector<std::string> publicCertificates;
+    std::vector<bool> ambiguousCertificate(count,false);
     if(certs) {
         try { for(int j=0;j<certificates&&j<64;j++) publicCertificates.push_back(der64(sk_X509_value(certs,j))); }
         catch(...) {sk_X509_pop_free(certs,X509_free);throw;}
+        for(int i=0;i<count;++i) {
+            std::vector<std::string> matches;
+            for(int j=0;j<certificates;++j)if(CMS_SignerInfo_cert_cmp(sk_CMS_SignerInfo_value(infos,i),sk_X509_value(certs,j))==0) {
+                auto encoded=der64(sk_X509_value(certs,j));
+                if(std::find(matches.begin(),matches.end(),encoded)==matches.end())matches.push_back(encoded);
+            }
+            ambiguousCertificate[i]=matches.size()>1;
+        }
         sk_X509_pop_free(certs,X509_free);
     }
     if(certificates>64) throw std::runtime_error("Troppi certificati CMS");
@@ -129,10 +139,12 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
     } else if(input)BIO_free(input);
     std::vector<InspectedSignature> result;
     for(int i=0;i<count;++i) {
-        auto info=sk_CMS_SignerInfo_value(infos,i);InspectedSignature s;s.signerIndex=i;
+        auto info=sk_CMS_SignerInfo_value(infos,i);InspectedSignature s;s.signerIndex=i;s.signerPath=pathPrefix+std::to_string(i);
+        if(CMS_signed_get_attr_count(info)>64||CMS_unsigned_get_attr_count(info)>64)throw std::runtime_error("Troppi attributi SignerInfo");
         try {inspectSignerEvidence(info,s);}catch(const std::exception& e){s.evidenceIssue=e.what();s.timestampTokens.clear();s.evidence.clear();}
         X509* cert=nullptr;X509_ALGOR *digest=nullptr,*algorithm=nullptr;
         CMS_SignerInfo_get0_algs(info,nullptr,&cert,&digest,&algorithm);
+        if(ambiguousCertificate[i])cert=nullptr;
         s.algorithm=oid(algorithm?algorithm->algorithm:nullptr)+" / "+oid(digest?digest->algorithm:nullptr);
         if(cert) {
             s.signerDER=der64(cert);s.certificateDERs=publicCertificates;
@@ -156,9 +168,14 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
         bool algorithmSupported=key &&
             (((EVP_PKEY_is_a(key,"RSA")||EVP_PKEY_is_a(key,"RSA-PSS"))&&rsaAlgorithm) || (EVP_PKEY_is_a(key,"EC")&&ecAlgorithm)) &&
             (hash==NID_sha256||hash==NID_sha384||hash==NID_sha512);
-        if(needsContent)s.reason="Firma detached: serve il contenuto esterno, non caricato automaticamente";
+        if(counterTarget) {
+            int status=verifyCounterSignature(info,cert,*counterTarget);
+            s.integrity=status==1?"verified":status<0?"invalid":"notVerifiable";
+            s.reason=status==1?"Controfirma CMS: digest dei byte SignatureValue e firma verificati; non è una cofirma del documento":status<0?"Controfirma: firma, digest o attributi non corrispondenti":"Controfirma fuori dal profilo RSA/SHA-256 con attributi e SigningCertificateV2 supportato";
+        }
+        else if(needsContent)s.reason="Firma detached: serve il contenuto esterno, non caricato automaticamente";
         else if(!supportedContent)s.reason="Tipo di contenuto CMS non supportato";
-        else if(!cert)s.reason="Certificato del firmatario assente";
+        else if(!cert)s.reason=ambiguousCertificate[i]?"Identità certificato del firmatario ambigua":"Certificato del firmatario assente";
         else if(!algorithmSupported)s.reason="Algoritmo non supportato dalla policy di verifica locale";
         else if(!contentRead)s.reason="Impossibile elaborare il contenuto CMS";
         else {
@@ -169,12 +186,35 @@ std::vector<InspectedSignature> inspectCMS(const Bytes& bytes,const Bytes* detac
             s.integrity=attributes&&content?"verified":"invalid";
             if(s.integrity=="invalid")s.reason="Digest del contenuto o firma crittografica non corrispondente";
         }
+        const auto parentKey=s.signatureKey, parentPath=s.signerPath, parentIntegrity=s.integrity;
         result.push_back(std::move(s));
+        for(int a=0;a<CMS_unsigned_get_attr_count(info);++a) {
+            auto attr=CMS_unsigned_get_attr(info,a);
+            if(OBJ_obj2nid(X509_ATTRIBUTE_get0_object(attr))!=NID_pkcs9_countersignature)continue;
+            if(depth>=4||X509_ATTRIBUTE_count(attr)<1||X509_ATTRIBUTE_count(attr)>32)throw std::runtime_error("Limite controfirme CMS superato");
+            auto sig=CMS_SignerInfo_get0_signature(info);
+            if(!sig||ASN1_STRING_length(sig)<=0||ASN1_STRING_length(sig)>16384)throw std::runtime_error("SignatureValue genitore non valida");
+            Bytes target(ASN1_STRING_get0_data(sig),ASN1_STRING_get0_data(sig)+ASN1_STRING_length(sig));
+            for(int j=0;j<X509_ATTRIBUTE_count(attr);++j) {
+                auto value=X509_ATTRIBUTE_get0_type(attr,j);
+                if(!value||value->type!=V_ASN1_SEQUENCE||ASN1_STRING_length(value->value.sequence)>1024*1024)throw std::runtime_error("Controfirma CMS malformata");
+                auto data=ASN1_STRING_get0_data(value->value.sequence);int n=ASN1_STRING_length(value->value.sequence);
+                Bytes encoded(data,data+n);
+                auto children=inspectCMS(counterEnvelope(encoded,target,cms.get()),nullptr,nullptr,&target,depth+1,parentPath+"/"+std::to_string(a)+"/"+std::to_string(j)+"/");
+                if(result.size()+children.size()>32)throw std::runtime_error("Troppi firmatari/controfirmatari CMS");
+                for(size_t k=0;k<children.size();++k) {
+                    if(k==0)children[k].parentSignatureKey=parentKey;
+                    if(parentIntegrity!="verified"&&children[k].integrity=="verified") {children[k].integrity="notVerifiable";children[k].reason+="; firma genitore non verificata";}
+                    result.push_back(std::move(children[k]));
+                }
+            }
+        }
+        if(result.size()>32)throw std::runtime_error("Troppi firmatari/controfirmatari CMS");
     }
     ERR_clear_error();return result;
 }
 
-int verificationMain() {
+int verificationMain(bool external) {
     // A read-only entry point, before any provider/PIN/signing argument handling.
     // macOS rejects finite RLIMIT_DATA/RLIMIT_AS. The parent samples RSS and
     // kills this disposable process at its configured memory threshold.
@@ -182,11 +222,25 @@ int verificationMain() {
     if(setrlimit(RLIMIT_CPU,&cpu)||setrlimit(RLIMIT_FSIZE,&files)||fcntl(STDIN_FILENO,F_SETFD,FD_CLOEXEC))return 2;
     int sink=open("/dev/null",O_WRONLY|O_CLOEXEC);if(sink<0||dup2(sink,STDERR_FILENO)<0)return 2;close(sink);
     Bytes bytes;std::array<uint8_t,65536> buffer{};
-    while(true) {auto n=read(STDIN_FILENO,buffer.data(),buffer.size());if(n<0&&errno==EINTR)continue;if(n<0)return 2;if(!n)break;if(size_t(n)>maxOutput-bytes.size())return 2;bytes.insert(bytes.end(),buffer.begin(),buffer.begin()+n);}
+    while(true) {auto n=read(STDIN_FILENO,buffer.data(),buffer.size());if(n<0&&errno==EINTR)continue;if(n<0)return 2;if(!n)break;if(size_t(n)>(external?2*maxOutput+8:maxOutput)-bytes.size())return 2;bytes.insert(bytes.end(),buffer.begin(),buffer.begin()+n);}
     Inspection report;
     try {
         auto head=std::string(bytes.begin(),bytes.begin()+std::min<size_t>(bytes.size(),1024));
-        if(!bytes.empty() && bytes[0]!=0x30 && head.find("%PDF-")!=std::string::npos) {report.format="pades";report=inspectPAdES(bytes);}
+        if(external) {
+            if(bytes.size()<8)throw std::runtime_error("Richiesta detached incompleta");
+            auto length=[&](size_t k){size_t n=0;for(size_t i=k;i<k+4;++i)n=(n<<8)|bytes[i];return n;};
+            size_t cmsSize=length(0),contentSize=length(4);
+            if(!cmsSize||!contentSize||cmsSize>maxOutput||contentSize>maxOutput||bytes.size()!=8+cmsSize+contentSize)throw std::runtime_error("Limiti richiesta detached non validi");
+            Bytes signature(bytes.begin()+8,bytes.begin()+8+cmsSize),content(bytes.begin()+8+cmsSize,bytes.end());
+            auto cms=decode(signature,false);
+            if(CMS_is_detached(cms.get())!=1)throw std::runtime_error("La firma fornita non è detached: vietata la sostituzione del contenuto attached");
+            report.format="cades";report.state="signed";
+            report.signatures=inspectCMS(signature,&content,&report.content);
+            inspectCMSEvidence(cms.get(),report);
+            if(!std::all_of(report.signatures.begin(),report.signatures.end(),[](const auto& s){return s.integrity=="verified";}))report.content.clear();
+            else report.previewablePDF=isPreviewablePDF(report.content);
+        }
+        else if(!bytes.empty() && bytes[0]!=0x30 && head.find("%PDF-")!=std::string::npos) {report.format="pades";report=inspectPAdES(bytes);}
         else if(!bytes.empty()&&bytes[0]==0x30) {
             report.format="cades";report.state="signed";Bytes current=bytes;
             for(size_t layer=1;layer<=5;++layer) {
