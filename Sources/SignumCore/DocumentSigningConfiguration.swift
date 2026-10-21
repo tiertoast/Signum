@@ -13,6 +13,9 @@ public struct DocumentSigningConfiguration: Equatable, Sendable {
     public static func canSelectPAdES(for snapshot: DocumentSnapshot) -> Bool {
         snapshot.approvedBytes.prefix(1024).range(of:Data("%PDF-".utf8)) != nil
     }
+    public static func canSelectXAdES(for snapshot: DocumentSnapshot) -> Bool {
+        SignatureFormatDetector.candidate(snapshot.approvedBytes) == .xml
+    }
     static func requirePDF(_ snapshot: DocumentSnapshot) throws {
         guard let provider=CGDataProvider(data:snapshot.approvedBytes as CFData),
               let pdf=CGPDFDocument(provider), pdf.numberOfPages>0, !pdf.isEncrypted else {

@@ -216,7 +216,7 @@ struct UnifiedVerificationPane: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(minHeight: 180)
                 Text("Gli esiti sono indipendenti. Informazioni mancanti producono una qualificazione indeterminata; non si attesta la conservazione a lungo termine o l’accettabilità delle modifiche successive.").font(.caption).foregroundStyle(.secondary)
-                Text("XML/XAdES: supporto futuro. Nessun file estratto viene salvato automaticamente.").font(.caption).foregroundStyle(.secondary)
+                Text("XAdES: profilo Baseline-B enveloped, una firma RSA-SHA256. Nessun file estratto viene salvato automaticamente.").font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
         .sheet(item: $preview) { report in VerificationPDFPreview(report: report) }
@@ -244,7 +244,7 @@ struct UnifiedVerificationPane: View {
         switch state { case .verified: return "Catena verificata"; case .invalid: return "Catena non valida"; case .notVerifiable: return "Non verificabile" }
     }
     private func format(_ format: VerifiedDocumentFormat) -> String {
-        switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML"; case .unknown: return "Sconosciuto" }
+        switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML / XAdES"; case .unknown: return "Sconosciuto" }
     }
     private func choose() {
         workspace.cancel()

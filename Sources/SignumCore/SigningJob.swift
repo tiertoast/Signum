@@ -29,10 +29,11 @@ public struct SigningJob: Sendable {
                 destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
                 padesSourcePreflight: PAdESSourcePreflight? = nil, padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil, includeSigningTime: Bool = true) throws {
         let effectiveFormat = format ?? snapshot.format
+        if effectiveFormat == .xades { try XAdES.requireUnsignedInput(snapshot.approvedBytes) }
         if effectiveFormat == .pades, format != nil { try DocumentSigningConfiguration.requirePDF(snapshot) }
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
               destination.standardizedFileURL != snapshot.fileURL,
-              destination.pathExtension.lowercased() == (effectiveFormat == .cades ? "p7m" : "pdf"),
+              destination.pathExtension.lowercased() == (effectiveFormat == .cades ? "p7m" : effectiveFormat == .xades ? "xml" : "pdf"),
               providerPath.hasPrefix("/"), !certificateDER.isEmpty, certificateDER.count <= 65536 else {
             throw SignumError.module("Richiesta di firma incompleta o destinazione non valida.")
         }
@@ -84,7 +85,7 @@ public struct SigningJob: Sendable {
     }
 
     public var formatDescription: String {
-        format == .pades ? "PAdES — PDF firmato" : "CAdES — documento .p7m"
+        format.title
     }
 
     public var approvalDescription: String {

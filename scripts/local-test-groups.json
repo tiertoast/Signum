@@ -29,6 +29,7 @@
       "PAdESStabilizationSigningTests"
     ],
     "synthetic-pkcs11": [
+      "XAdESTests",
       "AutomaticCertificateSelectionTests",
       "BatchAuthIntegrationTests",
       "BatchAuthenticationTests",

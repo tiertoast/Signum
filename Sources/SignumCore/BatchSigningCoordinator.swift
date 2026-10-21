@@ -91,6 +91,9 @@ public struct BatchApproval: Sendable {
         if format == .pades, !DocumentSigningConfiguration.canSelectPAdES(for:documents[index].snapshot) {
             throw Self.failure("Questo documento non è un PDF. Per questo file scegli CAdES.")
         }
+        if format == .xades, !DocumentSigningConfiguration.canSelectXAdES(for:documents[index].snapshot) {
+            throw Self.failure("XAdES richiede un documento XML UTF-8 nel profilo supportato.")
+        }
         invalidateReview(); revision = UUID()
         documents[index].configuration = .init(snapshotID:id,format:format)
         documents[index].destination = nil

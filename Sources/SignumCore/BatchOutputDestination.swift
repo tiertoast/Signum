@@ -58,6 +58,9 @@ public enum BatchOutputDestination: Sendable, Equatable {
         if (format ?? snapshot.format) == .pades {
             return original.deletingPathExtension().lastPathComponent + "-firmato" + suffix + ".pdf"
         }
+        if (format ?? snapshot.format) == .xades {
+            return original.deletingPathExtension().lastPathComponent + "-firmato" + suffix + ".xml"
+        }
         if number == 1 { return original.lastPathComponent + ".p7m" }
         let ext = original.pathExtension.isEmpty ? "" : "." + original.pathExtension
         return original.deletingPathExtension().lastPathComponent + suffix + ext + ".p7m"

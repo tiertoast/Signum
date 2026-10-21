@@ -292,18 +292,24 @@ private enum SignumFormat: String, Hashable {
             VStack(alignment:.leading,spacing:6) {
                 Picker("Formato firma",selection:formatBinding) {
                     Text("CAdES — documento .p7m").tag(SignumFormat.cades)
+                    Text("XAdES — XML firmato").tag(SignumFormat.xades)
+                        .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectXAdES(for:$0.snapshot) } ?? false)
                     Text("PAdES — PDF firmato").tag(SignumFormat.pades)
                         .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectPAdES(for:$0.snapshot) } ?? false)
                 }.pickerStyle(.menu).labelsHidden().accessibilityIdentifier("signum.current-format")
                     .disabled(interfaceLocked || batch.isFrozen)
+                if selectedDocument?.format == .xades || (selectedDocument == nil && format == .xades) {
+                    Text("XML UTF-8 · una firma · massimo 8 MiB. XAdES include sempre una data dichiarata, non una marca temporale.").font(.caption).foregroundStyle(.secondary)
+                }
                 if let entry=selectedDocument {
                     Text("Documento corrente: " + entry.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
-                    Text(entry.format == .pades ? "PAdES — PDF firmato" : "CAdES — documento .p7m").font(.callout.bold())
+                    Text(entry.format.title).font(.callout.bold())
                     if !batch.isFrozen {
                         Text("Puoi cambiare formato fino all’approvazione. Gli altri documenti mantengono la propria scelta.")
                             .font(.caption).foregroundStyle(.secondary)
                         Picker("Per i prossimi documenti",selection:$format) {
                             Text("CAdES").tag(SignumFormat.cades)
+                            Text("XAdES").tag(SignumFormat.xades)
                             Text("PAdES").tag(SignumFormat.pades)
                         }.pickerStyle(.menu).font(.caption).disabled(interfaceLocked)
                     }
@@ -413,12 +419,14 @@ private enum SignumFormat: String, Hashable {
                         .buttonStyle(.plain).lineLimit(1).truncationMode(.middle)
                         .help(entry.snapshot.originalURL.lastPathComponent).disabled(batch.isRunning || interaction.isSubmittingPIN)
                     if !batch.isFrozen {
-                        Menu(entry.format == .pades ? "PAdES · PDF" : "CAdES · .p7m") {
+                        Menu(entry.format.shortTitle) {
                             Button("CAdES — documento .p7m") { setDocumentFormat(.cades,for:entry.id) }
+                            Button("XAdES — XML firmato") { setDocumentFormat(.xades,for:entry.id) }
+                                .disabled(!DocumentSigningConfiguration.canSelectXAdES(for:entry.snapshot))
                             Button("PAdES — PDF firmato") { setDocumentFormat(.pades,for:entry.id) }
                                 .disabled(!DocumentSigningConfiguration.canSelectPAdES(for:entry.snapshot))
                         }.font(.caption.bold()).disabled(interfaceLocked)
-                    } else { Text(entry.format == .pades ? "PAdES · PDF" : "CAdES · .p7m").font(.caption.bold()) }
+                    } else { Text(entry.format.shortTitle).font(.caption.bold()) }
                     Spacer(minLength: 8)
                     Text(rowStatus).font(.caption).lineLimit(1)
                 }.padding(.vertical, 3)
@@ -666,7 +674,7 @@ private enum SignumFormat: String, Hashable {
                     .font(.title3.weight(.medium))
                 Text(format == .pades
                      ? "Seleziona un PDF per visualizzarlo e posizionare la firma."
-                     : "Con CAdES il documento viene incorporato in una busta .p7m.")
+                     : format == .xades ? "XAdES firma un XML UTF-8. Include una data dichiarata, non una marca temporale." : "Con CAdES il documento viene incorporato in una busta .p7m.")
                     .font(.callout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -750,6 +758,7 @@ private enum SignumFormat: String, Hashable {
         picker.canChooseFiles = true; picker.canChooseDirectories = false
         picker.allowsMultipleSelection = true
         if format == .pades { picker.allowedContentTypes = [.pdf] }
+        else if format == .xades { picker.allowedContentTypes = [.xml] }
         if picker.runModal() == .OK { addDocuments(picker.urls) }
     }
 
@@ -837,6 +846,7 @@ private enum SignumFormat: String, Hashable {
             try route.requireCurrentModule()
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
+            else if job.format == .xades { try job.signXAdES(using:IsolatedPKCS11Client(),pin:pin,operation:operation) }
             else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
                 field: nil, operation: operation, appearance: job.padesAppearance) }
         }, completion: { result in

@@ -1,55 +1,44 @@
 # Signum — Release-readiness gates
 
-**Snapshot: 17 October 2026 · `main` after PR #2 · Signum 0.3.3 Alpha / Beta Foundation.**
+**Status:** 21 October 2026 · [v0.5.0-beta / Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta), available as a private GitHub pre-release. This document concerns **technical and distribution readiness**, not authorization to describe every signed document as a legally qualified QES.
 
-This document separates engineering progress from permission to distribute or claim qualified electronic-signature validity. A **Beta Foundation** is a tested architecture milestone; it is **not** a public Beta release. The only authoritative evidence for local test counts and the precise implementation is in:
+Earlier Alpha/Beta Foundation evidence is retained in [its historical report](SIGNUM_BETA_FOUNDATION_REPORT.md) and [the PR #2 review record](PR2_REVIEW_CORRECTIONS.md). The authoritative 0.5 validation record is the [0.5-F engineering report](SIGNUM_0.5F_BUILD7.md) and [results JSON](SIGNUM_0.5F_RESULTS.json).
 
-- [Beta Foundation report](SIGNUM_BETA_FOUNDATION_REPORT.md)
-- [PR #2 review corrections](PR2_REVIEW_CORRECTIONS.md)
-- [PR #2 discussion](https://github.com/tiertoast/Signum/pull/2)
+## Validated in 0.5
 
-## Completed engineering milestones
-
-| Area | Evidence and scope |
+| Area | Evidence / boundary |
 | --- | --- |
-| CAdES / attached `.p7m` | Real hardware signing tested with DigitalDNA/DS3; InfoCamere independently accepted resulting signatures. CMS integrity is checked before exclusive publication. |
-| PAdES / signed PDF | Real hardware signing tested with DigitalDNA/DS3; InfoCamere accepted resulting signatures. Native PoDoFo helper verifies its signed output before exclusive publication. |
-| Approval-to-signature binding | Immutable private snapshot, SHA-256 and approved certificate identity. |
-| Signer selection | Local X.509 eligibility and provider provenance; changing the provider path invalidates previous certificates and PIN. |
-| Vendor failure containment | One-shot PKCS#11 worker outside the normal GUI/CLI path, bounded pipe protocol, deadline and cancellation, TERM/KILL supervision. |
-| Cooperative multiprocess coordination | Per-provider/slot locks across Signum workers and PAdES helper; OS releases leases after owner death. Not a lock respected by third-party clients. |
-| Safe output publication | Same-volume staging, verify then exclusive atomic rename; no silent replacement, conservatively uncertain outcomes on interruptions. |
-| Local macOS app packaging | arm64 offline build recipe with pinned native dependencies and bundled PoDoFo, `@loader_path` audit, relocation tests and ad-hoc signature verification. |
+| CAdES / PAdES | Local PKCS#11 signing/verification, signed-byte approval binding, no-overwrite publication, batch workflow and graphical PAdES. |
+| Signed declared time | CAdES `signingTime` signed attribute, default-ON persistent opt-out; not a timestamp or legal date proof. |
+| EU Trusted Lists | Signed LOTL, selective national caches, XMLDSig authentication, continuity/rollback checks; discovery of 30 territories is not 30-country QES validation. |
+| Certificates/evidence | Native X.509 path and supported OCSP/CRL and temporal-evidence checks, per-signer results and conservative fail-closed outcomes. |
+| eIDAS qualification | Restricted E2 profile for IT/AT/DE/BE/FR/ES, direct CA/QC/post-2016 signatures with sufficient bound historical evidence. General current-time QES validation without timestamp evidence not yet implemented. |
+| Automated campaign | **564 Swift tests**, **81 PAdES Debug and 81 Release**, **58 PKCS#11 + 2 loader**, **18 packaging**; no final failures/skips. |
+| Real user acceptance | User confirmed Build 7 signing/verification/UI checks on existing hardware. Real two-signer document integrity/chain verified; original online revocation discrepancy was not reproduced. |
+| Packaging | Relocated self-contained arm64 ZIP, dependency/rpath and ad hoc codesign checks. Release ZIP checksum available in the GitHub pre-release. |
 
-**Latest local synthetic evidence reported:** Swift **154/154**, PKCS#11 **40/40**, PAdES **63/63** in each of Debug/Release, packaging tests **10/10**, targeted Swift ASAN **17/17**, native PAdES ASAN **63/63**. Leak detection was disabled; third-party libraries were not fully instrumented; TSAN was not repeated during the final PR correction pass.
+## Remaining gates for production-grade distribution
 
-**Manual acceptance:** user confirmed the final corrected candidate `.build/pr2-bundles/final-release/Signum.app` signed in CAdES/PAdES, independently validated through InfoCamere, and passed device/provider-selection checks. This is a **single-environment hardware acceptance**, not a generalized compatibility certification.
+| Gate | Status / minimum evidence |
+| --- | --- |
+| macOS 13/14 runtime | **Open:** real installation and signing on these OS versions; minimum deployment metadata does not prove runtime compatibility. |
+| Clean Apple Silicon deployment | **Open:** install without local build environment, separately configured supported middleware, verify bundle dependencies and error UX. |
+| Broader middleware/device matrix | **Partial:** expand DigitalDNA, CNS, OpenSC and Bit4id configurations and documented supported versions. |
+| Device failure handling | **Partial/open:** device removal, blocked PIN, cancellation, vendor hangs, concurrent provider conflicts and uncertain signing outcomes in controlled hardware sessions. |
+| External signature interoperability | **Partial:** CAdES/PAdES coverage exists, but broad third-party corpus and XAdES/ASiC creation/verification remain on the roadmap. |
+| General eIDAS/QES verification | **Limited:** supported evidence paths are deliberately narrow; no blanket EU-country/QES, PAdES-LT/LTA or historical-completeness claims. |
+| Independent standards comparison | **Open:** no executed DSS comparison/equivalence claim; planned negative profiles and cross-verifier corpus remain. |
+| Distribution identity | **Open:** Developer ID, hardened-runtime/vendor-library policy, notarization, Gatekeeper validation and update mechanism. |
+| Third-party governance | **Open:** periodic native dependency review, library licenses/notices and release reproducibility/security maintenance. |
+| Product experience | **Partial:** current GUI functional; holistic native macOS redesign planned for 0.7. |
+| TSA issuance and cryptographic encryption | **Deferred to 0.9**, not required for 0.6 format milestone; verification of supported existing timestamps is separate. |
 
-## Open release gates
+## Release discipline
 
-| Gate | Status | Required evidence |
-| --- | --- | --- |
-| Runtime macOS 13 | **Open** | Real `.app` launch, PDF preview, signature flows and ACL/snapshot/driver behavior on a macOS 13 machine. Mach-O minimum 13.0 is not runtime validation. |
-| Runtime macOS 14 | **Open** | Same functional and safety matrix on macOS 14. |
-| Clean Apple Silicon installation | **Open** | Fresh machine/user account without development tools; bundled PoDoFo and native helper must resolve without Homebrew or checkout dependencies. Separately install chosen PKCS#11 middleware. |
-| Middleware matrix | **Partially tested** | Verify OpenSC, Bit4id, DigitalDNA and CNS variants independently, including slot lifecycle and interrupted operations. |
-| Hardware failure recovery | **Open** | Controlled tests of device removal, cancellation before/after private request, process crash, busy token, and uncertain PAdES commit; no automated PIN retry. |
-| Distribution identity | **Open** | Developer ID signature, hardened-runtime entitlements/library-validation design accommodating third-party vendor middleware, notarization and Gatekeeper behavior. |
-| Packaging governance | **Open** | Dependency security/version review, complete third-party license/source obligations and notices, publishing/update process. |
-| GUI user experience | **Partial** | Manual verification of error-state wording, selection invalidation, cancellation and no misleading success states. |
-| Qualified/legal verification | **Not implemented** | Separate trust engine and evidence for EU trust lists, chain validation, revocation, timestamps and applicable ETSI/eIDAS profiles before any claims of QES/full validation. |
-| XAdES and remote signing | **Not implemented** | Future roadmap; unrelated to the Beta Foundation's completion. |
+1. Preserve the **0.5 Beta Build 7 baseline**, its hash-identified artifacts and earlier 0.4 release. Changes affecting signing, trust, parsing or hardware invoke targeted security tests and the relevant real-device checks.
+2. Never imply that a valid CMS/PDF signature alone proves non-revocation, QES status or reliable signing time. Return explicit independent statuses and uncertainty.
+3. Never silently overwrite outputs, mutate an approved document or automatically retry an uncertain private-key operation.
+4. Enforce isolated local build/test workflows, without GitHub Actions, and publish only tested checksum-identified artifacts.
+5. Treat GitHub **Beta pre-release** as a development milestone, not as completed notarization, security assurance or broad legal qualification.
 
-## Rules for advancing
-
-1. Preserve the tested CAdES/PAdES baseline; changes to PKCS#11 lifetime, signing formats, staging or output verification require focused regression suites **and** manual hardware tests.
-2. Never infer legal qualification or full certificate trust from a positive local crypto check or an external application reporting an individual signature valid.
-3. Never retry an uncertain private signing operation automatically. Preserve potentially published documents and surface the uncertainty clearly.
-4. Retain local build/test workflows without GitHub Actions; do not overwrite Alpha bundles or earlier candidates.
-5. Declare a distributable Beta **only after** the relevant compatibility, packaging, runtime signing and distribution-security gates are evidenced.
-
-## Next practical milestone
-
-**macOS compatibility and deployment qualification**, not another signature format: exercise the current bundle on macOS 13 and 14, inspect a clean-Mac install, verify vendor middleware setup, then design Developer ID signing and notarization. Detailed implementation follow-up belongs in a new reviewed development branch; it should not retroactively rewrite the 0.3.3 hardware-test evidence.
-
-**Digital signatures. Simply native.**
+Next development: [0.6 eIDAS current-time policy, XAdES, ASiC and practical interoperability](ROADMAP.md). Previous testing claims belong to their original historical snapshots; this page supersedes the *current-status* statements in the 0.3.3 readiness snapshot.

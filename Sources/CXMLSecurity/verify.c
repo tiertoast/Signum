@@ -1,4 +1,6 @@
 #include "CXMLSecurity.h"
+#include "CXAdES.h"
+#include <pthread.h>
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
@@ -16,6 +18,13 @@
 #include <openssl/asn1t.h>
 #include <stdio.h>
 #include <string.h>
+
+static pthread_once_t xml_once = PTHREAD_ONCE_INIT;
+static int xml_initialized;
+static void initialize_xml(void) {
+    xml_initialized = xmlSecInit() >= 0 && xmlSecCryptoAppInit(NULL) >= 0 && xmlSecCryptoInit() >= 0;
+}
+int signum_xml_initialize(void) { pthread_once(&xml_once, initialize_xml); return xml_initialized; }
 
 #define TL "http://uri.etsi.org/02231/v2#"
 #define DS "http://www.w3.org/2000/09/xmldsig#"
@@ -143,9 +152,8 @@ int signum_xml_verify(const unsigned char *xml,size_t size,const unsigned char *
     xmlSchemaParserCtxtPtr scp=NULL; xmlSchemaPtr schema=NULL; xmlSchemaValidCtxtPtr scv=NULL;
     int result=0, nodes=0; xmlDocPtr doc=NULL; xmlXPathContextPtr xp=NULL; xmlSecDSigCtxPtr ctx=NULL;
     xmlXPathObjectPtr refs=NULL; X509 *x509=NULL; EVP_PKEY *pub=NULL;
-    static int initialized=0;
     CHECK(size>0 && size<=64*1024*1024 && cert_size>0 && cert_size<=96*1024,"input bounds");
-    if(!initialized) { CHECK(xmlSecInit()>=0 && xmlSecCryptoAppInit(NULL)>=0 && xmlSecCryptoInit()>=0,"xmlsec initialization"); initialized=1; }
+    CHECK(signum_xml_initialize(),"xmlsec initialization");
     for(size_t i=0;i+9<size;i++) {
         CHECK(strncasecmp((const char*)xml+i,"<!DOCTYPE",9)!=0 && strncasecmp((const char*)xml+i,"<!ENTITY",8)!=0,"DTD/entities forbidden");
     }

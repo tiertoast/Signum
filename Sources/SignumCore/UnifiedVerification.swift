@@ -76,8 +76,8 @@ public enum SignatureFormatDetector {
         let head = bytes.prefix(1024)
         if head.first == 0x30 { return .cades }
         if head.range(of: Data("%PDF-".utf8)) != nil { return .pades }
-        let text = String(decoding: head, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.hasPrefix("<") || text.hasPrefix("\u{feff}<") ? .xml : .unknown
+        let text = String(decoding: head, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn:"\u{feff}")))
+        return text.hasPrefix("<") ? .xml : .unknown
     }
 }
 
@@ -123,6 +123,12 @@ public enum SignumVerificationService {
     public static func verify(data: Data, name: String, helper: URL? = nil, timeout: TimeInterval = 30,
                               isCancelled: () -> Bool = { false }) throws -> VerificationReport {
         guard !data.isEmpty, data.count <= maximumInputBytes else { throw SignumError.module("Documento vuoto o superiore a 132 MiB.") }
+        if SignatureFormatDetector.candidate(data) == .xml {
+            if isCancelled() { throw SupervisedProcess.Failure.cancelled }
+            let report = XAdES.report(data,name:name)
+            if isCancelled() { throw SupervisedProcess.Failure.cancelled }
+            return report
+        }
         let engine = helper ?? bundledHelper
         guard FileManager.default.isExecutableFile(atPath: engine.path) else {
             throw SignumError.module("Motore di verifica non presente nel bundle. Nessun middleware o PIN è necessario.")

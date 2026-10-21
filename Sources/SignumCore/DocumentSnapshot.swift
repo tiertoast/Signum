@@ -4,8 +4,16 @@ import CryptoKit
 import Darwin
 
 public enum SigningFormat: String, Sendable {
-    case cades, pades
-    public var maximumDocumentBytes: Int { SigningResourceLimits.maximumDocumentBytes }
+    case cades, pades, xades
+    public var maximumDocumentBytes: Int { self == .xades ? XAdES.maximumDocumentBytes : SigningResourceLimits.maximumDocumentBytes }
+    public var title: String {
+        switch self {
+        case .cades: return "CAdES — documento .p7m"
+        case .pades: return "PAdES — PDF firmato"
+        case .xades: return "XAdES — XML firmato"
+        }
+    }
+    public var shortTitle: String { self == .pades ? "PAdES · PDF" : self == .xades ? "XAdES · XML" : "CAdES · .p7m" }
 }
 
 /// A private CoW acquisition, immutable approved bytes and a retained descriptor.
