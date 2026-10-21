@@ -1,0 +1,11 @@
+{
+  "captured": "2026-10-21",
+  "authority": "LOTL 397, OJ C/2026/1944",
+  "sha256": {
+    "at.xml": "f91bbd67a2bf913dfea5f35e9d3bf9157a1bac7d3d2377558ebf071e251e557b",
+    "be.xml": "cabba95e3100a45edaf923b72d4fb6fa38a5b4bd5ab3a3555c2d79563e83396b",
+    "de.xml": "bed0356c0edb30bfa177bcf9d67b9f8709fd930dc298b9881ffe75e27e6bc7ad",
+    "es.xml": "19edfb5923cd27289ba78548255ca79ae5c9ae4b7dc8a5a334170d4a821a73cf",
+    "fr.xml": "d584a732ff848ebdff0d04b439f82f6486009b224664dda119aff3d2a5560593"
+  }
+}

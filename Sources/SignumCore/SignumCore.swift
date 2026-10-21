@@ -376,13 +376,13 @@ public final class PKCS11Module {
     /// CMS/ETSI implementation is mandatory before treating this as a usable document.
     public func createCAdES(document: Data, slot: UInt,
                             certificate: SignumCertificate, pin: String,
-                            expectedCertificateDER: Data? = nil) throws -> Data {
+                            expectedCertificateDER: Data? = nil, includeSigningTime: Bool = true) throws -> Data {
         #if canImport(Security)
         let cert = try certificateDER(slot: slot, certificate: certificate)
         try CertificateEligibility.requireEligible(certificateDER: cert, expectedCertificateDER: expectedCertificateDER)
         guard let x509 = SecCertificateCreateWithData(nil, cert as CFData),
               let key = SecCertificateCopyKey(x509) else { throw SignumError.invalidCertificate }
-        let prepared = try CAdES.Prepared(document: document, certificateDER: cert)
+        let prepared = try CAdES.Prepared(document: document, certificateDER: cert, declaredSigningTime: includeSigningTime ? Date() : nil)
         let signature = try signRSASHA256(slot: slot, certificate: certificate,
                                           pin: pin, message: prepared.attributesToSign, expectedCertificateDER: cert)
         guard SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256,

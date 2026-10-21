@@ -1,0 +1,127 @@
+{
+  "baseline": "81c6af9545dcd55c3dce48856d30193fc5b8652d",
+  "status": "passed",
+  "completeCampaigns": 1,
+  "completeCampaign": {
+    "runner": "scripts/test-local.py --group complete",
+    "result": "passed",
+    "swift": [
+      {
+        "target": "SignumTrustIntegrationTests.xctest",
+        "status": "passed",
+        "executed": 5,
+        "failures": 0
+      },
+      {
+        "target": "SignumTrustCoreTests.xctest",
+        "status": "passed",
+        "executed": 19,
+        "failures": 0
+      },
+      {
+        "target": "SignumTrustAuthenticationTests.xctest",
+        "status": "passed",
+        "executed": 34,
+        "failures": 0
+      },
+      {
+        "target": "SignumCoreTests.xctest",
+        "status": "passed",
+        "executed": 430,
+        "failures": 0
+      },
+      {
+        "target": "SignumCertificateValidationTests.xctest",
+        "status": "passed",
+        "executed": 51,
+        "failures": 0
+      }
+    ],
+    "nativePAdES": {
+      "debug": 81,
+      "release": 81,
+      "status": "passed"
+    },
+    "nativePKCS11": {
+      "providerCases": 58,
+      "loaderContracts": 2,
+      "status": "passed"
+    },
+    "packagingContracts": 17,
+    "sanitizers": "official Core 212 cases each ASan/TSan; native PKCS11 ASan/TSan; PAdES ASan passed"
+  },
+  "postCampaignFourTrustTargets": {
+    "exit": 1,
+    "suites": [
+      {
+        "target": "SignumTrustIntegrationTests.xctest",
+        "status": "passed",
+        "executed": 5,
+        "failures": 0
+      },
+      {
+        "target": "SignumTrustCoreTests.xctest",
+        "status": "passed",
+        "executed": 19,
+        "failures": 0
+      },
+      {
+        "target": "SignumTrustAuthenticationTests.xctest",
+        "status": "failed",
+        "executed": 34,
+        "failures": 1
+      },
+      {
+        "target": "SignumCertificateValidationTests.xctest",
+        "status": "passed",
+        "executed": 52,
+        "failures": 0
+      }
+    ],
+    "failure": "Intermediate blanket rejection of RSA-PSS SPKI rejected official DE; replaced by explicit OpenSSL parameter compatibility validation."
+  },
+  "finalDedicated": {
+    "exit": 0,
+    "suites": [
+      {
+        "target": "SignumTrustAuthenticationTests.xctest",
+        "status": "passed",
+        "executed": 1,
+        "failures": 0
+      },
+      {
+        "target": "SignumCertificateValidationTests.xctest",
+        "status": "passed",
+        "executed": 10,
+        "failures": 0
+      }
+    ]
+  },
+  "finalDedicatedASan": {
+    "exit": 0,
+    "suites": [
+      {
+        "target": "SignumTrustAuthenticationTests.xctest",
+        "status": "passed",
+        "executed": 1,
+        "failures": 0
+      },
+      {
+        "target": "SignumCertificateValidationTests.xctest",
+        "status": "passed",
+        "executed": 10,
+        "failures": 0
+      }
+    ],
+    "detect_leaks": false,
+    "thirdPartyLibrariesInstrumented": false
+  },
+  "compileTimeBoundary": {
+    "interpretedCatalogAccepted": true,
+    "authenticatedDocumentRejected": true
+  },
+  "macOSRuntime": "27.2 arm64",
+  "deploymentTarget": "13.0",
+  "macOS13RuntimeTested": false,
+  "newBundle": false
+}

@@ -95,7 +95,7 @@ extension SigningJob {
         do {
             try operation.checkCancellation()
             try executeCAdES(io: io, isCancelled: { operation.isCancellationRequested }) { bytes in
-                let prepared = try CAdES.Prepared(document: bytes, certificateDER: certificateDER)
+                let prepared = try CAdES.Prepared(document: bytes, certificateDER: certificateDER, declaredSigningTime: includeSigningTime ? Date() : nil)
                 operation.transition(to: .waitingForAuthentication)
                 try operation.checkCancellation()
                 operation.transition(to: .signing)

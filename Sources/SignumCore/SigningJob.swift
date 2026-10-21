@@ -21,12 +21,13 @@ public struct SigningJob: Sendable {
     /// nil explicitly denotes the legacy locator/DER-only API, never the GUI.
     public let providerContext: SigningProviderContext?
     public let padesSourcePreflight: PAdESSourcePreflight?
+    public let includeSigningTime: Bool
     public let padesAppearance: RenderedPAdESAppearance?
 
     public init(snapshot: DocumentSnapshot, format: SigningFormat? = nil, providerPath: String, slot: UInt,
                 certificate: SignumCertificate, certificateDER: Data, destination: URL,
                 destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
-                padesSourcePreflight: PAdESSourcePreflight? = nil, padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil) throws {
+                padesSourcePreflight: PAdESSourcePreflight? = nil, padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil, includeSigningTime: Bool = true) throws {
         let effectiveFormat = format ?? snapshot.format
         if effectiveFormat == .pades, format != nil { try DocumentSigningConfiguration.requirePDF(snapshot) }
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
@@ -64,6 +65,7 @@ public struct SigningJob: Sendable {
                 try appearance.configuration.validate(cropBox:page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox)),pageRotation:rotation)
             }
         }
+        self.includeSigningTime = includeSigningTime
         self.padesAppearance = padesAppearance
         self.id = UUID(); self.format = effectiveFormat; self.snapshot = snapshot
         self.snapshotIdentity = snapshot.identity; self.contentSHA256 = snapshot.identity.sha256
@@ -101,7 +103,7 @@ public struct SigningJob: Sendable {
             guard module.modulePath == providerPath else { throw SignumError.module("Provider differente da quello approvato.") }
             if let providerContext { try providerContext.requireCurrentModule(); try providerContext.requireCurrentToken(module) }
             return try module.createCAdES(document: bytes, slot: slot, certificate: certificate,
-                                          pin: pin, expectedCertificateDER: certificateDER)
+                                          pin: pin, expectedCertificateDER: certificateDER, includeSigningTime: includeSigningTime)
         }
     }
 

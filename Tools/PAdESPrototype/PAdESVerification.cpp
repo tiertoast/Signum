@@ -1,11 +1,13 @@
 #include "PAdESVerification.h"
 #include "UnifiedVerification.h"
+#include "EvidenceExtraction.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <openssl/cms.h>
 #include <openssl/x509.h>
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cctype>
 #include <memory>
 #include <map>
 #include <set>
@@ -254,6 +256,50 @@ size_t verifySignature(CGPDFDictionaryRef signature, const Bytes& pdf, const std
     verifyCMS(decoded, signedBytes, expected);
     return revisionEnd;
 }
+void evidenceStreams(CGPDFDictionaryRef dictionary,const char* key,const char* kind,const char* source,
+                     size_t revision,InspectedSignature* signature,Inspection& report) {
+    CGPDFArrayRef array=nullptr;if(!CGPDFDictionaryGetArray(dictionary,key,&array))return;
+    require(CGPDFArrayGetCount(array)<=32,"Too many DSS evidence streams");
+    for(size_t i=0;i<CGPDFArrayGetCount(array);i++) {
+        CGPDFStreamRef stream=nullptr;require(CGPDFArrayGetStream(array,i,&stream),"Invalid DSS evidence stream");
+        CGPDFDataFormat format;CFDataRef data=CGPDFStreamCopyData(stream,&format);
+        require(data!=nullptr,"Cannot decode DSS evidence stream");
+        const auto count=CFDataGetLength(data);
+        if(count<=0||count>1024*1024){CFRelease(data);throw std::runtime_error("DSS evidence stream exceeds 1 MiB");}
+        InspectedEvidence e{kind,source,signature?"pdfVRI":"unassociated",evidenceBase64(CFDataGetBytePtr(data),size_t(count)),signature?signature->signatureKey:"",signature?signature->revisionEnd:0,revision};CFRelease(data);
+        auto& target=signature?signature->evidence:report.unassociatedEvidence;
+        require(target.size()<64,"Too many DSS evidence objects");
+        bool duplicate=std::any_of(target.begin(),target.end(),[&](const auto& old){return old.kind==e.kind&&old.der==e.der&&old.source==e.source&&old.sourceRevisionEnd==e.sourceRevisionEnd;});
+        if(!duplicate)target.push_back(std::move(e));
+    }
+}
+struct VRIContext { Inspection* report; size_t revision; std::string issue; };
+void vriEntry(const char* key,CGPDFObjectRef value,void* raw) {
+    auto& c=*static_cast<VRIContext*>(raw);
+    try {
+        CGPDFDictionaryRef dictionary=nullptr;require(CGPDFObjectGetValue(value,kCGPDFObjectTypeDictionary,&dictionary),"Invalid VRI entry");
+        InspectedSignature* match=nullptr;size_t matches=0;
+        for(auto& signature:c.report->signatures)if(signature.integrity=="verified"&&signature.contentsSHA1==key&&signature.revisionEnd<=c.revision){match=&signature;++matches;}
+        if(matches!=1)match=nullptr;
+        evidenceStreams(dictionary,"OCSP","ocsp","pdfVRI",c.revision,match,*c.report);
+        evidenceStreams(dictionary,"CRL","crl","pdfVRI",c.revision,match,*c.report);
+        evidenceStreams(dictionary,"Cert","certificate","pdfVRI",c.revision,match,*c.report);
+    }catch(const std::exception& e){c.issue=e.what();}
+}
+void dssEvidence(Document& document,size_t revision,Inspection& report) {
+    CGPDFDictionaryRef dss=nullptr;
+    if(!CGPDFDictionaryGetDictionary(CGPDFDocumentGetCatalog(document.value),"DSS",&dss))return;
+    evidenceStreams(dss,"OCSPs","ocsp","pdfDSS",revision,nullptr,report);
+    evidenceStreams(dss,"CRLs","crl","pdfDSS",revision,nullptr,report);
+    evidenceStreams(dss,"Certs","certificate","pdfDSS",revision,nullptr,report);
+    CGPDFDictionaryRef vri=nullptr;
+    if(CGPDFDictionaryGetDictionary(dss,"VRI",&vri)) {
+        require(CGPDFDictionaryGetCount(vri)<=64,"Too many VRI entries");
+        VRIContext context{&report,revision,{}};CGPDFDictionaryApplyFunction(vri,vriEntry,&context);
+        if(!context.issue.empty())throw std::runtime_error(context.issue);
+    }
+}
+
 }
 
 Inspection inspectPAdES(const Bytes& pdf) {
@@ -282,10 +328,30 @@ Inspection inspectPAdES(const Bytes& pdf) {
             // per signature dictionary, SHA-256, Adobe.PPKLite/ETSI detached.
             require(signers.size()==1,"Unsupported multi-signer PDF CMS");
             result=std::move(signers.front());
+            // VRI identifies the complete PDF Contents string, including padding.
+            result.contentsSHA1=evidenceDigest(cms.data(),cms.size(),EVP_sha1());
+            std::transform(result.contentsSHA1.begin(),result.contentsSHA1.end(),result.contentsSHA1.begin(),[](unsigned char c){return char(std::toupper(c));});
             result.revisionEnd=r[2]+r[3]; result.laterChanges=result.revisionEnd<pdf.size();
             result.revisionEnd=verifySignature(dictionary,pdf,nullptr);
             require(result.integrity=="verified","PDF CMS could not be verified");
             result.laterChanges=result.revisionEnd<pdf.size();
+            for(auto& e:result.evidence){e.signatureRevisionEnd=result.revisionEnd;e.sourceRevisionEnd=result.revisionEnd;}
+            try {
+                const unsigned char* p=cms.data();std::unique_ptr<CMS_ContentInfo,decltype(&CMS_ContentInfo_free)> parsed(d2i_CMS_ContentInfo(nullptr,&p,cms.size()),CMS_ContentInfo_free);
+                Inspection global;if(parsed)inspectCMSEvidence(parsed.get(),global);
+                for(auto& e:global.unassociatedEvidence){e.sourceRevisionEnd=result.revisionEnd;require(report.unassociatedEvidence.size()<64,"Too many global CMS evidence objects");report.unassociatedEvidence.push_back(std::move(e));}
+            }catch(const std::exception& e){result.evidenceIssue=e.what();}
+            // Reopen the exact signed prefix, never resolve old DSS through the
+            // latest xref. The same ByteRange/Contents must exist in that prefix.
+            Bytes prefix(pdf.begin(),pdf.begin()+result.revisionEnd);Document historical(prefix);
+            size_t matching=0;
+            for(auto candidate:signatures(historical)) {
+                CGPDFStringRef contents=nullptr;CGPDFArrayRef br=nullptr;CGPDFInteger a=-1,b=-1;
+                if(CGPDFDictionaryGetString(candidate,"Contents",&contents)&&CGPDFStringGetLength(contents)==cms.size()&&
+                   std::equal(cms.begin(),cms.end(),CGPDFStringGetBytePtr(contents))&&CGPDFDictionaryGetArray(candidate,"ByteRange",&br)&&
+                   CGPDFArrayGetCount(br)==4&&CGPDFArrayGetInteger(br,1,&a)&&CGPDFArrayGetInteger(br,2,&b)&&a==CGPDFInteger(r[1])&&b==CGPDFInteger(r[2]))++matching;
+            }
+            require(matching==1,"Signature not uniquely bound to signed revision");
         } catch(const std::exception& error) {
             const std::string message=error.what();
             if(result.integrity=="verified"||result.reason.empty()) {
@@ -297,6 +363,11 @@ Inspection inspectPAdES(const Bytes& pdf) {
         report.signatures.push_back(std::move(result));
     }
     std::stable_sort(report.signatures.begin(),report.signatures.end(),[](const auto& a,const auto& b){return a.revisionEnd<b.revisionEnd;});
+    try {
+        std::set<size_t> revisions{pdf.size()};
+        for(const auto& s:report.signatures)if(s.integrity=="verified")revisions.insert(s.revisionEnd);
+        for(size_t end:revisions){if(end==pdf.size())dssEvidence(document,end,report);else{Bytes prefix(pdf.begin(),pdf.begin()+end);Document old(prefix);dssEvidence(old,end,report);}}
+    }catch(const std::exception& e){for(auto& s:report.signatures)s.evidenceIssue=e.what();}
     return report;
 }
 

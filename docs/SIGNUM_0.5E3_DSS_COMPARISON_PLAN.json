@@ -1,0 +1,355 @@
+{
+  "status": "planned_not_executed",
+  "signumBaseline": "35400423b3f9b22a8f74e21d9e7a6b24df3b2feb",
+  "dssReference": {
+    "tag": "6.5",
+    "commit": "eb5e8598522c03a738cf7722082aa2d1de6da7ee",
+    "sources": [
+      {
+        "path": "dss-enumerations/src/main/java/eu/europa/esig/dss/enumerations/ServiceQualification.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-enumerations/src/main/java/eu/europa/esig/dss/enumerations/ServiceQualification.java",
+        "sha256": "e0afe50510c7de330cfcc5529f515ddb8790db4c723b314b675b2c4f6defda75"
+      },
+      {
+        "path": "dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/dto/condition/CertSubjectDNAttributeCondition.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/dto/condition/CertSubjectDNAttributeCondition.java",
+        "sha256": "20fcd7ef050a2e9ae6420b3d655e21f9b2bd20adbc9073b00b4e5d16be72ab6d"
+      },
+      {
+        "path": "dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/job/TLValidationJob.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/job/TLValidationJob.java",
+        "sha256": "2e87c9d1fc9a5650bb4812bef642d879d3ea37e1f54877a935a52b4955675f03"
+      },
+      {
+        "path": "dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/parsing/TLParsingTask.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/parsing/TLParsingTask.java",
+        "sha256": "ead713ba0096084506771656bf1cfeeec12b720bc2da2de33f8919502494dc89"
+      },
+      {
+        "path": "dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/trust/consistency/TrustServiceQSCDStatusAsInCertConsistency.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/trust/consistency/TrustServiceQSCDStatusAsInCertConsistency.java",
+        "sha256": "734501e2b2081c3058084246240ca157172f3525f4ffe32d4e8fb738ba329b12"
+      },
+      {
+        "path": "dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/function/converter/CriteriaListConverter.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/function/converter/CriteriaListConverter.java",
+        "sha256": "1b7609d5a171d5f63614682add58e6a820bfb675dd7d0d9e52489fe1ead44fe8"
+      },
+      {
+        "path": "dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/function/converter/TrustServiceConverter.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/function/converter/TrustServiceConverter.java",
+        "sha256": "fb3d6afbd279e6f696a65e7bbda5d2d5f41372c0e27380418ef066d6ce4f5510"
+      },
+      {
+        "path": "dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/certificate/checks/qscd/QSCDByCertificatePreEIDAS.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/certificate/checks/qscd/QSCDByCertificatePreEIDAS.java",
+        "sha256": "dbf73728bbc34bb72abcf64567051635fe383cf13a3d4fdf550e2212ec96defd"
+      },
+      {
+        "path": "dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/certificate/checks/qscd/QSCDByTL.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/certificate/checks/qscd/QSCDByTL.java",
+        "sha256": "51dc472bc43ee6f954629c0c06b0217771fa3795aaaf66461ff787a8efb87599"
+      },
+      {
+        "path": "dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/certificate/checks/qscd/QSCDStrategyFactory.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/certificate/checks/qscd/QSCDStrategyFactory.java",
+        "sha256": "2c36fe33ee97c2a87ede408ff2c23f03b272315743c7a947fdf650757beed2b0"
+      },
+      {
+        "path": "dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/trust/consistency/TrustServiceQSCDPostEIDASConsistency.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-validation/src/main/java/eu/europa/esig/dss/validation/process/qualification/trust/consistency/TrustServiceQSCDPostEIDASConsistency.java",
+        "sha256": "b5ad3f12a9ca96967c1e85e9df399c590aafd8a7c088f99a19e7328751d92a78"
+      },
+      {
+        "path": "dss-enumerations/src/main/java/eu/europa/esig/dss/enumerations/SignatureAlgorithm.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-enumerations/src/main/java/eu/europa/esig/dss/enumerations/SignatureAlgorithm.java",
+        "sha256": "a17f8d0b3b9c79cfa1b9450b97db9a7c2e406ae08754702b5f7cbf746cb4f0e0"
+      },
+      {
+        "path": "dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/sync/ExpirationAndSignatureCheckStrategy.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/sync/ExpirationAndSignatureCheckStrategy.java",
+        "sha256": "9939d2f7beb14219a6cd357a9cff39b69ed14e2217a9f281eb550e3bd1b9f916"
+      },
+      {
+        "path": "dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/validation/TLValidatorTask.java",
+        "url": "https://raw.githubusercontent.com/esig/dss/eb5e8598522c03a738cf7722082aa2d1de6da7ee/dss-tsl-validation/src/main/java/eu/europa/esig/dss/tsl/validation/TLValidatorTask.java",
+        "sha256": "b038b12f186035a4260cffe78f6d4bfb0e0fe71267ed1db4502838a17f6cb161"
+      }
+    ]
+  },
+  "dssReadiness": "No ready local executable distribution identified; collected sources are not an environment. Adapter and effective policy are not configured.",
+  "executionPolicy": {
+    "network": "disabled; fixture evidence only",
+    "DSSPolicyFile": null,
+    "DSSPolicySHA256": null,
+    "cryptographicConstraintsSHA256": null,
+    "LOTLSignatureAndExpiryChecks": "Must be explicitly enabled and recorded, not inferred from defaults",
+    "syntheticTrust": "Isolated test pins only, never production OJ trust",
+    "provenTime": "Extract and record actual bound RFC3161 interval; never replace with declared signingTime",
+    "comparisonEligibility": "Same bytes, trust, time and explicit constraints required; otherwise record policy/input difference, not equivalent verdicts",
+    "requiredReports": [
+      "DiagnosticData",
+      "DetailedReport",
+      "SimpleReport",
+      "Signum five independent per-signer results"
+    ],
+    "requiredRuntimeRecord": [
+      "DSS version/commit",
+      "runtime version",
+      "policy and constraints digests",
+      "effective trust/expiry/signature flags",
+      "OJ pins and pivot chain",
+      "TL digests",
+      "observation time and timestamp accuracy interval",
+      "revocation sources/intervals",
+      "signature identifier and PDF ByteRange when applicable"
+    ]
+  },
+  "priorEvidence": {
+    "source": "docs/SIGNUM_0.5E2_RESULTS.json",
+    "completeCampaignsInE3": 0,
+    "newTestsExecutedInE3": 0,
+    "officialEvaluationTime": "2026-10-21T06:00:00Z"
+  },
+  "fixtureSHA256": {
+    "Tests/SignumCertificateValidationTests/Fixtures/E1R/authorized.xml": "3ff97be04baf941a5210eb2be22f3bb79eb97a520727aaf4fb9bc5f32f4832d8",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1R/leaf.der": "c579b7f9f99269281b99ebbc2703e6ab400c799b38616e3fe02ac84089c07f04",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1R/multi.cms": "e65c2ecd84233f43a1f06d21ab2ef49d61c82192ccbf63999ae1966046e1f532",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1R/wrong-imprint.cms": "94056a1ab15cd1fefc6945c51ab22ab1f4c3526e1cb34bf991ba5b96e0418570",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-ambiguous.xml": "dce7c7463c2bf40d078b6d85af05ad2666743aade425a4a7bd2845985c2a9ea5",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-negative.xml": "4e742bce86484dfc9f24c285932e7e4fa113480f0a07f56072b93b89405de7b3",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-order.xml": "147fb002d24dd3ca93e552dab7707dd99c5573a6d1352704aa77cd72bbd487c6",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-ski.xml": "2f6600cb92f1db478ce4d561dc3a79e14d2c128218d5ad741a7bf9c8ea9bd4f1",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/AT.xml": "99bbc7f3553da13f6f54d672d842010d7f420174ea53c8483b4337a27a7e3140",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/BE.xml": "275b2cb5edd8364c2d803ccbb2d0125c8bd8a07d58e7bf450e79dec2d72c7a5a",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/BG.xml": "60e45e3f2cc965b5d17d5b2dfe7a451bbe11e32a5f4b6f3afc336597b798f620",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/DE.xml": "66bada680a06f3d3b425ff9169ae5e24ca941016a89d2ee9d8b3740d7e45879d",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/ES.xml": "6facca1f0c77fe0832768350001573b814674f7de51d4d4401a53acbbbfb2a08",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/FR.xml": "4d007ac798be16f5b8222b6f47a74adbb555eeddf0a7f6d2f20df8cca4fe7bf8",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/IT.xml": "d55466a858ab10eedf8a0b647f7b911481349f55aacc57b17d8c57d9e0aa3485",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/europe.xml": "b2f62e5cbe2fb2d3ae8e0e8b7b8def5bac33e9ded33dbcb6b789be8bbc8fa152",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/signer0.der": "e96c6c4bbbd0abfd58953068040fac8b4116a9401c62944c9d8a374734762eee",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/transition-equivalent.xml": "56bccddf242b1b3fb180d15e6559e360b20a69a49fdfa2791194c2e67a445c56",
+    "Tests/SignumCertificateValidationTests/Fixtures/E2/transition-negative.xml": "bbf17aaf4005f290cea445fa0d3a95668fd5367fb81005a891c8cd56e093d8f3",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/authorized.xml": "4b6700058c8d9c18aa510a2ee2a33c4b788a485d6fa92c7272d0c918bc123793",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/issuer.der": "d333d2487d696dc6216d842caf48f0ab616792e8ca9623cf099f1e8d86ff20c5",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/multi.cms": "b7758261b6f9d063a9f0f01f88201699e51d52e7878555cc1d9c70a3f37bdc9e",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/multi.pdf": "e6fcbe5d42159361cdf37ddb403cf4bb6dec743a076a9b56db86926d6a781a67",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/noqscd.cms": "6b32cbb64964def70b83119564ed3f2bf21924f309d63203704be24d343e2140",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/tl-qscd.xml": "cf55f9f94568f9095843ec32b5cae174044f4349a870f262db217f676258da4b",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/unsupported.xml": "a6e9d907d4ba8963ebcfb85e5425aa65bde4e877849ebbc5e55198be0341316c",
+    "Tests/SignumCertificateValidationTests/Fixtures/Qualification/wrong-policy.xml": "62f0d90e77d780ea94178d13c105bee67cfddd415522bf4819c15e59f062c335",
+    "Tests/SignumTrustAuthenticationTests/Fixtures/European/at.xml": "f91bbd67a2bf913dfea5f35e9d3bf9157a1bac7d3d2377558ebf071e251e557b",
+    "Tests/SignumTrustAuthenticationTests/Fixtures/European/be.xml": "cabba95e3100a45edaf923b72d4fb6fa38a5b4bd5ab3a3555c2d79563e83396b",
+    "Tests/SignumTrustAuthenticationTests/Fixtures/European/de.xml": "bed0356c0edb30bfa177bcf9d67b9f8709fd930dc298b9881ffe75e27e6bc7ad",
+    "Tests/SignumTrustAuthenticationTests/Fixtures/European/es.xml": "19edfb5923cd27289ba78548255ca79ae5c9ae4b7dc8a5a334170d4a821a73cf",
+    "Tests/SignumTrustAuthenticationTests/Fixtures/European/fr.xml": "d584a732ff848ebdff0d04b439f82f6486009b224664dda119aff3d2a5560593",
+    "Tests/SignumTrustAuthenticationTests/Fixtures/eu-lotl.xml": "a36d0053df1afa96c88ede817a585b3168afeba84c1984a0e6cc5642453e70e6",
+    "Tests/SignumTrustAuthenticationTests/Fixtures/it.xml": "4dc43dc5ee19c23d1b65262b8df65ac7c4f16f12727e59175fa76e092e0a6889",
+    "Tests/SignumCertificateValidationTests/Fixtures/E1S/tl-signer.der": "c22b8c979ea99470845fef93b125b4c67dbbf090c089c094dc722b8c625b2856"
+  },
+  "cases": [
+    {
+      "id": "T01-official-six-national-lists",
+      "scope": "TL authentication and service interpretation only",
+      "fixtures": [
+        "Tests/SignumTrustAuthenticationTests/Fixtures/eu-lotl.xml",
+        "Tests/SignumTrustAuthenticationTests/Fixtures/it.xml",
+        "Tests/SignumTrustAuthenticationTests/Fixtures/European/at.xml",
+        "Tests/SignumTrustAuthenticationTests/Fixtures/European/de.xml",
+        "Tests/SignumTrustAuthenticationTests/Fixtures/European/be.xml",
+        "Tests/SignumTrustAuthenticationTests/Fixtures/European/fr.xml",
+        "Tests/SignumTrustAuthenticationTests/Fixtures/European/es.xml"
+      ],
+      "existingSignumEntryPoint": "SignumTrustAuthenticationTests.EuropeanBarrierTests/testFrozenOfficialListsAuthenticateBeforeInterpretation",
+      "previousSignumObservation": "Six authenticated XML lists; partial interpreted catalogs; no signature/QES verdict",
+      "observationTime": "2026-10-21T06:00:00Z",
+      "trustSource": "OJ C/2026/1944 bootstrap; frozen EU LOTL 397 and national pointers",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T02-criteria-and-legacy-regimes",
+      "scope": "Criteria/component comparison; not end-to-end QES",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/authorized.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/leaf.der"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.ETSISemanticsTests/testGeneralOIDCriteriaThreeStatesAndActualCertificateFacts; testRecursiveBooleanCriteriaUnknownIsNeverFalseAndBadOIDOrNamespace; testLegacySSCDRegimeAsInCertNegativeAndContradictoryQualifiers; SignumCertificateValidationTests.QualificationTests/testPolicySetRequiresEveryPolicyAndBooleanCriteria",
+      "previousSignumObservation": "Reuse existing test-defined criteria branches; unsupported remains distinct from nonmatch. Exact DSS component adapter pending",
+      "observationTime": "2026-10-21T07:17:28+00:00",
+      "trustSource": "Component facts only; no injected test facts become authenticated trust",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T03-historical-ski-and-invalid-timelines",
+      "scope": "Historical identity and semantic exclusions",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-ski.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-ambiguous.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-order.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1S/historical-negative.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1S/tl-signer.der"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.ETSISemanticsTests/testHistoricalSKIAndSubjectResolveWithoutEventDERAndNeverByNameAlone; testSignedBadTimelineExcludesOnlyAffectedService; testHistoricalTSAAndQualificationUseOwnRulesPerSigner",
+      "previousSignumObservation": "Resolvable same-service history retained; ambiguous identity, negative qualifiers or bad order cannot authorize positive QES",
+      "observationTime": "2026-10-21T07:17:28+00:00",
+      "trustSource": "E1S tl-signer.der explicit test pin in ETSISemanticsTests.list; no full production LOTL comparison",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T04-six-country-offline-qualified-profile",
+      "scope": "Synthetic complete-signature profile and geographic coverage",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/europe.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/signer0.der",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/multi.cms",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/IT.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/AT.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/DE.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/BE.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/FR.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/ES.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/BG.xml"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.EuropeanCatalogTests/testSixCountryDirectCAQCProfilesOfflineAndUncoveredCountry",
+      "previousSignumObservation": "QC signer qualified for IT/AT/DE/BE/FR/ES, BG indeterminate; proven time/good revocation/path remain independent",
+      "observationTime": "2026-10-21T07:17:28+00:00",
+      "trustSource": "Synthetic E2 LOTL: pin signer0.der, then authenticate selected national XML from its pointer. No production OJ claim.",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T05-duplicate-national-service-identity",
+      "scope": "Ambiguity across countries",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/europe.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/signer0.der",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/multi.cms",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/IT.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/AT.xml"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.EuropeanCatalogTests/testSameIdentityAcrossCountriesNeverChoosesByLabelAndCatalogBridgeIsOffline",
+      "previousSignumObservation": "Alternative services preserved; qualification indeterminate; no name/country preference",
+      "observationTime": "2026-10-21T07:17:28+00:00",
+      "trustSource": "Synthetic E2 LOTL: pin signer0.der, then authenticate selected national XML from its pointer. No production OJ claim.",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T06-equivalent-historical-qualifiers",
+      "scope": "Certificate-specific historical transition",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/europe.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/signer0.der",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/multi.cms",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/transition-equivalent.xml"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.EuropeanCatalogTests/testEquivalentAndNegativeHistoricTransitionsKeepIndependentProofs",
+      "previousSignumObservation": "Qualified QC signer with equivalent effective own-event profiles; path evaluated at proven time",
+      "observationTime": "2026-10-21T07:17:28+00:00",
+      "trustSource": "Synthetic E2 LOTL: pin signer0.der, then authenticate selected national XML from its pointer. No production OJ claim.",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T07-negative-historical-qualifier",
+      "scope": "Contrary historical transition",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/europe.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/signer0.der",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/multi.cms",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/transition-negative.xml"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.EuropeanCatalogTests/testEquivalentAndNegativeHistoricTransitionsKeepIndependentProofs",
+      "previousSignumObservation": "Qualification indeterminate even though independent timestamp and revocation are positive",
+      "observationTime": "2026-10-21T07:17:28+00:00",
+      "trustSource": "Synthetic E2 LOTL: pin signer0.der, then authenticate selected national XML from its pointer. No production OJ claim.",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T08-qscd-absent-vs-tl-evidence",
+      "scope": "Certificate qualification/device evidence separation",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/noqscd.cms",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/authorized.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/tl-qscd.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/wrong-policy.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/unsupported.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/issuer.der"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.QualificationTests/testQualifiedWithoutQSCDAndApplicableTLQualifier",
+      "previousSignumObservation": "No certificate QSCD: indeterminate with authorized.xml; qualified with applicable tl-qscd.xml; wrong/unsupported criteria indeterminate",
+      "observationTime": "2026-10-20T19:24:33+00:00",
+      "trustSource": "Qualification fixture explicit issuer.der test anchor; component/test trust, not a full production LOTL comparison",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T09-multiple-signers-cms-and-pdf",
+      "scope": "SignerInfo/PDF revision separation",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/multi.cms",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/multi.pdf",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/authorized.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/Qualification/issuer.der"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.QualificationTests/testQESAndNonQualifiedRemainPerSignerCAdESAndPAdES",
+      "previousSignumObservation": "Two independent results: qualified QC signer and electronic non-QC signer; evidence remains associated",
+      "observationTime": "2026-10-20T19:24:33+00:00",
+      "trustSource": "Qualification fixture explicit issuer.der test anchor; component/test trust, not a full production LOTL comparison",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    },
+    {
+      "id": "T10-insufficient-time-or-revocation",
+      "scope": "Negative evidence sufficiency; some inputs are existing in-memory policy cases",
+      "fixtures": [
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/europe.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/signer0.der",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/multi.cms",
+        "Tests/SignumCertificateValidationTests/Fixtures/E2/IT.xml",
+        "Tests/SignumCertificateValidationTests/Fixtures/E1R/wrong-imprint.cms"
+      ],
+      "existingSignumEntryPoint": "SignumCertificateValidationTests.EuropeanCatalogTests/testCurrentGoodWithoutHistoricalWindowNoTimeOrExpiredTLNeverQES; SignumCertificateValidationTests.EvidenceBindingTests/testWrongImprintAndEvidenceOfOtherSignerAreNotAssociated",
+      "previousSignumObservation": "Current-only good, declared-only time, expired TL or wrong imprint cannot yield QES. The current-good policy object is not an authenticated OCSP artifact",
+      "observationTime": "2026-10-21T07:17:28+00:00",
+      "trustSource": "Synthetic E2 LOTL: pin signer0.der, then authenticate selected national XML from its pointer. No production OJ claim.",
+      "dssExecution": "not_executed",
+      "dssPolicySHA256": null,
+      "dssActualTrustSource": null,
+      "dssEvaluationTime": null,
+      "dssVerdict": null
+    }
+  ]
+}

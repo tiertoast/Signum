@@ -1,0 +1,49 @@
+# Signed fixtures must retain exact bytes, including whitespace and CRLF.
+Tests/SignumTrustAuthenticationTests/Fixtures/*.xml -text -diff -whitespace
+# Preserve upstream schema/license formatting.
+Sources/SignumTrustAuthentication/Schemas/*.xsd -whitespace
+Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE -whitespace
+
+Tests/SignumTrustIntegrationTests/Fixtures/*.xml -text -diff -whitespace
+
+Tests/SignumCertificateValidationTests/Fixtures/*.xml -text -diff -whitespace
+
+# Public revocation and RFC 3161 fixtures must retain exact DER bytes.
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.der -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.ocsp -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.crl -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.tst -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Revocation/*.bin -text -diff
+
+# Signed integration corpus, exact bytes.
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.xml -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.der -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.cms -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.pdf -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.ocsp -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.crl -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.tst -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Binding/*.bin -text -diff
+
+# Exact signed qualification fixtures.
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.xml -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.der -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.cms -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.pdf -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.ocsp -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.crl -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.tst -text -diff
+Tests/SignumCertificateValidationTests/Fixtures/Qualification/*.bin -text -diff
+
+# Preserve exact national TL XML signature bytes (including publisher CRLF).
+Tests/SignumTrustAuthenticationTests/Fixtures/European/*.xml -text -diff -whitespace
+
+# Exact signed E1R corpus, public certificates and evidence only.
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.xml -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.der -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.cms -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.pdf -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.ocsp -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.crl -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.tst -text -diff -whitespace
+Tests/SignumCertificateValidationTests/Fixtures/E1R/*.bin -text -diff -whitespace

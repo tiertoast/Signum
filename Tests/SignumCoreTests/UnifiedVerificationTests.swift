@@ -1,5 +1,6 @@
 #if os(macOS)
 import XCTest
+import SignumCertificateValidation
 import PDFKit
 import Darwin
 import UniformTypeIdentifiers
@@ -24,6 +25,12 @@ final class UnifiedVerificationTests: XCTestCase {
         try process.run(); try FixtureProcess.wait(process); XCTAssertEqual(process.terminationStatus,0)
     }
     private func assertUnassessed(_ report: VerificationReport, file: StaticString = #filePath, line: UInt = #line) {
+        for signature in report.signatures {
+            if let der = signature.signerDER {
+                XCTAssertEqual(DocumentSnapshot.digest(der), signature.certificate?.sha256, file:file,line:line)
+                XCTAssertEqual(CertificatePathValidator.evaluate(signer:der, intermediates:signature.embeddedCertificateDERs, authenticatedLists:[]).state,.notVerifiable,file:file,line:line)
+            }
+        }
         XCTAssertEqual(report.trust,.notChecked,file:file,line:line); XCTAssertEqual(report.revocation,.notChecked,file:file,line:line); XCTAssertEqual(report.qualification,.notChecked,file:file,line:line)
     }
     func testAttachedCAdESContentBasedDetectionCertificateMetadataAndIndependentReference() throws {
@@ -33,6 +40,10 @@ final class UnifiedVerificationTests: XCTestCase {
             XCTAssertEqual(report.format,.cades); XCTAssertEqual(report.integrity,.verified); XCTAssertEqual(report.signatures.count,1)
             XCTAssertNil(report.previewPDF); XCTAssertEqual(report.signatures[0].certificate?.sha256,DocumentSnapshot.digest(signer.der))
             XCTAssertEqual(report.originalContent,original)
+            let evidence = try XCTUnwrap(report.signatures[0].evidence)
+            XCTAssertEqual(evidence.signatureKey,DocumentSnapshot.digest(evidence.signatureValue))
+            XCTAssertTrue(evidence.signedAttributes.contains { $0.oid == "1.2.840.113549.1.9.4" })
+            XCTAssertTrue(evidence.timestampTokens.isEmpty)
             let exported = root.appendingPathComponent("exported")
             try SignumFileOutput.writeNew(try XCTUnwrap(report.originalContent),to:exported)
             XCTAssertEqual(try Data(contentsOf:exported),original)
@@ -129,6 +140,8 @@ final class UnifiedVerificationTests: XCTestCase {
             _ = try verify(second)
             XCTAssertEqual(try Data(contentsOf:mock.folder.appendingPathComponent("operations")),auditBefore,"Verification must never load/authenticate the provider")
             XCTAssertEqual(multi.previewPDF,second);assertUnassessed(multi)
+            XCTAssertNotEqual(multi.signatures[0].evidence?.signatureKey,multi.signatures[1].evidence?.signatureKey)
+            XCTAssertEqual(multi.signatures.last?.signedRevisionEnd,second.count)
         }
     }
     func testPAdESLaterBytesDoNotInvalidateAnEarlierRevision() throws {

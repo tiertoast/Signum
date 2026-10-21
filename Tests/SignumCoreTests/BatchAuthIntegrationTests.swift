@@ -7,7 +7,7 @@ import XCTest
     private func count(_ mock: MockModule, _ op: Int) -> Int {
         ((try? String(contentsOf: mock.folder.appendingPathComponent("operations"))) ?? "").split(separator: "\n").filter { $0 == String(op) }.count
     }
-    private func fixture(always: Bool = false, phase: Int? = nil, effect: Int = 0, after: Int = 0, temporary: Bool = false, documents: Int = 3,
+    private func fixture(always: Bool = false, phase: Int? = nil, effect: Int = 0, after: Int = 0, temporary: Bool = false, documents: Int = 3, includeSigningTime: Bool = true,
         _ body: (URL, MockModule, BatchSigningCoordinator, BatchApproval, BatchCAdESSession) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -21,7 +21,7 @@ import XCTest
         let batch = BatchSigningCoordinator(); defer { batch.reset() }
         await batch.addDocuments(files, format: .cades)
         let plan = try await batch.prepareApproval(provider: mock.path.path, slot: 7,
-            certificate: .init(label: "Synthetic", identifier: Data([1])), der: signer.der)
+            certificate: .init(label: "Synthetic", identifier: Data([1])), der: signer.der, includeSigningTime: includeSigningTime)
         try batch.confirm(plan)
         let inspected = try MiddlewareFileSecurity.inspect(mock.path.path, automatic: false)
         let session = try BatchCAdESSession(approval: plan, serial: "SYNTHETIC-0001", moduleIdentity: inspected.identity, temporaryPIN: temporary, executable: worker)
@@ -46,6 +46,24 @@ import XCTest
             XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 16), 3); XCTAssertEqual(count(mock, 1), 1)
             XCTAssertFalse(session.canContinue); XCTAssertFalse(batch.isContinuingAuthenticated)
             XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasPrefix(".signum-staging-") })
+        }
+    }
+    func testSigningTimeToggleSurvivesBatchDelayWithoutChangingApprovedAttributes() async throws {
+        for include in [true, false] {
+            try await fixture(documents: 2, includeSigningTime: include) { _, _, batch, plan, session in
+                XCTAssertTrue(plan.jobs.allSatisfy { $0.includeSigningTime == include })
+                try await first(batch, session)
+                try await Task.sleep(nanoseconds: 1_100_000_000)
+                await batch.continueAuthenticatedBatch(using: session)
+                XCTAssertEqual(batch.documents.map(\.state), [.completed, .completed])
+                let helper = try XCTUnwrap(ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"])
+                for job in plan.jobs {
+                    let result = try SignumVerificationService.verify(file: job.destination, helper: URL(fileURLWithPath: helper))
+                    XCTAssertEqual(result.integrity, .verified)
+                    XCTAssertEqual(result.signatures.first?.declaredTime.isEmpty, !include)
+                    XCTAssertTrue(result.signatures.first?.evidence?.timestampTokens.isEmpty == true)
+                }
+            }
         }
     }
     func testAlwaysAuthenticateRequiresThreeExplicitPINsAndContextLogins() async throws {

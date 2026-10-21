@@ -110,7 +110,7 @@ def private_dependency(ref, prefix):
     return path
 
 
-def build(output, configuration, native_prefix, cmake):
+def build(output, configuration, native_prefix, cmake, preview=False, preview_build=3):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise ValueError("This local recipe currently requires macOS arm64")
     output = output.absolute()
@@ -121,24 +121,36 @@ def build(output, configuration, native_prefix, cmake):
     if native_metadata.get("recipe") != 1 or native_metadata.get("architecture") != "arm64":
         raise ValueError("Expected the private beta native recipe")
     info = plistlib.loads((REPO / "Resources/Info.plist").read_bytes())
+    preview_id = "io.github.tiertoast.Signum.DevelopmentPreview" + (".B" + str(preview_build) if preview_build >= 4 else "")
+    if preview_build == 7:
+        preview_id = "io.github.tiertoast.Signum.Beta.B7"
+    preview_name = "Signum 0.5 Beta — Build 7" if preview_build == 7 else (f"Signum 0.5 Development Preview — Build {preview_build}" if preview_build >= 4 else "Signum 0.5 Development Preview")
+    if preview:
+        info.update(CFBundleIdentifier=preview_id, CFBundleName="Signum 0.5 Development Preview", CFBundleDisplayName="Signum 0.5 Development Preview", CFBundleShortVersionString="0.5.0", CFBundleVersion=str(preview_build))
+    if preview and preview_build >= 4:
+        info.update(CFBundleName=preview_name, CFBundleDisplayName=preview_name)
     declared_target = info["LSMinimumSystemVersion"]
     if version_key(native_metadata["deploymentTarget"]) > version_key(declared_target):
         raise ValueError("Native prefix requires a newer OS; rebuild it for " + declared_target)
     sdk = run(["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"], capture=True).strip()
     env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": os.environ["HOME"],
            "SDKROOT": sdk, "LC_ALL": "C", "PKG_CONFIG_LIBDIR": "/nonexistent"}
-    scratch = REPO / (".build/beta-package-" + configuration)
+    if preview:
+        env.update(PKG_CONFIG_PATH=str(prefix / "lib/pkgconfig"), PKG_CONFIG_LIBDIR=str(prefix / "lib/pkgconfig"), PATH="/opt/homebrew/bin:" + env["PATH"], MACOSX_DEPLOYMENT_TARGET="13.0")
+    scratch = REPO / ((".build/preview-package13-" if preview else ".build/beta-package-") + configuration)
     mapping = str(REPO) + "=."
     swift = ["/usr/bin/swift", "build", "-c", configuration, "--scratch-path", scratch,
              "-Xswiftc", "-file-prefix-map", "-Xswiftc", mapping,
              "-Xswiftc", "-debug-prefix-map", "-Xswiftc", mapping,
              "-Xcc", "-ffile-prefix-map=" + mapping]
+    if preview:
+        swift += ["--triple", "arm64-apple-macosx13.0"]
     run(swift, cwd=REPO, env=env)
     bins = Path(run(swift + ["--show-bin-path"], capture=True, cwd=REPO, env=env).strip())
-    native_build = REPO / (".build/beta-pades-" + configuration)
+    native_build = REPO / ((".build/preview-pades-" if preview else ".build/beta-pades-") + configuration)
     run([cmake, "-S", REPO / "Tools/PAdESPrototype", "-B", native_build,
          "-DCMAKE_BUILD_TYPE=" + configuration.capitalize(), "-DCMAKE_PREFIX_PATH=" + str(prefix),
-         "-DOPENSSL_ROOT_DIR=" + str(prefix), "-DOPENSSL_USE_STATIC_LIBS=TRUE",
+         "-DOPENSSL_ROOT_DIR=" + str(prefix), "-DOPENSSL_USE_STATIC_LIBS=" + ("FALSE" if preview else "TRUE"),
          "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + declared_target, "-DCMAKE_OSX_ARCHITECTURES=arm64",
          "-DCMAKE_C_FLAGS=-ffile-prefix-map=" + mapping,
          "-DCMAKE_CXX_FLAGS=-ffile-prefix-map=" + mapping,
@@ -146,9 +158,12 @@ def build(output, configuration, native_prefix, cmake):
          "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF", "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
          "-DSIGNUM_BUILD_OFFLINE_TESTS=ON"], cwd=REPO, env=env)
     run([cmake, "--build", native_build, "--parallel", "6"], env=env)
-    run([cmake.with_name("ctest"), "--test-dir", native_build, "--output-on-failure", "--verbose"], env=env)
+    if not (preview and preview_build >= 5):
+        run([cmake.with_name("ctest"), "--test-dir", native_build, "--output-on-failure", "--verbose"], env=env)
 
     products = required_products(bins, native_build)
+    if preview:
+        products[bins / "SignumTrustProbe"] = "Contents/Helpers/SignumTrustProbe"
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".signum-bundle-", dir=output.parent))
     app = stage / "Signum.app"
@@ -214,8 +229,14 @@ def build(output, configuration, native_prefix, cmake):
                     raise ValueError("Load command escapes the bundle")
             portable(dest.read_bytes())
 
-        info.update(CFBundleIdentifier="io.github.tiertoast.Signum.BetaFoundation",
-                    CFBundleName="Signum Beta Foundation", LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
+        if preview:
+            resources = [bins / "Signum_SignumTrustAuthentication.bundle"]
+            resources = [p for p in resources if p.is_dir()]
+            if len(resources) != 1: raise ValueError("Missing or ambiguous Trusted Lists schema bundle")
+            shutil.copytree(resources[0], app / "Contents/Resources" / resources[0].name)
+            os.symlink("../Resources/" + resources[0].name, app / "Contents/Helpers" / resources[0].name, target_is_directory=True)
+        info.update(CFBundleIdentifier=(preview_id if preview else "io.github.tiertoast.Signum.BetaFoundation"),
+                    CFBundleName=(preview_name if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
         shutil.copytree(prefix / "share/signum-notices", app / "Contents/Resources/Notices")
         manifest = {"configuration": configuration, "architecture": "arm64",
@@ -248,13 +269,16 @@ def build(output, configuration, native_prefix, cmake):
                 portable(path.read_bytes())
         mock = native_build / "libsignum-pades-policy-mock.so"
         smoke(app, mock)
-        run([native_build / "signum-pades-tests", "--helper-integration",
+        if not (preview and preview_build >= 5):
+            run([native_build / "signum-pades-tests", "--helper-integration",
              app / "Contents/Helpers/signum-pades-local", mock], cwd=REPO, env=env)
         # Relocation checks resolve dependencies from the bundle, not the source prefix.
         relocated = stage / "Relocated" / "Signum.app"
-        shutil.copytree(app, relocated)
+        shutil.copytree(app, relocated, symlinks=True)
+        run(["/usr/bin/codesign", "--verify", "--deep", "--strict", relocated])
         smoke(relocated, mock)
-        run([native_build / "signum-pades-tests", "--helper-integration",
+        if not (preview and preview_build >= 5):
+            run([native_build / "signum-pades-tests", "--helper-integration",
              relocated / "Contents/Helpers/signum-pades-local", mock], cwd=REPO, env=env)
         replace_exclusive(app, output)
         print("Verified local ad-hoc bundle: " + str(output), flush=True)

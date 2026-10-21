@@ -18,6 +18,7 @@ struct SigningExperiencePreferences {
         static let alongsideOriginal = "signum.signing.alongsideOriginal.v1"
         static let customDirectory = "signum.signing.customDirectoryPath.v1"
         static let batchAuthentication = "signum.signing.batchAuthentication.v1"
+        static let includeSigningTime = "signum.signing.includeSigningTime.v1"
         static let additionalConfirmation = "signum.signing.additionalConfirmation.v1"
     }
     let defaults: UserDefaults
@@ -28,6 +29,10 @@ struct SigningExperiencePreferences {
             return BatchAuthenticationMode(rawValue: raw) ?? .perSignature
         }
         nonmutating set { defaults.set(newValue.rawValue, forKey: Keys.batchAuthentication) }
+    }
+    var includeSigningTime: Bool {
+        get { defaults.object(forKey: Keys.includeSigningTime) == nil || defaults.bool(forKey: Keys.includeSigningTime) }
+        nonmutating set { defaults.set(newValue, forKey: Keys.includeSigningTime) }
     }
     var additionalConfirmation: Bool {
         get { defaults.bool(forKey: Keys.additionalConfirmation) }

@@ -32,6 +32,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
         get { ioLock.lock(); defer { ioLock.unlock() }; return connectionFactory }
         set { ioLock.lock(); defer { ioLock.unlock() }; precondition(!began); connectionFactory = newValue }
     }
+    private var signingTimes: [UUID: Date] = [:]
     private var stopped = false, reusable = false, began = false, cleanupFailed = false
     public var cleanupUncertain: Bool { state.lock(); defer { state.unlock() }; return cleanupFailed }
     public var canContinue: Bool { state.lock(); defer { state.unlock() }; return reusable && !stopped }
@@ -107,7 +108,8 @@ public final class BatchCAdESSession: @unchecked Sendable {
                 guard pin != nil, job.id == jobs[0].id else { throw SupervisedProcess.Failure.protocolViolation }
                 let manifestJobs = try jobs.map { approved -> BatchWorkerJob in
                     let bytes = try approved.verifiedBytes()
-                    let attributes = try CAdES.Prepared(document: bytes, certificateDER: approved.certificateDER).attributesToSign
+                    let when = Date(); signingTimes[approved.id] = when
+                    let attributes = try CAdES.Prepared(document: bytes, certificateDER: approved.certificateDER, declaredSigningTime: approved.includeSigningTime ? when : nil).attributesToSign
                     return .init(id: approved.id, snapshotID: approved.snapshotIdentity.id, sha256: approved.contentSHA256, attributes: attributes)
                 }
                 var manifest = BatchWorkerStart(version: temporaryPIN ? 3 : 2, batchID: approvalID,
@@ -121,7 +123,8 @@ public final class BatchCAdESSession: @unchecked Sendable {
             guard let connection, pin == nil || connection.next == 0 else { throw SupervisedProcess.Failure.protocolViolation }
             operation.transition(to: .preparing)
             try job.executeCAdES(io: io, isCancelled: cancelled) { bytes in
-                let prepared = try CAdES.Prepared(document: bytes, certificateDER: job.certificateDER)
+                guard let when = signingTimes[job.id] else { throw SupervisedProcess.Failure.protocolViolation }
+                let prepared = try CAdES.Prepared(document: bytes, certificateDER: job.certificateDER, declaredSigningTime: job.includeSigningTime ? when : nil)
                 while connection.next < jobs.count && jobs[connection.next].id != job.id {
                     try connection.skip(isCancelled: cancelled) // Cancelled approved jobs are never signed.
                 }
