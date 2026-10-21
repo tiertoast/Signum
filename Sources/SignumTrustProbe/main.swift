@@ -19,6 +19,20 @@ func show(_ view: TLRefreshView) {
     fflush(stdout)
 }
 do {
+    if (args.count == 3 || args.count == 4), ["europe-refresh", "europe-offline"].contains(args[1]) {
+        let service = try EuropeanTrustCatalogService(directory: URL(fileURLWithPath: args[2]))
+        let countries: Set<String> = args.count == 4 ? [args[3]] : []
+        let view: EuropeanCatalogView
+        if args[1] == "europe-offline" { view = try await service.cached(countries: countries) }
+        else { view = try await service.refresh(countries: countries, force: true) }
+        print("source=\(args[1] == "europe-offline" ? "cache" : "refresh") EU=\(view.europe?.document.sequenceNumber ?? 0) available=\(view.availableCountries.sorted().joined(separator: ","))")
+        for country in view.catalogs.keys.sorted() {
+            let value = view.catalogs[country]!
+            print("country=\(country) freshness=current services=\(value.usableServiceCount) nextUpdate=\(value.document.nextUpdate.ISO8601Format())")
+        }
+        for country in view.warnings.keys.sorted() { print("unavailable=\(country) reason=\(view.warnings[country]!)") }
+        exit(0)
+    }
     if args.count == 4, ["country-refresh", "country-offline"].contains(args[1]) {
         let country = args[2], cache = URL(fileURLWithPath: args[3])
         try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)

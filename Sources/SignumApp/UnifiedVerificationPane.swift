@@ -25,7 +25,8 @@ enum VerificationDropLoader {
         var issue = ""
     }
     private let catalog: (any TrustedListCatalogProviding)?
-    init(catalog: (any TrustedListCatalogProviding)? = nil) { self.catalog = catalog }
+    private let validationClock: @Sendable () -> Date
+    init(catalog: (any TrustedListCatalogProviding)? = nil, validationClock: @escaping @Sendable () -> Date = { Date() }) { self.catalog = catalog; self.validationClock = validationClock }
     @Published private(set) var rows: [Row] = []
     @Published private(set) var busy = false
     @Published private(set) var acquiring = false
@@ -80,7 +81,8 @@ enum VerificationDropLoader {
         let control = SigningOperation(); operation = control; issue = ""
         rows = urls.map { Row(name: $0.lastPathComponent) }
         var retainedPreviewBytes = 0
-        let list = try? await catalog?.currentCatalog()
+        let european = catalog as? any EuropeanCatalogProviding
+        let list = european == nil ? try? await catalog?.currentCatalog() : nil
         guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
         for (index, url) in urls.enumerated() {
             guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
@@ -98,13 +100,22 @@ enum VerificationDropLoader {
                 rows[index].report = report
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
                 let assessmentReport = report
-                let identity = Bundle.main.bundleIdentifier ?? "io.github.tiertoast.Signum.DevelopmentPreview.B5"
+                let identity = Bundle.main.bundleIdentifier ?? "io.github.tiertoast.Signum.DevelopmentPreview.B6"
                 let cacheURL = FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first?.appendingPathComponent(identity).appendingPathComponent("Revocation")
                 let service = SignatureQualificationService(cache:cacheURL.map { RevocationEvidenceCache(directory:$0) })
-                let values = await Task.detached(priority: .utility) {
-                    await service.validate(assessmentReport,authenticatedLists:list.map { [$0] } ?? [],mode:.online,
+                let online = await european?.networkAllowed() ?? true
+                let observedAt = validationClock()
+                let assessment = Task.detached(priority: .utility) {
+                    if let european {
+                        let result = await service.validate(assessmentReport, catalog: european.europeanService, mode: online ? .online : .offline, observedAt: observedAt,
+                            isCancelled: { control.isCancellationRequested })
+                        if !control.isCancellationRequested, let view = result.catalog { await european.didUpdate(view) }
+                        return result.signatures
+                    }
+                    return await service.validate(assessmentReport,authenticatedLists:list.map { [$0] } ?? [],mode:.online,observedAt:observedAt,
                         isCancelled:{ control.isCancellationRequested })
-                }.value
+                }
+                let values = await withTaskCancellationHandler(operation: { await assessment.value }, onCancel: { assessment.cancel() })
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
                 rows[index].paths = Dictionary(values.map { ($0.signatureID,$0.path) },uniquingKeysWith:{ a,_ in a })
                 rows[index].validations = Dictionary(values.map { ($0.signatureID,$0) },uniquingKeysWith:{ a,_ in a })
@@ -220,7 +231,7 @@ struct UnifiedVerificationPane: View {
         Text("Qualificazione eIDAS: " + value.qualification.state.description)
         Text(value.qualification.reason)
         if let service = value.qualification.service {
-            Text("Servizio al tempo comprovato: " + service.provider + " · " + service.service + (value.qualification.serviceStateFromHistory ? " · stato storico" : ""))
+            Text("Servizio al tempo comprovato: " + service.provider + " · " + service.service + " · " + service.country + (value.qualification.serviceStateFromHistory ? " · stato storico" : ""))
         }
         Text("QSCD: " + (value.qualification.qscd == .demonstrated ? "dimostrato" : "non dimostrato"))
     }

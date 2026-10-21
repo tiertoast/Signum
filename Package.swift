@@ -33,7 +33,7 @@ let package = Package(
         .target(name: "SignumCore", dependencies: ["CPKCS11", "CCertificatePolicy", "COutputPermissions", "CProcessCoordination", "CSecurePIN"]),
         .executableTarget(name: "SignumPKCS11Worker", dependencies: ["SignumCore"]),
         .executableTarget(name: "SignumCLI", dependencies: ["SignumCore"]),
-        .target(name: "SignumTrustIntegration", dependencies: ["SignumTrustAuthentication"]),
+        .target(name: "SignumTrustIntegration", dependencies: ["SignumTrustAuthentication", "SignumTrustCore"]),
         .testTarget(name: "SignumTrustIntegrationTests", dependencies: ["SignumTrustIntegration", "SignumTrustAuthentication", "SignumApp"], resources: [.copy("Fixtures")]),
         .executableTarget(name: "SignumApp", dependencies: ["SignumCore", "SignumTrustIntegration", "SignumCertificateValidation"]),
         .executableTarget(name: "SignumOutputCrashProbe", dependencies: ["SignumCore"],

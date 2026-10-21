@@ -1,0 +1,335 @@
+{
+  "baseline": "465999d81267bfe266ff77245cd307c57af6ff96",
+  "branch": "feature/signum-0.5e-european-trust",
+  "status": "passed",
+  "implementation": "Shared European coordinator in lifecycle, Settings and verification; existing E2 profile and cryptographic engines unchanged",
+  "targetedPhase": {
+    "passed": 14,
+    "newEuropeanIntegration": 4,
+    "legacyItalianIntegration": 5,
+    "verificationLifecycle": 5
+  },
+  "completeCampaigns": 1,
+  "swiftTests": {
+    "SignumTrustIntegrationTests.xctest": 5,
+    "SignumTrustCoreTests.xctest": 19,
+    "SignumTrustAuthenticationTests.xctest": 34,
+    "SignumCoreTests.xctest": 430,
+    "SignumCertificateValidationTests.xctest": 71
+  },
+  "swiftTotal": 559,
+  "native": {
+    "PAdESDebug": 81,
+    "PAdESRelease": 81,
+    "PKCS11Provider": 58,
+    "PKCS11Loader": 2
+  },
+  "packagingContracts": 18,
+  "finalFailures": 0,
+  "skippedTests": 0,
+  "postCampaign": {
+    "change": "Rendering test only: actual native window and visible pixel variation assertion",
+    "focusedTests": 1,
+    "status": "passed",
+    "fullCampaignRepeated": false,
+    "productionCodeChanged": false,
+    "appRebuildNeeded": false
+  },
+  "diagnostics": [
+    "Initial compile: duplicate legacy local service binding corrected before targeted execution",
+    "Initial rendering assertion did not establish visible output; corrected after full campaign and rerun alone",
+    "First post-campaign invocation used wrong dynamic test prefix; libcrypto load failed before test execution. Restored original static development prefix; focused test passed"
+  ],
+  "sanitizers": "Not repeated: no new native or unsafe-memory boundary",
+  "packaging": {
+    "status": "passed",
+    "bundleID": "io.github.tiertoast.Signum.DevelopmentPreview.B6",
+    "relocatedBundle": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/outputs/signum-0.5e4/validation/Relocated/Signum 0.5 Development Preview \u2014 Build 6.app",
+    "minimumOS": "13.0",
+    "macOS13RuntimeTested": false,
+    "cache": "/Users/andreaoregioni/Library/Application Support/io.github.tiertoast.Signum.DevelopmentPreview.B6/TrustedLists",
+    "selectiveUpdate": "source=refresh EU=397 available=AT,BE,BG,CY,CZ,DE,DK,EE,EL,ES,FI,FR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MT,NL,NO,PL,PT,RO,SE,SI,SK\ncountry=IT freshness=current services=434 nextUpdate=2027-03-24T08:16:56Z\n",
+    "offlineCache": "source=cache EU=397 available=AT,BE,BG,CY,CZ,DE,DK,EE,EL,ES,FI,FR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MT,NL,NO,PL,PT,RO,SE,SI,SK\ncountry=IT freshness=current services=434 nextUpdate=2027-03-24T08:16:56Z\n",
+    "startupPID": 62614,
+    "startup": "alive after four seconds; panel opening and data confirmed by user",
+    "environment": "system PATH, no DYLD search overrides; loaded libraries audited",
+    "DSS": "not executed; no ready runtime; not a Build 6 gate",
+    "panelCheck": {
+      "status": "passed",
+      "source": "human user confirmation in this task",
+      "observation": "Pannello aperto e dati visibili",
+      "agentUIAutomation": "unavailable: native pipe closed; two connection attempts only"
+    }
+  },
+  "host": {
+    "macOS": "27.2",
+    "architecture": "arm64",
+    "macOS13RuntimeTested": false
+  },
+  "artifacts": {
+    "app": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/outputs/signum-0.5e4/Signum 0.5 Development Preview \u2014 Build 6.app",
+    "zip": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/outputs/signum-0.5e4/Signum 0.5 Development Preview \u2014 Build 6.zip",
+    "zipSHA256": "ee27915305a4a9de2a0f4788ba6c1622655cd51e0bddd9631d20c0dad9eec3e7",
+    "appExecutableSHA256": "0b9a2ddb9e1e4f69cf2a672c4306a319cb8a9623b7e689682db2120f3a65e9a0",
+    "buildManifest": {
+      "configuration": "release",
+      "architecture": "arm64",
+      "sourceCommit": "465999d81267bfe266ff77245cd307c57af6ff96",
+      "sourceTrackedDirty": true,
+      "minimumOSFromMachO": "13.0",
+      "declaredMinimumOS": "13.0",
+      "native": {
+        "recipe": 1,
+        "architecture": "arm64",
+        "deploymentTarget": "13.0",
+        "sources": {
+          "openssl": {
+            "version": "openssl-3.5.6",
+            "sha256": "deae7c80cba99c4b4f940ecadb3c3338b13cb77418409238e57d7f31f2a3b736"
+          },
+          "freetype": {
+            "version": "freetype-2.13.3",
+            "sha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289"
+          },
+          "podofo": {
+            "version": "podofo-1.1.2",
+            "sha256": "d6ffe6fc173ac6d6e5b00f5cb9db01990cab1bdf7cc03bdeffce3013bc9ec63a"
+          },
+          "libxml2": {
+            "version": "libxml2-2.15.4",
+            "sha256": "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821"
+          },
+          "xmlsec": {
+            "version": "xmlsec1-1.3.12",
+            "sha256": "24045199af12d93fe5fdbbbf7e386e823e4842071e9432e2b90ac108b889a923"
+          }
+        },
+        "openssl": "shared; no-module; no-engine; default provider built in; config /etc/ssl"
+      },
+      "version": "0.5.0",
+      "build": "6",
+      "signing": "ad-hoc only; no Developer ID, hardened runtime or notarization",
+      "external": "User-installed PKCS#11 middleware for signing/discovery; bundled OpenSSL for unified verification; system /usr/bin/openssl for legacy verify-cades",
+      "nestedCodeSHA256": {
+        "Contents/Frameworks/libcrypto.3.dylib": "d8bce4b6673a459c06a9075af2d7bb1340bbd8e5824f6840ccefe92929d615d9",
+        "Contents/Frameworks/libpodofo.4.dylib": "3ddd22cbb3e02692a2fddf19681065417de2b20b5795c4c0149844f8205938fd",
+        "Contents/Frameworks/libssl.3.dylib": "3b42673a4a91b70257265f4c41369de680ba52a491aa5ff29fbb428ce806a9ab",
+        "Contents/Frameworks/libxml2.16.dylib": "7c6b24aaaa02355d4a9ac2fb06b2e88c4f26e6d68237cd3e7361bed8de221cce",
+        "Contents/Frameworks/libxmlsec1-openssl.10312.dylib": "9023bfc06f403de6ff02c2d72cfca27dfb3e16bc2a6141af42673dd17965af3d",
+        "Contents/Frameworks/libxmlsec1.10312.dylib": "30d35d2ef806a9eb6eeb1a560c4a012015147c9c5ce4659238699de084b17235",
+        "Contents/Helpers/SignumCLI": "b08671e0310e5bf0f23e9033453e82d184838ea6810f282c1a00c3e74a5c70c1",
+        "Contents/Helpers/SignumPKCS11Worker": "7bb6dcd44679880a4b89f22e6606ed936912784988e4e3cf05c29c665551c65c",
+        "Contents/Helpers/SignumTrustProbe": "dd4d8813eb25b9f95354b7d92d79bfea5a9bb494e8cde446327cde2696a92a43",
+        "Contents/Helpers/signum-pades-local": "6f0ea485bfa61d0d6b7468ed91370ec1de503aaec623bef2bac1677682c66bf6"
+      },
+      "mainExecutableIntegrity": "Covered by the enclosing app code signature"
+    }
+  },
+  "qualificationCoverage": [
+    "IT",
+    "AT",
+    "DE",
+    "BE",
+    "FR",
+    "ES"
+  ],
+  "profile": "Signum-E2-direct-CAQC-eSig-2016-v1",
+  "limitations": [
+    "DSS executable comparison not performed; no ready runtime or installation",
+    "Live packaged acquisition tested EU/IT only; other national coverage from frozen/synthetic fixtures",
+    "No full historical, pre-2016, TakenOverBy or LTV/LT/LTA claim",
+    "Real panel acceptance is user-observed; agent UI automation unavailable",
+    "Offline control is per-session; requests already sent cannot be retracted",
+    "Deployment target 13.0 checked; no macOS 13 runtime execution"
+  ],
+  "unpassedMandatoryGates": [],
+  "runner": {
+    "status": "passed",
+    "source": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/Signum",
+    "setup": {
+      "group": "complete",
+      "selected": [
+        "AppVersionTests",
+        "BatchWorkspaceSummaryTests",
+        "CAdESInputTests",
+        "CAdESTests",
+        "CAdESMemoryContractTests",
+        "CertificateIdentityTests",
+        "MiddlewareRegistryTests",
+        "PAdESInputContractTests",
+        "SigningWorkspaceSelectionTests",
+        "SignumCoreTests",
+        "BatchDestinationTests",
+        "BatchSigningTests",
+        "DynamicSigningFormatTests",
+        "LargeDocumentTests",
+        "OneShotContextTests",
+        "PAdESSourcePreflightTests",
+        "PAdESStatusIntegrationTests",
+        "SigningFormatStabilizationTests",
+        "UnifiedVerificationTests",
+        "PAdESDefaultSigningTests",
+        "PAdESOrientationOutputTests",
+        "PAdESStabilizationSigningTests",
+        "AutomaticCertificateSelectionTests",
+        "BatchAuthIntegrationTests",
+        "BatchAuthenticationTests",
+        "CertificateSigningGateTests",
+        "DeviceSelectionTests",
+        "MiddlewareDiscoveryTests",
+        "PKCS11LifecycleIntegrationTests",
+        "PKCS11WorkerTests",
+        "SupervisedProcessTests",
+        "PostLoginCertificateTests",
+        "ProcessCoordinationTests",
+        "SecureBatchNativeTests",
+        "SigningInteractionTests",
+        "SigningJobTests",
+        "SigningOperationTests",
+        "SigningReviewTests",
+        "AutomaticSelectionConsentTests",
+        "BatchAuthenticationPreferenceTests",
+        "BatchCleanupContractTests",
+        "CAdESVerificationIntegrationTests",
+        "CertificateEligibilityTests",
+        "CertificateVisibilityTests",
+        "DiscoveryExperienceTests",
+        "DocumentSnapshotTests",
+        "FileAcquisitionTests",
+        "FixtureInfrastructureTests",
+        "PAdESHelperProcessTests",
+        "PAdESRenderCoordinationTests",
+        "ProviderSelectionTests",
+        "SecurePINBufferTests",
+        "SignumFileOutputTests",
+        "VerificationDropLifecycleTests",
+        "SnapshotRetirementTests",
+        "PDFPreviewPreparationTests",
+        "ConcurrencyOwnershipTests",
+        "DynamicFormatWorkspaceTests",
+        "PAdESAppearanceTests",
+        "PAdESDefaultPlacementTests",
+        "PAdESGeometryStabilizationTests",
+        "PAdESOrientationPerformanceTests",
+        "PAdESOrientationTests",
+        "PAdESOrientationWorkflowTests",
+        "PAdESPlacementPerformanceTests",
+        "LegacyPAdESPreviewReferenceTests",
+        "SignaturePlacementOverlayTests",
+        "SigningWorkspaceTests"
+      ],
+      "fullSwift": true,
+      "helper": true,
+      "ui": true,
+      "skipSanitizers": true,
+      "swift": "/usr/bin/swift",
+      "cc": "/usr/bin/cc",
+      "openssl": "/usr/bin/openssl",
+      "cmake": "/opt/homebrew/Cellar/cmake/4.4.4/bin/cmake",
+      "ctest": "/opt/homebrew/Cellar/cmake/4.4.4/bin/ctest",
+      "prefix": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/a3-native-v3/prefix",
+      "poppler": "/opt/homebrew/Cellar/poppler/26.10.0/bin/pdftoppm",
+      "optionalGroupsNotSelected": []
+    },
+    "results": [
+      {
+        "name": "pades-debug-configure",
+        "exit": 0,
+        "seconds": 0.689,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pades-debug-configure.log"
+      },
+      {
+        "name": "pades-debug-build",
+        "exit": 0,
+        "seconds": 2.59,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pades-debug-build.log"
+      },
+      {
+        "name": "pades-debug",
+        "exit": 0,
+        "seconds": 2.688,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pades-debug.log"
+      },
+      {
+        "name": "pades-release-configure",
+        "exit": 0,
+        "seconds": 0.592,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pades-release-configure.log"
+      },
+      {
+        "name": "pades-release-build",
+        "exit": 0,
+        "seconds": 4.563,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pades-release-build.log"
+      },
+      {
+        "name": "pades-release",
+        "exit": 0,
+        "seconds": 2.04,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pades-release.log"
+      },
+      {
+        "name": "pkcs11-debug-configure",
+        "exit": 0,
+        "seconds": 0.709,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pkcs11-debug-configure.log"
+      },
+      {
+        "name": "pkcs11-debug-build",
+        "exit": 0,
+        "seconds": 0.779,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pkcs11-debug-build.log"
+      },
+      {
+        "name": "pkcs11-debug",
+        "exit": 0,
+        "seconds": 4.786,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/pkcs11-debug.log"
+      },
+      {
+        "name": "swift",
+        "exit": 0,
+        "seconds": 551.68,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/swift.log"
+      },
+      {
+        "name": "swift-bin-path",
+        "exit": 0,
+        "seconds": 0.498,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/swift-bin-path.log"
+      },
+      {
+        "name": "packaging",
+        "exit": 0,
+        "seconds": 0.128,
+        "log": "/Users/andreaoregioni/Documents/Codex/2026-10-20/signum-0-5-a-lotl-authentication/work/e4-final-campaign/20261021T113632Z-e760501022/evidence/packaging.log"
+      }
+    ]
+  },
+  "logSHA256": {
+    "complete-evidence/packaging.log": "c4be821d2b3a2e32d101212c77a07fff1a3a1f8c03c8f4664a3139b545ad88bc",
+    "complete-evidence/pades-debug-build.log": "a5967066c8f2fed992d6c88b943d10a5b69764f02560c18bbc6d6e68078a69e6",
+    "complete-evidence/pades-debug-configure.log": "c121f703c5308c3d5decfe3cf78b52348d2499f320ccf995957311573d1c7fd7",
+    "complete-evidence/pades-debug.log": "97249a82f56b3a6ab739310f66988f8f72eb31b32313c0ced6c98c1373dc4c91",
+    "complete-evidence/pades-release-build.log": "9796b32cda785f03acc7b1308d408a20d9dceb9bd340f248ff3814dd9fbd2d73",
+    "complete-evidence/pades-release-configure.log": "58aae98c8325034ce5127c712e7938f2a51ad7744c4bcccdc9329b88cfe8e436",
+    "complete-evidence/pades-release.log": "05623b2fc6b4729ed8dd3b14369a5f04ebcb10686a5bceffb46fac809fe2da18",
+    "complete-evidence/pkcs11-debug-build.log": "16439e2ca4801b6966d31ea58b8351451b6b9b0634f1ccf9a82cb4ad9cd02f40",
+    "complete-evidence/pkcs11-debug-configure.log": "742d08fc64f619fc1c32b5a906107ae77138f8e091ef33adb9e89bd97c152d33",
+    "complete-evidence/pkcs11-debug.log": "7f034a881f1d4d9be1f65e7878701f988d18d43f4c1a752189ff8f62b258a19f",
+    "complete-evidence/swift-bin-path.log": "eb6242b6522147f68283be23b6ad10619d2452a1d3150d7262a4b02bf7ca0caa",
+    "complete-evidence/swift.log": "cfb9aa33f94f8eaba6340fc8de35c245e698b683ef36703ec5f244c799f05a53",
+    "e4-build6-validation.log": "15b5a7a131963b7e48033b7f4e627979cfa32f68723a6ff601ffaae51bc36832",
+    "e4-build6.log": "6082502226e692d42e2dbc00ad4154bfbb539ddcfce9290a1bca4da4fa9828bb",
+    "e4-focused-render-environment.log": "0099986c475d6dc95b883464e547dfd5ddba0f485f91d77449e11d7f2d894cf2",
+    "e4-focused-render.log": "1b65aa0071d4953d4f1e3ed24a58f20e097c76a80ef158fd478e690a4d13c2de",
+    "e4-targeted-compile.log": "db8e74fe422cadbc390b1396b407dafe9ae13be33702d17338da1c1934ea57fa",
+    "e4-targeted.log": "36cc1fae6b7a172729f4ed339a9cfe5e751db516cc02a4f2cc468efcd7984ffb",
+    "validation/authenticated-offline-cache.dyld.log": "d81bf1038d15b5ee285bf99e659ba7a0b66c6bd9e348c0cb9e76d67afd95bc33",
+    "validation/authenticated-offline-cache.stdout.log": "f4fe7dfd7cf5550558cdd1b231d38ffa20ae26bc9e95ae73e35ea6d810968701",
+    "validation/gui.dyld.log": "e1bf234cb3467baa61fa8578d474dc96c4e260c86ebe156a346ce9c96885f114",
+    "validation/gui.stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "validation/selective-production-update.dyld.log": "d91094977e3e8371a78e20106cfeec057373da742072dfaa466d5e663b07358f",
+    "validation/selective-production-update.stdout.log": "35723f385116f23b1844943afe50af614db0577aca5c726f7354a9a70a1cc68b"
+  }
+}

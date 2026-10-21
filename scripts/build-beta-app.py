@@ -155,7 +155,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
          "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF", "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
          "-DSIGNUM_BUILD_OFFLINE_TESTS=ON"], cwd=REPO, env=env)
     run([cmake, "--build", native_build, "--parallel", "6"], env=env)
-    if not (preview and preview_build == 5):
+    if not (preview and preview_build >= 5):
         run([cmake.with_name("ctest"), "--test-dir", native_build, "--output-on-failure", "--verbose"], env=env)
 
     products = required_products(bins, native_build)
@@ -266,7 +266,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
                 portable(path.read_bytes())
         mock = native_build / "libsignum-pades-policy-mock.so"
         smoke(app, mock)
-        if not (preview and preview_build == 5):
+        if not (preview and preview_build >= 5):
             run([native_build / "signum-pades-tests", "--helper-integration",
              app / "Contents/Helpers/signum-pades-local", mock], cwd=REPO, env=env)
         # Relocation checks resolve dependencies from the bundle, not the source prefix.
@@ -274,7 +274,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
         shutil.copytree(app, relocated, symlinks=True)
         run(["/usr/bin/codesign", "--verify", "--deep", "--strict", relocated])
         smoke(relocated, mock)
-        if not (preview and preview_build == 5):
+        if not (preview and preview_build >= 5):
             run([native_build / "signum-pades-tests", "--helper-integration",
              relocated / "Contents/Helpers/signum-pades-local", mock], cwd=REPO, env=env)
         replace_exclusive(app, output)
