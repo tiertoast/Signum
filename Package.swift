@@ -25,7 +25,7 @@ let package = Package(
         .target(name: "SignumCertificateValidation", dependencies: ["CCertificatePath", "SignumTrustAuthentication", "SignumCore"]),
         .testTarget(name: "SignumCertificateValidationTests", dependencies: ["SignumCertificateValidation", "SignumCore", "SignumApp", "SignumTrustIntegration"], resources: [.copy("Fixtures")]),
         .systemLibrary(name: "CXMLSec", pkgConfig: "xmlsec1-openssl", providers: [.brew(["libxmlsec1"])]),
-        .target(name: "CXMLSecurity", dependencies: ["CXMLSec"], publicHeadersPath: "include"),
+        .target(name: "CXMLSecurity", dependencies: ["CXMLSec"], publicHeadersPath: "include", linkerSettings: [.linkedLibrary("z")]),
         .target(name: "SignumTrustAuthentication", dependencies: ["SignumTrustCore", "CXMLSecurity"], resources: [.copy("Schemas")]),
         .executableTarget(name: "SignumTrustProbe", dependencies: ["SignumTrustAuthentication", "SignumCertificateValidation", "SignumCore"]),
         .testTarget(name: "SignumTrustAuthenticationTests", dependencies: ["SignumTrustAuthentication"], resources: [.copy("Fixtures")]),

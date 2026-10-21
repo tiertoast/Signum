@@ -13,5 +13,12 @@ int signum_xades_prepare(const unsigned char *, size_t, const unsigned char *, s
 int signum_xades_finish(const unsigned char *, size_t, const unsigned char *, size_t, signum_xades_result *);
 /* Verify: 1 valid; -1 cryptographic/binding failure; 0 unsupported/unsafe structure. */
 int signum_xades_verify(const unsigned char *, size_t, signum_xades_result *);
+/* Detached objects: bounded length-prefixed in-memory URI, MIME, bytes. No I/O resolver. */
+int signum_xades_detached_prepare(const unsigned char *,size_t,const unsigned char *,size_t,const char *,signum_xades_result *);
+int signum_xades_detached_verify(const unsigned char *,size_t,const unsigned char *,size_t,signum_xades_result *);
+int signum_xades_detached_finish(const unsigned char *,size_t,const unsigned char *,size_t,const unsigned char *,size_t,signum_xades_result *);
+int signum_asic_manifest(const unsigned char *,size_t,const unsigned char *,size_t);
+unsigned long signum_zip_crc(const unsigned char *,size_t);
+int signum_zip_inflate(const unsigned char *,size_t,unsigned char *,size_t);
 void signum_xades_dispose(signum_xades_result *);
 #endif

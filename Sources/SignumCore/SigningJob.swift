@@ -21,6 +21,7 @@ public struct SigningJob: Sendable {
     /// nil explicitly denotes the legacy locator/DER-only API, never the GUI.
     public let providerContext: SigningProviderContext?
     public let padesSourcePreflight: PAdESSourcePreflight?
+    public let asicApprovalContents: String
     public let includeSigningTime: Bool
     public let padesAppearance: RenderedPAdESAppearance?
 
@@ -29,11 +30,18 @@ public struct SigningJob: Sendable {
                 destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
                 padesSourcePreflight: PAdESSourcePreflight? = nil, padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil, includeSigningTime: Bool = true) throws {
         let effectiveFormat = format ?? snapshot.format
+        if effectiveFormat.isASiC {
+            let contents = try ASiC.contents(snapshot.approvedBytes,signed:false)
+            guard contents.kind.rawValue == effectiveFormat.rawValue else { throw SignumError.module("Tipo ASiC non coerente con l’approvazione.") }
+            self.asicApprovalContents = contents.kind.title + " · Contenuti tutti inclusi nella firma:\n" + contents.payloads.map {
+                $0.name + " · " + String($0.data.count) + " byte · SHA-256 " + DocumentSnapshot.digest($0.data)
+            }.joined(separator:"\n")
+        } else { self.asicApprovalContents = "" }
         if effectiveFormat == .xades { try XAdES.requireUnsignedInput(snapshot.approvedBytes) }
         if effectiveFormat == .pades, format != nil { try DocumentSigningConfiguration.requirePDF(snapshot) }
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
               destination.standardizedFileURL != snapshot.fileURL,
-              destination.pathExtension.lowercased() == (effectiveFormat == .cades ? "p7m" : effectiveFormat == .xades ? "xml" : "pdf"),
+              destination.pathExtension.lowercased() == (effectiveFormat.isASiC ? effectiveFormat.rawValue : effectiveFormat == .cades ? "p7m" : effectiveFormat == .xades ? "xml" : "pdf"),
               providerPath.hasPrefix("/"), !certificateDER.isEmpty, certificateDER.count <= 65536 else {
             throw SignumError.module("Richiesta di firma incompleta o destinazione non valida.")
         }
@@ -89,7 +97,7 @@ public struct SigningJob: Sendable {
     }
 
     public var approvalDescription: String {
-        "Documento: \(snapshot.originalURL.lastPathComponent)\nFormato: \(format.rawValue.uppercased()) · \(snapshotIdentity.byteCount) byte\nSHA-256: \(contentSHA256)\nDestinazione: \(destination.path)\n\nVerrà firmata questa copia. Le modifiche successive all'originale non saranno incluse: riseleziona il documento per aggiornarla."
+        (format.isASiC ? asicApprovalContents + "\n\n" : "") + "Documento: \(snapshot.originalURL.lastPathComponent)\nFormato: \(format.rawValue.uppercased()) · \(snapshotIdentity.byteCount) byte\nSHA-256: \(contentSHA256)\nDestinazione: \(destination.path)\n\nVerrà firmata questa copia. Le modifiche successive all'originale non saranno incluse: riseleziona il documento per aggiornarla."
     }
 
     public func verifiedBytes() throws -> Data {

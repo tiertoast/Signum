@@ -14,10 +14,10 @@ public enum XAdES {
         public let signedInfo: Data
         public let declaredTime: String
     }
-    private static func bytes(_ pointer: UnsafeMutablePointer<UInt8>?, _ size: Int) -> Data {
+    static func bytes(_ pointer: UnsafeMutablePointer<UInt8>?, _ size: Int) -> Data {
         guard let pointer, size > 0 else { return Data() }; return Data(bytes:pointer,count:size)
     }
-    private static func reason(_ value: signum_xades_result) -> String {
+    static func reason(_ value: signum_xades_result) -> String {
         withUnsafeBytes(of:value.error) { String(cString:$0.baseAddress!.assumingMemoryBound(to:CChar.self)) }
     }
     public static func requireUnsignedInput(_ document: Data) throws {
@@ -57,6 +57,9 @@ public enum XAdES {
             if ok == -1 { throw SignumError.invalidSignature }
             throw SignumError.module(reason(result))
         }
+        return verifiedResult(result)
+    }
+    static func verifiedResult(_ result: signum_xades_result) -> Verified {
         let time = withUnsafeBytes(of:result.signing_time) { String(cString:$0.baseAddress!.assumingMemoryBound(to:CChar.self)) }
         return .init(certificateDER:bytes(result.certificate,result.certificate_size),signatureValue:bytes(result.signature,result.signature_size),
                      signedInfo:bytes(result.signed_info,result.signed_info_size),declaredTime:time)
@@ -64,18 +67,7 @@ public enum XAdES {
     static func report(_ document: Data, name: String) -> VerificationReport {
         do {
             let v = try verify(document)
-            let cert = SecCertificateCreateWithData(nil,v.certificateDER as CFData)
-            let fingerprint = DocumentSnapshot.digest(v.certificateDER)
-            var signer = SignatureVerificationResult(id:0,integrity:.verified,
-                certificate:.init(subject:cert.flatMap { SecCertificateCopySubjectSummary($0) as String? } ?? "Certificato XAdES",issuer:"",sha256:fingerprint),
-                algorithm:"RSA-SHA256 · XAdES Baseline-B",declaredTime:v.declaredTime,
-                reason:"XMLDSig, riferimenti al documento e SignedProperties e identificazione del certificato verificati. Attendibilità separata.",
-                signedRevisionEnd:nil,laterChanges:false,cmsLayer:1)
-            signer.signerDER = v.certificateDER; signer.embeddedCertificateDERs = [v.certificateDER]
-            signer.evidence = .init(signatureValue:v.signatureValue,signatureKey:DocumentSnapshot.digest(v.signatureValue),signerIndex:0,
-                signedAttributes:[],unsignedAttributes:[],timestampTokens:[],embedded:[],issue:"")
-            return .init(id:UUID(),documentName:name,sha256:DocumentSnapshot.digest(document),format:.xml,signatures:[signer],
-                documentState:"signed",issue:"",previewPDF:nil,originalContent:nil)
+            return verifiedReport(v,name:name,digest:DocumentSnapshot.digest(document),format:.xml,reason:"XMLDSig, riferimenti al documento e SignedProperties e identificazione del certificato verificati. Attendibilità separata.")
         } catch SignumError.invalidSignature {
             let signer = SignatureVerificationResult(id:0,integrity:.invalid,certificate:nil,
                 algorithm:"RSA-SHA256 · XAdES Baseline-B",declaredTime:"",reason:"Firma, riferimenti XMLDSig o identificazione del certificato non validi.",
@@ -88,5 +80,20 @@ public enum XAdES {
                 previewPDF:nil,originalContent:nil)
         }
     }
+    static func verifiedReport(_ v: Verified,name: String,digest: String,format: VerifiedDocumentFormat,reason: String) -> VerificationReport {
+            let cert = SecCertificateCreateWithData(nil,v.certificateDER as CFData)
+            let fingerprint = DocumentSnapshot.digest(v.certificateDER)
+            var signer = SignatureVerificationResult(id:0,integrity:.verified,
+                certificate:.init(subject:cert.flatMap { SecCertificateCopySubjectSummary($0) as String? } ?? "Certificato XAdES",issuer:"",sha256:fingerprint),
+                algorithm:"RSA-SHA256 · XAdES Baseline-B",declaredTime:v.declaredTime,
+                reason:reason,
+                signedRevisionEnd:nil,laterChanges:false,cmsLayer:1)
+            signer.signerDER = v.certificateDER; signer.embeddedCertificateDERs = [v.certificateDER]
+            signer.evidence = .init(signatureValue:v.signatureValue,signatureKey:DocumentSnapshot.digest(v.signatureValue),signerIndex:0,
+                signedAttributes:[],unsignedAttributes:[],timestampTokens:[],embedded:[],issue:"")
+            return .init(id:UUID(),documentName:name,sha256:digest,format:format,signatures:[signer],
+                documentState:"signed",issue:"",previewPDF:nil,originalContent:nil)
+    }
+
 }
 #endif

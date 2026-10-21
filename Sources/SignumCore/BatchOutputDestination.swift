@@ -55,6 +55,9 @@ public enum BatchOutputDestination: Sendable, Equatable {
     static func filename(for snapshot: DocumentSnapshot, number: Int, format: SigningFormat? = nil) -> String {
         let original = snapshot.originalURL
         let suffix = number == 1 ? "" : " (\(number))"
+        if (format ?? snapshot.format).isASiC {
+            return original.deletingPathExtension().lastPathComponent + "-firmato" + suffix + "." + (format ?? snapshot.format).rawValue
+        }
         if (format ?? snapshot.format) == .pades {
             return original.deletingPathExtension().lastPathComponent + "-firmato" + suffix + ".pdf"
         }

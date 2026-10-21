@@ -244,7 +244,7 @@ struct UnifiedVerificationPane: View {
         switch state { case .verified: return "Catena verificata"; case .invalid: return "Catena non valida"; case .notVerifiable: return "Non verificabile" }
     }
     private func format(_ format: VerifiedDocumentFormat) -> String {
-        switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML / XAdES"; case .unknown: return "Sconosciuto" }
+        switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML / XAdES"; case .asic: return "ASiC / XAdES"; case .unknown: return "Sconosciuto" }
     }
     private func choose() {
         workspace.cancel()

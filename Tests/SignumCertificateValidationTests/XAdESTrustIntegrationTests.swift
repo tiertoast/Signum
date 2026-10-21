@@ -5,7 +5,7 @@ import SignumTrustAuthentication
 @testable import SignumCertificateValidation
 
 final class XAdESTrustIntegrationTests: XCTestCase {
-    func signedXML() throws -> Data {
+    func signedXML(container: ASiC.Kind? = nil) throws -> Data {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("signum-xades-trust-"+UUID().uuidString)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])
         defer { try? FileManager.default.removeItem(at:root) }
@@ -16,10 +16,32 @@ final class XAdESTrustIntegrationTests: XCTestCase {
         }
         try run(["req","-new","-x509","-newkey","rsa:2048","-nodes","-keyout","key.pem","-out","cert.pem","-days","2","-subj","/CN=Signum Synthetic XAdES"])
         try run(["x509","-in","cert.pem","-outform","DER","-out","cert.der"])
-        let prepared = try XAdES.Prepared(document:Data("<document>synthetic</document>".utf8),certificateDER:Data(contentsOf:root.appendingPathComponent("cert.der")),declaredTime:Date(timeIntervalSince1970:1600000000))
-        try prepared.attributesToSign.write(to:root.appendingPathComponent("message"))
+        let cert = try Data(contentsOf:root.appendingPathComponent("cert.der"))
+        let attributes: Data, finish: (Data) throws -> Data
+        if let container {
+            let payloads = container == .simple ? [ASiC.Payload(name:"one.txt",data:Data([1]))] : [.init(name:"one.txt",data:Data([1])),.init(name:"two.txt",data:Data([2]))]
+            let p = try ASiC.Prepared(unsignedArchive:ASiC.unsignedArchive(kind:container,payloads:payloads),certificateDER:cert,declaredTime:Date(timeIntervalSince1970:1600000000))
+            attributes = p.attributesToSign;finish = { try p.finish(signature:$0) }
+        } else {
+            let p = try XAdES.Prepared(document:Data("<document>synthetic</document>".utf8),certificateDER:cert,declaredTime:Date(timeIntervalSince1970:1600000000))
+            attributes = p.attributesToSign;finish = { try p.finish(signature:$0) }
+        }
+        try attributes.write(to:root.appendingPathComponent("message"))
         try run(["dgst","-sha256","-sign","key.pem","-out","signature","message"])
-        return try prepared.finish(signature:Data(contentsOf:root.appendingPathComponent("signature")))
+        return try finish(Data(contentsOf:root.appendingPathComponent("signature")))
+    }
+    func testASiCSignersUseCurrentValidationWithoutTrustingContainerCertificates() async throws {
+        for kind in [ASiC.Kind.simple,.extended] {
+            let report = try SignumVerificationService.verify(data:signedXML(container:kind),name:"synthetic."+kind.rawValue)
+            XCTAssertEqual(report.integrity,.verified);XCTAssertEqual(report.format,.asic)
+            let at = Date()
+            let values = await SignatureQualificationService().validate(report,authenticatedLists:[],mode:.offline,observedAt:at,evaluationMode:.bestAvailable)
+            let value = try XCTUnwrap(values.first)
+            XCTAssertEqual(value.path.state,.notVerifiable);XCTAssertEqual(value.evidence.revocation.state,.indeterminate)
+            XCTAssertEqual(value.evidence.time.state,.notProven);XCTAssertEqual(value.qualification.state,.indeterminate)
+            XCTAssertEqual(value.qualification.evaluationMode,.currentTime);XCTAssertEqual(value.qualification.evaluatedAt,at)
+            XCTAssertEqual(value.evidence.time.declaredSigningTime,"2020-09-13T12:26:40Z")
+        }
     }
     func testIntegrityDoesNotTrustEmbeddedCertificateOrDeclaredSigningTime() async throws {
         let xml = try signedXML(), at = Date()

@@ -1,7 +1,7 @@
 #if os(macOS)
 import Foundation
 
-public enum VerifiedDocumentFormat: String, Codable, Sendable { case cades, pades, xml, unknown }
+public enum VerifiedDocumentFormat: String, Codable, Sendable { case cades, pades, xml, asic, unknown }
 public enum CryptographicIntegrity: String, Codable, Sendable {
     case verified, invalid, notVerifiable, absent
     public var description: String {
@@ -74,6 +74,7 @@ public struct VerificationReport: Identifiable, Sendable {
 public enum SignatureFormatDetector {
     public static func candidate(_ bytes: Data) -> VerifiedDocumentFormat {
         let head = bytes.prefix(1024)
+        if head.starts(with:[0x50,0x4b,0x03,0x04]) { return .asic }
         if head.first == 0x30 { return .cades }
         if head.range(of: Data("%PDF-".utf8)) != nil { return .pades }
         let text = String(decoding: head, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn:"\u{feff}")))
@@ -123,6 +124,12 @@ public enum SignumVerificationService {
     public static func verify(data: Data, name: String, helper: URL? = nil, timeout: TimeInterval = 30,
                               isCancelled: () -> Bool = { false }) throws -> VerificationReport {
         guard !data.isEmpty, data.count <= maximumInputBytes else { throw SignumError.module("Documento vuoto o superiore a 132 MiB.") }
+        if SignatureFormatDetector.candidate(data) == .asic {
+            if isCancelled() { throw SupervisedProcess.Failure.cancelled }
+            let report = ASiC.report(data,name:name)
+            if isCancelled() { throw SupervisedProcess.Failure.cancelled }
+            return report
+        }
         if SignatureFormatDetector.candidate(data) == .xml {
             if isCancelled() { throw SupervisedProcess.Failure.cancelled }
             let report = XAdES.report(data,name:name)

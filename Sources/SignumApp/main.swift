@@ -38,7 +38,7 @@ private enum SignumOperation: String, Hashable {
 }
 
 private enum SignumFormat: String, Hashable {
-    case cades, pades, xades
+    case cades, pades, xades, asics, asice
 }
 
 @MainActor struct SignumWindow: View {
@@ -291,25 +291,37 @@ private enum SignumFormat: String, Hashable {
         GroupBox(selectedDocument == nil ? "Formato nuovi documenti" : "Formato firma") {
             VStack(alignment:.leading,spacing:6) {
                 Picker("Formato firma",selection:formatBinding) {
+                    Text("ASiC-S — un documento").tag(SignumFormat.asics)
+                        .disabled(selectedDocument.map { $0.format != .asics } ?? false)
+                    Text("ASiC-E — più documenti").tag(SignumFormat.asice)
+                        .disabled(selectedDocument.map { $0.format != .asice } ?? false)
                     Text("CAdES — documento .p7m").tag(SignumFormat.cades)
                     Text("XAdES — XML firmato").tag(SignumFormat.xades)
                         .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectXAdES(for:$0.snapshot) } ?? false)
                     Text("PAdES — PDF firmato").tag(SignumFormat.pades)
                         .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectPAdES(for:$0.snapshot) } ?? false)
                 }.pickerStyle(.menu).labelsHidden().accessibilityIdentifier("signum.current-format")
-                    .disabled(interfaceLocked || batch.isFrozen)
+                    .disabled(interfaceLocked || batch.isFrozen || selectedDocument?.format.isASiC == true)
+                if selectedDocument?.format.isASiC == true || (selectedDocument == nil && (format == .asics || format == .asice)) {
+                    Text("ASiC-S: un file per contenitore. ASiC-E: seleziona insieme da 2 a 4 file, fino a 8 MiB ciascuno e 16 MiB totali. Tutti i contenuti saranno firmati con XAdES-B e una data dichiarata, non certificata.").font(.caption).foregroundStyle(.secondary)
+                }
                 if selectedDocument?.format == .xades || (selectedDocument == nil && format == .xades) {
                     Text("XML UTF-8 · una firma · massimo 8 MiB. XAdES include sempre una data dichiarata, non una marca temporale.").font(.caption).foregroundStyle(.secondary)
                 }
                 if let entry=selectedDocument {
                     Text("Documento corrente: " + entry.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
                     Text(entry.format.title).font(.callout.bold())
+                    if entry.format.isASiC {
+                        Text("Contenuti: " + entry.snapshot.containerPayloadNames.joined(separator:", ")).font(.caption)
+                    }
                     if !batch.isFrozen {
                         Text("Puoi cambiare formato fino all’approvazione. Gli altri documenti mantengono la propria scelta.")
                             .font(.caption).foregroundStyle(.secondary)
                         Picker("Per i prossimi documenti",selection:$format) {
                             Text("CAdES").tag(SignumFormat.cades)
                             Text("XAdES").tag(SignumFormat.xades)
+                            Text("ASiC-S").tag(SignumFormat.asics)
+                            Text("ASiC-E").tag(SignumFormat.asice)
                             Text("PAdES").tag(SignumFormat.pades)
                         }.pickerStyle(.menu).font(.caption).disabled(interfaceLocked)
                     }
@@ -425,7 +437,7 @@ private enum SignumFormat: String, Hashable {
                                 .disabled(!DocumentSigningConfiguration.canSelectXAdES(for:entry.snapshot))
                             Button("PAdES — PDF firmato") { setDocumentFormat(.pades,for:entry.id) }
                                 .disabled(!DocumentSigningConfiguration.canSelectPAdES(for:entry.snapshot))
-                        }.font(.caption.bold()).disabled(interfaceLocked)
+                        }.font(.caption.bold()).disabled(interfaceLocked || entry.format.isASiC)
                     } else { Text(entry.format.shortTitle).font(.caption.bold()) }
                     Spacer(minLength: 8)
                     Text(rowStatus).font(.caption).lineLimit(1)
@@ -674,7 +686,7 @@ private enum SignumFormat: String, Hashable {
                     .font(.title3.weight(.medium))
                 Text(format == .pades
                      ? "Seleziona un PDF per visualizzarlo e posizionare la firma."
-                     : format == .xades ? "XAdES firma un XML UTF-8. Include una data dichiarata, non una marca temporale." : "Con CAdES il documento viene incorporato in una busta .p7m.")
+                     : (format == .asics || format == .asice) ? "Seleziona i documenti da includere nel contenitore ASiC." : format == .xades ? "XAdES firma un XML UTF-8. Include una data dichiarata, non una marca temporale." : "Con CAdES il documento viene incorporato in una busta .p7m.")
                     .font(.callout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -846,7 +858,7 @@ private enum SignumFormat: String, Hashable {
             try route.requireCurrentModule()
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
-            else if job.format == .xades { try job.signXAdES(using:IsolatedPKCS11Client(),pin:pin,operation:operation) }
+            else if job.format == .xades || job.format.isASiC { try job.signXAdES(using:IsolatedPKCS11Client(),pin:pin,operation:operation) }
             else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
                 field: nil, operation: operation, appearance: job.padesAppearance) }
         }, completion: { result in

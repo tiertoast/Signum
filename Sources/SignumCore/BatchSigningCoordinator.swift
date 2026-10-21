@@ -88,6 +88,9 @@ public struct BatchApproval: Sendable {
             throw Self.failure("Il formato è bloccato dopo l’approvazione. Prepara una nuova sessione.")
         }
         guard documents[index].format != format else { return }
+        guard !format.isASiC, !documents[index].format.isASiC else {
+            throw Self.failure("Per ASiC scegli il formato dei nuovi documenti e aggiungi nuovamente i file; il contenitore acquisito non può essere convertito.")
+        }
         if format == .pades, !DocumentSigningConfiguration.canSelectPAdES(for:documents[index].snapshot) {
             throw Self.failure("Questo documento non è un PDF. Per questo file scegli CAdES.")
         }
@@ -177,6 +180,19 @@ public struct BatchApproval: Sendable {
         let operation = SigningOperation(), capture = captureDocument
         acquisitionOperation = operation
         defer { if acquisitionOperation === operation { isPreparing = false; acquisitionOperation = nil } }
+        if format == .asice {
+            let work = Task.detached(priority:.userInitiated) { Result { try ASiC.capture(sources:urls,kind:.extended,isCancelled:{ operation.isCancellationRequested }) } }
+            let value = await withTaskCancellationHandler(operation:{ await work.value },onCancel:{ operation.requestCancellation();work.cancel() })
+            guard acquisitionID == request, !Task.isCancelled else { if case .success(let s) = value { s.retire() };return }
+            switch value {
+            case .success(let snapshot):
+                if documents.count >= Self.maximumDocuments || documents.reduce(0,{ $0+$1.snapshot.identity.byteCount })+snapshot.identity.byteCount > Self.maximumTotalBytes {
+                    snapshot.retire();selectionIssues.append("Limite della sessione superato.")
+                } else { documents.append(BatchDocument(snapshot:snapshot)) }
+            case .failure(let error): selectionIssues.append("ASiC-E: " + error.localizedDescription)
+            }
+            return
+        }
         for url in urls.prefix(Self.maximumDocuments) {
             guard acquisitionID == request, !Task.isCancelled else { operation.requestCancellation(); break }
             guard documents.count < Self.maximumDocuments else {
@@ -185,7 +201,10 @@ public struct BatchApproval: Sendable {
             if documents.contains(where: { $0.snapshot.originalURL.standardizedFileURL == url.standardizedFileURL }) {
                 selectionIssues.append("\(url.lastPathComponent): documento già selezionato."); continue
             }
-            let captureTask = Task.detached(priority: .userInitiated) { Result { try capture(url, format, operation) } }
+            let captureTask = Task.detached(priority: .userInitiated) { Result {
+                if format == .asics { return try ASiC.capture(sources:[url],kind:.simple,isCancelled:{ operation.isCancellationRequested }) }
+                return try capture(url, format, operation)
+            } }
             let captured = await withTaskCancellationHandler(operation: { await captureTask.value },
                 onCancel: { operation.requestCancellation(); captureTask.cancel() })
             guard acquisitionID == request, !Task.isCancelled else { if case .success(let snapshot) = captured { snapshot.retire() }; break }

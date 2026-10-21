@@ -30,6 +30,7 @@
     ],
     "synthetic-pkcs11": [
       "XAdESTests",
+      "ASiCTests",
       "AutomaticCertificateSelectionTests",
       "BatchAuthIntegrationTests",
       "BatchAuthenticationTests",
