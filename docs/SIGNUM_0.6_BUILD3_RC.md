@@ -94,3 +94,15 @@ The PR is prepared as a draft toward main. `v0.6.0-beta` release notes are ready
 with no release/tag created. No GitHub Actions workflow or dispatch, merge,
 branch deletion, GUI redesign or change to HalleyMac. Manual acceptance of Build 3
 must precede publication. Hardware/PIN/personal-document tests remain manual.
+
+### PR preparation status
+
+Draft PR: https://github.com/tiertoast/Signum/pull/6 . GitHub reports
+`CONFLICTING`: README.md and docs/ROADMAP.md overlap main’s two documentation
+commits. A read-only `git merge-tree <base> origin/main HEAD` diagnostic confirms
+only those documentation conflicts; it does not merge refs or change the index.
+No engine/source conflict or artifact-integrity problem is observed. The Build 3
+candidate is ready for manual acceptance; the draft PR is **not yet mergeable**.
+Resolve these documentation overlaps as part of the explicitly approved merge
+preparation after acceptance. No merge, rebase/force-push or main modification is
+performed to bypass the current no-merge gate. The artifact/source hash is unchanged.
