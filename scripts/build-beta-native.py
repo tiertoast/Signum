@@ -109,7 +109,8 @@ def build(output, cmake, trust=False):
         env.update(PKG_CONFIG_PATH=str(prefix / "lib/pkgconfig"), PKG_CONFIG_LIBDIR=str(prefix / "lib/pkgconfig"),
                    PKG_CONFIG="/opt/homebrew/bin/pkg-config")
         for name, options in [
-            ("libxml2", ["--without-python", "--without-lzma", "--without-zlib"]),
+            ("libxml2", ["--without-python", "--without-lzma", "--without-zlib",
+                         "--sysconfdir=/etc"]),
             ("xmlsec", ["--with-openssl=" + str(prefix), "--with-libxml=" + str(prefix),
                         "--without-libxslt", "--without-gnutls", "--without-nss", "--disable-crypto-dl"])]:
             folder = sources / ARCHIVES[name][1]

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Signum — Signature S</title>
+  <desc>White calligraphic S on Signum burgundy #64313E. Pure vector artwork for macOS Icon Composer.</desc>
+  
+  <path d="M 587 430
+C 671 390 716 337 716 277
+C 716 209 665 171 590 165
+C 510 160 416 197 390 268
+C 362 346 411 401 483 490
+C 542 563 573 630 570 683
+C 565 756 525 804 462 839
+C 402 877 347 870 303 841
+C 259 813 254 771 273 730
+C 302 674 379 633 474 610
+C 574 584 683 600 759 637"
+        fill="none" stroke="#FFFFFF" stroke-width="69"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
