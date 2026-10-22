@@ -106,3 +106,18 @@ candidate is ready for manual acceptance; the draft PR is **not yet mergeable**.
 Resolve these documentation overlaps as part of the explicitly approved merge
 preparation after acceptance. No merge, rebase/force-push or main modification is
 performed to bypass the current no-merge gate. The artifact/source hash is unchanged.
+
+## Publication authorization — 22 October 2026
+
+The user confirmed successful manual Build 3 acceptance and authorized merge of
+PR #6, annotated v0.6.0-beta and GitHub Pre-release of the exact accepted ZIP.
+Origin/main is integrated into the PR branch; only README/ROADMAP conflicts were
+resolved, preserving 0.5 history and the 0.6 scope/limits. Release-status updates
+are documentation only. The previous pending-conflict/no-merge notes above record
+the earlier delivery state and are superseded by this authorization.
+Application, native, tests, resources and packaging sources remain identical to
+fc59d0a17ab33571129e6cfb1fe993b5e2589d27; no rebuild or regression rerun.
+ZIP SHA-256 verified before publication:
+924212c704913431dcde416722e799fc588edc74ef87e1ed9edd2e02e1edb124.
+The sealed manifest intentionally retains the clean build-source commit; the
+release tag identifies the subsequent history-preserving merge with documentation.

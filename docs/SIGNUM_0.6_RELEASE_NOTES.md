@@ -2,9 +2,11 @@
 
 **Digital signatures. Simply native.**
 
-Note definitive predisposte per `v0.6.0-beta`, non ancora pubblicata.
-Artefatto candidato: **Signum 0.6 Development Preview — Build 3**.
-Merge, tag, GitHub Pre-release e pulizia branch attendono il collaudo manuale.
+Note definitive per `v0.6.0-beta`.
+Artefatto distribuito: **Signum 0.6 Development Preview — Build 3**, riutilizzato
+senza ricompilazione dopo collaudo manuale superato e pubblicazione autorizzata
+dall’utente il 22 ottobre 2026. Il nome e l’identità isolata del bundle restano
+quelli della build accettata.
 
 ## Funzionalità consolidate
 
@@ -68,7 +70,7 @@ PKCS#11 compatibile installato dall’utente.
 - Il comando legacy verify-cades usa OpenSSL di sistema e rifiuta controfirme:
   usare la verifica unificata per i risultati individuali completi supportati.
 
-## Checklist breve di collaudo manuale
+## Checklist di riferimento del collaudo manuale
 
 Usare documenti di prova e destinazioni nuove; nessun test automatico usa token,
 PIN o documenti personali. Annotare dispositivo, middleware, formato ed esito.
@@ -91,4 +93,5 @@ PIN o documenti personali. Annotare dispositivo, middleware, formato ed esito.
       nessuna QES positiva quando mancano revoca o altre evidenze necessarie.
 
 Risultati automatici, commit sorgente e checksum sono nel rapporto di consegna
-Build 3 e nel manifest sigillato del bundle. La pubblicazione attende il collaudo.
+Build 3 e nel manifest sigillato del bundle. Il collaudo complessivo è stato
+confermato dall’utente; la pubblicazione Beta è autorizzata.
