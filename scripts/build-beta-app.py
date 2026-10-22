@@ -112,10 +112,10 @@ def private_dependency(ref, prefix):
 
 def preview_metadata(version, build):
     if version == "0.6.0":
-        if build != 1:
-            raise ValueError("Only 0.6 Development Preview Build 1 is declared")
-        return ("io.github.tiertoast.Signum.DevelopmentPreview.V06.B1",
-                "Signum 0.6 Development Preview — Build 1")
+        if build not in (1, 2):
+            raise ValueError("Only 0.6 Development Preview Builds 1 and 2 are declared")
+        return (f"io.github.tiertoast.Signum.DevelopmentPreview.V06.B{build}",
+                f"Signum 0.6 Development Preview — Build {build}")
     if version != "0.5.0" or build not in (3, 4, 5, 6, 7):
         raise ValueError("Unsupported preview version/build")
     identity = "io.github.tiertoast.Signum.DevelopmentPreview" + (".B" + str(build) if build >= 4 else "")

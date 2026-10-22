@@ -8,7 +8,7 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location('recipe', Path(__file__).with_name('build-beta-app.py'))
 recipe = importlib.util.module_from_spec(spec); spec.loader.exec_module(recipe)
 p = argparse.ArgumentParser(description=__doc__)
-p.add_argument('--build-number', type=int, choices=(1,6,7), default=6)
+p.add_argument('--build-number', type=int, choices=(1,2,6,7), default=6)
 p.add_argument('--trusted-cache', type=Path)
 p.add_argument('--version', choices=('0.5.0','0.6.0'), default='0.5.0')
 p.add_argument('--bundle', type=Path, required=True); p.add_argument('--output-root', type=Path, required=True)
