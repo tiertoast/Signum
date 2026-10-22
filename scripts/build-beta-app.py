@@ -111,6 +111,11 @@ def private_dependency(ref, prefix):
 
 
 def preview_metadata(version, build):
+    if version == "0.7.0":
+        if build != 1:
+            raise ValueError("Only 0.7 Development Preview Build 1 is declared")
+        return ("io.github.tiertoast.Signum.DevelopmentPreview.V07.B1",
+                "Signum 0.7 Development Preview — Build 1")
     if version == "0.6.0":
         if build not in (1, 2, 3):
             raise ValueError("Only 0.6 Development Preview Builds 1, 2 and 3 are declared")
@@ -138,7 +143,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
     info = plistlib.loads((REPO / "Resources/Info.plist").read_bytes())
     preview_id, preview_name = preview_metadata(preview_version, preview_build)
     # Regular regressions run once through test-local.py, before packaging.
-    tested_preview = preview and (preview_version == "0.6.0" or preview_build >= 5)
+    tested_preview = preview and (preview_version in ("0.6.0", "0.7.0") or preview_build >= 5)
     if preview:
         info.update(CFBundleIdentifier=preview_id, CFBundleName=preview_name,
                     CFBundleDisplayName=preview_name, CFBundleShortVersionString=preview_version,
@@ -152,7 +157,9 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
     if preview:
         env.update(PKG_CONFIG_PATH=str(prefix / "lib/pkgconfig"), PKG_CONFIG_LIBDIR=str(prefix / "lib/pkgconfig"), PATH="/opt/homebrew/bin:" + env["PATH"], MACOSX_DEPLOYMENT_TARGET="13.0")
     scratch = REPO / ((".build/preview-package13-" if preview else ".build/beta-package-") + configuration)
-    mapping = str(REPO) + "=."
+    # Use an absolute logical root: Xcode 27 resolves a relative replacement
+    # against the checkout's parent in Debug module metadata.
+    mapping = str(REPO) + "=/Signum"
     swift = ["/usr/bin/swift", "build", "-c", configuration, "--scratch-path", scratch,
              "-Xswiftc", "-file-prefix-map", "-Xswiftc", mapping,
              "-Xswiftc", "-debug-prefix-map", "-Xswiftc", mapping,
@@ -252,12 +259,17 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
         info.update(CFBundleIdentifier=(preview_id if preview else "io.github.tiertoast.Signum.BetaFoundation"),
                     CFBundleName=(preview_name if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+        icon = REPO / "Resources" / info["CFBundleIconFile"]
+        if not icon.is_file() or icon.read_bytes()[:4] != b"icns":
+            raise ValueError("Missing or invalid macOS app icon")
+        shutil.copy2(icon, app / "Contents/Resources" / icon.name)
         shutil.copytree(prefix / "share/signum-notices", app / "Contents/Resources/Notices")
         manifest = {"configuration": configuration, "architecture": "arm64",
                     "sourceCommit": run(["/usr/bin/git", "rev-parse", "HEAD"], capture=True, cwd=REPO).strip(),
                     "sourceTrackedDirty": bool(run(["/usr/bin/git", "diff", "--name-only", "HEAD"], capture=True, cwd=REPO).strip()),
                     "minimumOSFromMachO": ".".join(map(str, max(versions))), "declaredMinimumOS": declared_target, "native": native_metadata,
                     "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
+                    "appIconSHA256": hashlib.sha256(icon.read_bytes()).hexdigest(),
                     "signing": "ad-hoc only; no Developer ID, hardened runtime or notarization",
                     "external": "User-installed PKCS#11 middleware for signing/discovery; bundled OpenSSL for unified verification; system /usr/bin/openssl for legacy verify-cades"}
         # Inner dylibs, helpers, main executable, then the enclosing bundle.

@@ -15,6 +15,33 @@ spec.loader.exec_module(package)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_07_preview_coexists_with_06(self):
+        identity, name = package.preview_metadata("0.7.0", 1)
+        self.assertEqual(identity, "io.github.tiertoast.Signum.DevelopmentPreview.V07.B1")
+        self.assertIn("0.7 Development Preview", name)
+        self.assertNotEqual(identity, package.preview_metadata("0.6.0", 3)[0])
+        with self.assertRaises(ValueError):
+            package.preview_metadata("0.7.0", 2)
+
+    def test_declared_icon_contains_complete_macos_representations(self):
+        info = plistlib.loads((package.REPO / "Resources/Info.plist").read_bytes())
+        icon = package.REPO / "Resources" / info["CFBundleIconFile"]
+        data = icon.read_bytes()
+        self.assertEqual(data[:4], b"icns")
+        self.assertEqual(int.from_bytes(data[4:8], "big"), len(data))
+        chunks = set()
+        offset = 8
+        while offset < len(data):
+            size = int.from_bytes(data[offset + 4:offset + 8], "big")
+            self.assertGreaterEqual(size, 8)
+            chunks.add(data[offset:offset + 4])
+            offset += size
+        self.assertEqual(offset, len(data))
+        self.assertTrue(chunks & {b"icp4", b"ic04", b"is32"})
+        self.assertTrue(chunks & {b"icp5", b"ic05", b"il32"})
+        self.assertTrue({b"ic07", b"ic08", b"ic09", b"ic10",
+                         b"ic11", b"ic12", b"ic13", b"ic14"}.issubset(chunks))
+
     def test_06_preview_is_isolated_and_05_identity_is_preserved(self):
         identity, name = package.preview_metadata("0.6.0", 1)
         self.assertEqual(identity, "io.github.tiertoast.Signum.DevelopmentPreview.V06.B1")
@@ -31,7 +58,7 @@ class PackagingTests(unittest.TestCase):
                          ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))
         self.assertEqual(package.preview_metadata("0.5.0", 6)[0],
                          "io.github.tiertoast.Signum.DevelopmentPreview.B6")
-        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 1)]:
+        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 2)]:
             with self.assertRaises(ValueError):
                 package.preview_metadata(version, build)
 
