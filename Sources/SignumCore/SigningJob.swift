@@ -21,18 +21,36 @@ public struct SigningJob: Sendable {
     /// nil explicitly denotes the legacy locator/DER-only API, never the GUI.
     public let providerContext: SigningProviderContext?
     public let padesSourcePreflight: PAdESSourcePreflight?
+    public let asicApprovalContents: String
+    public let counterSignatureKey: String?
     public let includeSigningTime: Bool
     public let padesAppearance: RenderedPAdESAppearance?
 
     public init(snapshot: DocumentSnapshot, format: SigningFormat? = nil, providerPath: String, slot: UInt,
                 certificate: SignumCertificate, certificateDER: Data, destination: URL,
                 destinationDirectoryIdentity: OutputDirectoryIdentity? = nil,
-                padesSourcePreflight: PAdESSourcePreflight? = nil, padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil, includeSigningTime: Bool = true) throws {
+                padesSourcePreflight: PAdESSourcePreflight? = nil, padesAppearance: RenderedPAdESAppearance? = nil, providerContext: SigningProviderContext? = nil, includeSigningTime: Bool = true, counterSignatureKey: String? = nil) throws {
         let effectiveFormat = format ?? snapshot.format
+        self.counterSignatureKey = counterSignatureKey
+        if effectiveFormat == .cadesCoSign || effectiveFormat == .cadesCounterSign {
+            let container=try CAdESAdvanced.Container(snapshot.approvedBytes)
+            guard container.document != nil else { throw SignumError.module("Serve una busta CMS attached DER.") }
+            if effectiveFormat == .cadesCounterSign {
+                guard let key=counterSignatureKey,try container.targets().contains(where:{$0.signatureKey==key}) else { throw SignumError.module("Seleziona esplicitamente la firma da controfirmare.") }
+            }
+        }
+        if effectiveFormat.isASiC {
+            let contents = try ASiC.contents(snapshot.approvedBytes,signed:false)
+            guard contents.kind.rawValue == effectiveFormat.rawValue else { throw SignumError.module("Tipo ASiC non coerente con l’approvazione.") }
+            self.asicApprovalContents = contents.kind.title + " · Contenuti tutti inclusi nella firma:\n" + contents.payloads.map {
+                $0.name + " · " + String($0.data.count) + " byte · SHA-256 " + DocumentSnapshot.digest($0.data)
+            }.joined(separator:"\n")
+        } else { self.asicApprovalContents = "" }
+        if effectiveFormat == .xades { try XAdES.requireUnsignedInput(snapshot.approvedBytes) }
         if effectiveFormat == .pades, format != nil { try DocumentSigningConfiguration.requirePDF(snapshot) }
         guard destination.isFileURL, destination.standardizedFileURL != snapshot.originalURL.standardizedFileURL,
               destination.standardizedFileURL != snapshot.fileURL,
-              destination.pathExtension.lowercased() == (effectiveFormat == .cades ? "p7m" : "pdf"),
+              destination.pathExtension.lowercased() == effectiveFormat.outputExtension,
               providerPath.hasPrefix("/"), !certificateDER.isEmpty, certificateDER.count <= 65536 else {
             throw SignumError.module("Richiesta di firma incompleta o destinazione non valida.")
         }
@@ -84,11 +102,11 @@ public struct SigningJob: Sendable {
     }
 
     public var formatDescription: String {
-        format == .pades ? "PAdES — PDF firmato" : "CAdES — documento .p7m"
+        format.title
     }
 
     public var approvalDescription: String {
-        "Documento: \(snapshot.originalURL.lastPathComponent)\nFormato: \(format.rawValue.uppercased()) · \(snapshotIdentity.byteCount) byte\nSHA-256: \(contentSHA256)\nDestinazione: \(destination.path)\n\nVerrà firmata questa copia. Le modifiche successive all'originale non saranno incluse: riseleziona il documento per aggiornarla."
+        (counterSignatureKey.map { "Controfirma della SignatureValue SHA-256: " + $0 + "\n" } ?? "") + (format.isASiC ? asicApprovalContents + "\n\n" : "") + "Documento: \(snapshot.originalURL.lastPathComponent)\nFormato: \(format.rawValue.uppercased()) · \(snapshotIdentity.byteCount) byte\nSHA-256: \(contentSHA256)\nDestinazione: \(destination.path)\n\nVerrà firmata questa copia. Le modifiche successive all'originale non saranno incluse: riseleziona il documento per aggiornarla."
     }
 
     public func verifiedBytes() throws -> Data {

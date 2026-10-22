@@ -7,6 +7,7 @@ import SignumCore
 import SignumTrustIntegration
 import SignumTrustAuthentication
 import SignumCertificateValidation
+import SignumVerificationReports
 
 enum VerificationDropLoader {
     @MainActor static func urls(from providers: [NSItemProvider], timeout: TimeInterval = 10) async -> [URL] {
@@ -20,6 +21,7 @@ enum VerificationDropLoader {
         let id = UUID()
         let name: String
         var report: VerificationReport?
+        var verificationDate: Date?
         var paths: [Int: CertificatePathResult] = [:]
         var validations: [Int: CompleteSignatureValidationResult] = [:]
         var issue = ""
@@ -104,15 +106,15 @@ enum VerificationDropLoader {
                 let cacheURL = FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first?.appendingPathComponent(identity).appendingPathComponent("Revocation")
                 let service = SignatureQualificationService(cache:cacheURL.map { RevocationEvidenceCache(directory:$0) })
                 let online = await european?.networkAllowed() ?? true
-                let observedAt = validationClock()
+                let observedAt=validationClock();rows[index].verificationDate=observedAt
                 let assessment = Task.detached(priority: .utility) {
                     if let european {
-                        let result = await service.validate(assessmentReport, catalog: european.europeanService, mode: online ? .online : .offline, observedAt: observedAt,
+                        let result = await service.validate(assessmentReport, catalog: european.europeanService, mode: online ? .online : .offline, observedAt: observedAt, evaluationMode: .bestAvailable,
                             isCancelled: { control.isCancellationRequested })
                         if !control.isCancellationRequested, let view = result.catalog { await european.didUpdate(view) }
                         return result.signatures
                     }
-                    return await service.validate(assessmentReport,authenticatedLists:list.map { [$0] } ?? [],mode:.online,observedAt:observedAt,
+                    return await service.validate(assessmentReport,authenticatedLists:list.map { [$0] } ?? [],mode:.online,observedAt:observedAt,evaluationMode:.bestAvailable,
                         isCancelled:{ control.isCancellationRequested })
                 }
                 let values = await withTaskCancellationHandler(operation: { await assessment.value }, onCancel: { assessment.cancel() })
@@ -142,6 +144,7 @@ struct UnifiedVerificationPane: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button("Verifica .p7s e originale…",action:chooseDetached).disabled(workspace.busy)
                     Button("Apri documenti…", action: choose).disabled(workspace.busy && !workspace.acquiring)
                     if workspace.busy { ProgressView().controlSize(.small); Button("Annulla") { workspace.cancel() } }
                 }
@@ -159,8 +162,11 @@ struct UnifiedVerificationPane: View {
                                 if let report = row.report {
                                     Text("\(format(report.format)) · \(report.signatures.count) firme")
                                         .font(.caption).foregroundStyle(.secondary)
+                                    if let hash=report.detachedContentSHA256 { Text("Contenuto separato · SHA-256: "+hash).font(.caption).textSelection(.enabled) }
                                     Text(report.summary)
                                     ForEach(report.signatures) { signature in
+                                        Text("Firma \(signature.id + 1) · " + (signature.signerIdentity?.personalName ?? "Non disponibile")).fontWeight(.medium)
+                                        Text("Codice Fiscale: " + (signature.signerIdentity?.fiscalCode ?? "Non disponibile")).font(.caption)
                                         Text("Integrità: " + signature.integrity.description).font(.caption)
                                         Text(signature.reason.isEmpty ? (signature.integrity == .verified ? "Firma e riferimenti del contenuto verificati dal motore crittografico nativo." : "Il motore crittografico non ha confermato l’integrità di questa firma.") : signature.reason).font(.caption)
                                         if let path = row.paths[signature.id] {
@@ -182,6 +188,8 @@ struct UnifiedVerificationPane: View {
                                             ForEach(report.signatures) { signature in
                                                 VStack(alignment: .leading, spacing: 3) {
                                                     Text("Firma \(signature.id+1) · " + signature.integrity.description)
+                                                    Text("Nome e cognome: " + (signature.signerIdentity?.personalName ?? "Non disponibile"))
+                                                    Text("Codice Fiscale: " + (signature.signerIdentity?.fiscalCode ?? "Non disponibile"))
                                                     if let cert = signature.certificate {
                                                         Text(cert.subject); Text("Emittente: " + cert.issuer)
                                                         Text("Certificato SHA-256: " + cert.sha256).textSelection(.enabled)
@@ -199,6 +207,8 @@ struct UnifiedVerificationPane: View {
                                                     Text("Algoritmo: " + signature.algorithm)
                                                     if !signature.declaredTime.isEmpty { Text("Data dichiarata, non qualificata: " + signature.declaredTime) }
                                                     if let end = signature.signedRevisionEnd { Text("Revisione firmata: byte 0…\(end) · " + (signature.laterChanges ? "byte successivi presenti" : "nessun byte successivo")) }
+                                                    if let parent=signature.counterSignatureOf { Text("Controfirma della SignatureValue SHA-256: "+parent).textSelection(.enabled) }
+                                                    if let path=signature.cmsSignerPath,!path.isEmpty { Text("Percorso firmatario CMS: "+path) }
                                                     if report.format == .cades { Text("Livello CMS \(signature.cmsLayer)") }
                                                     if !signature.reason.isEmpty { Text(signature.reason) }
                                                 }
@@ -206,6 +216,10 @@ struct UnifiedVerificationPane: View {
                                             if report.format == .pades { Text(VerificationReport.revisionScope) }
                                         }.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
                                     }
+                                    Menu("Esporta rapporto") {
+                                        Button("PDF…") { exportReport(row,format:.pdf) }
+                                        Button("Testo (.txt)…") { exportReport(row,format:.text) }
+                                    }.disabled(exporting || workspace.busy || row.verificationDate == nil)
                                     if report.previewPDF != nil { Button("Anteprima PDF in sola lettura") { preview = report } }
                                     if report.originalContent != nil { Button("Estrai originale…") { extract(report) }.disabled(exporting || workspace.busy) }
                                 } else if row.issue.isEmpty { Text(workspace.busy ? "In attesa di verifica…" : "Nessun risultato").font(.caption) }
@@ -216,7 +230,7 @@ struct UnifiedVerificationPane: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(minHeight: 180)
                 Text("Gli esiti sono indipendenti. Informazioni mancanti producono una qualificazione indeterminata; non si attesta la conservazione a lungo termine o l’accettabilità delle modifiche successive.").font(.caption).foregroundStyle(.secondary)
-                Text("XML/XAdES: supporto futuro. Nessun file estratto viene salvato automaticamente.").font(.caption).foregroundStyle(.secondary)
+                Text("XAdES: profilo Baseline-B enveloped, una firma RSA-SHA256. Nessun file estratto viene salvato automaticamente.").font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
         .sheet(item: $preview) { report in VerificationPDFPreview(report: report) }
@@ -228,10 +242,15 @@ struct UnifiedVerificationPane: View {
         Text("Tempo: " + (value.evidence.time.state == .proven ? "comprovato" : value.evidence.time.state == .invalid ? "evidenza non valida" : "non comprovato"))
         Text(value.evidence.time.reason)
         if let date = value.evidence.time.provenTime { Text("Esistenza comprovata entro: " + date.formatted(date:.abbreviated,time:.standard)) }
-        Text("Qualificazione eIDAS: " + value.qualification.state.description)
+        if let date = value.qualification.verificationDate { Text("Data della verifica: " + date.formatted(date:.abbreviated,time:.standard)) }
+        if let date = value.qualification.evaluatedAt {
+            Text((value.qualification.evaluationMode == .currentTime ? "Valutazione corrente al: " : "Valutazione storica al: ") + date.formatted(date:.abbreviated,time:.standard))
+        }
+        Text("Certificato qualificato: " + (value.qualification.qualifiedCertificate == .demonstrated ? "dimostrato" : value.qualification.qualifiedCertificate == .notDemonstrated ? "non dimostrato" : "indeterminato"))
+        Text("Qualificazione eIDAS della firma: " + value.qualification.state.description)
         Text(value.qualification.reason)
         if let service = value.qualification.service {
-            Text("Servizio al tempo comprovato: " + service.provider + " · " + service.service + " · " + service.country + (value.qualification.serviceStateFromHistory ? " · stato storico" : ""))
+            Text("Servizio all’istante valutato: " + service.provider + " · " + service.service + " · " + service.country + (value.qualification.serviceStateFromHistory ? " · stato storico" : ""))
         }
         Text("QSCD: " + (value.qualification.qscd == .demonstrated ? "dimostrato" : value.qualification.qscd == .notDemonstrated ? "non dimostrato" : "indeterminato: valutazione non conclusa"))
     }
@@ -239,12 +258,39 @@ struct UnifiedVerificationPane: View {
         switch state { case .verified: return "Catena verificata"; case .invalid: return "Catena non valida"; case .notVerifiable: return "Non verificabile" }
     }
     private func format(_ format: VerifiedDocumentFormat) -> String {
-        switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML"; case .unknown: return "Sconosciuto" }
+        switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML / XAdES"; case .asic: return "ASiC / XAdES"; case .unknown: return "Sconosciuto" }
+    }
+    private func chooseDetached() {
+        let signature=NSOpenPanel();signature.title="Seleziona la firma detached .p7s";signature.allowsMultipleSelection=false;signature.canChooseDirectories=false
+        guard signature.runModal() == .OK,let cms=signature.url else {return}
+        let original=NSOpenPanel();original.title="Seleziona il documento originale della firma";original.allowsMultipleSelection=false;original.canChooseDirectories=false
+        guard original.runModal() == .OK,let content=original.url else {return}
+        workspace.start([cms],using:{ signature,control in
+            try SignumVerificationService.verifyDetached(signature:signature,content:content,isCancelled:{control.isCancellationRequested})
+        })
     }
     private func choose() {
         workspace.cancel()
         let chooser = NSOpenPanel(); chooser.allowsMultipleSelection = true; chooser.canChooseDirectories = false
         if chooser.runModal() == .OK { start(chooser.urls) }
+    }
+    private func exportReport(_ row: VerificationWorkspace.Row,format: VerificationReportExporter.Format) {
+        guard !exporting,!workspace.busy,let report=row.report,let date=row.verificationDate else {return}
+        let panel=NSSavePanel();panel.title="Esporta rapporto di verifica"
+        panel.allowedContentTypes = format == .pdf ? [.pdf]:[.plainText]
+        panel.nameFieldStringValue=URL(fileURLWithPath:report.documentName).lastPathComponent+"-rapporto."+format.pathExtension
+        guard panel.runModal() == .OK,let destination=panel.url else {return}
+        let values=Array(row.validations.values),version=AppVersion.label(info:Bundle.main.infoDictionary)
+        exporting=true;extractionIssue="Esportazione del rapporto in corso…"
+        Task {
+            defer {exporting=false}
+            let result=await Task.detached(priority:.userInitiated) {Result {
+                let snapshot=try VerificationReportDocument(report:report,validations:values,verificationDate:date,productVersion:version)
+                try VerificationReportExporter.write(snapshot,format:format,to:destination)
+            }}.value
+            switch result {case .success:extractionIssue="Rapporto esportato. Nessun file esistente è stato sostituito."
+            case .failure(let error):extractionIssue=error.localizedDescription}
+        }
     }
     private func extract(_ report: VerificationReport) {
         guard !exporting, report.integrity == .verified, let content = report.originalContent else { return }

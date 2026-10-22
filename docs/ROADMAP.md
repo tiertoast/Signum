@@ -1,7 +1,7 @@
 # Signum — Development roadmap
 
 **Digital signatures. Simply native.**  
-**Updated:** 21 October 2026 · **Platform focus:** native macOS/Apple Silicon · **Current baseline:** [v0.5.0-beta / Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta).
+**Updated:** 22 October 2026 · **Platform focus:** native macOS/Apple Silicon · **Current baseline:** [v0.6.0-beta / Build 3](https://github.com/tiertoast/Signum/releases/tag/v0.6.0-beta).
 
 This roadmap is a **plan, not a statement of delivered capabilities**. Completed release evidence remains in the linked engineering reports. The objective is a fast, vendor-independent and well-integrated native macOS signing experience, especially for document-heavy public-administration workflows. Avoid premature cross-platform complexity.
 
@@ -12,13 +12,23 @@ This roadmap is a **plan, not a statement of delivered capabilities**. Completed
 | **0.3** | Reliability foundation: PKCS#11 worker, signed-byte approval, safe outputs | Completed |
 | **0.4** | CAdES/PAdES, batches, graphical PDF signing, local integrity verification | [Released Beta Build 14](https://github.com/tiertoast/Signum/releases/tag/v0.4.0-beta.14) |
 | **0.5** | EU LOTL/TLs, X.509, OCSP/CRL, historical evidence, conservative eIDAS, signingTime toggle | **[Released Beta Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta)** |
-| **0.6** | Current-time eIDAS, XAdES, ASiC, CAdES interoperability and verification reports | **Next** |
-| **0.7** | Native macOS GUI/UX redesign and cohesive format workflows | Planned |
+| **0.6** | Current-time eIDAS, XAdES, ASiC, CAdES interoperability and verification reports | **Implemented A–E.1; Build 3 manually accepted; Beta publication authorized** |
+| **0.7** | Native macOS GUI/UX redesign, Burgundy `#64313E` and cohesive format workflows | Planned |
 | **0.8** | Reliability, interoperability, compatibility and distribution preparation | Planned |
 | **0.9** | Optional TSA timestamp issuance and encryption/decryption | Deferred / low priority |
 | **1.0** | Stable, maintainable release with explicitly defined supported scope | Goal |
 
 ## 0.6 — Signing formats and practical interoperability
+
+A–E.1 are implemented on `feature/signum-0.6e-verification-reports`.
+[Definitive release notes](SIGNUM_0.6_RELEASE_NOTES.md) declare the actual subsets;
+[Build 3](SIGNUM_0.6_BUILD3_RC.md) consolidates the final identity presentation.
+ASiC uses XAdES only; CAdES detached is a separate CMS operation.
+Personal identity is informational, independent of integrity and eIDAS.
+Manual Build 3 acceptance was confirmed and Beta publication authorized on
+22 October 2026. The accepted ZIP is reused without rebuilding. Burgundy stays
+in reports until the 0.7 GUI redesign.
+
 
 The 0.6 cycle should deliver useful formats without compromising 0.5 cryptographic and trust boundaries. **No new timestamp-service dependency is required for the 0.6 baseline.**
 

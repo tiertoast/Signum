@@ -88,12 +88,25 @@ public struct BatchApproval: Sendable {
             throw Self.failure("Il formato è bloccato dopo l’approvazione. Prepara una nuova sessione.")
         }
         guard documents[index].format != format else { return }
+        guard !format.isASiC, !documents[index].format.isASiC else {
+            throw Self.failure("Per ASiC scegli il formato dei nuovi documenti e aggiungi nuovamente i file; il contenitore acquisito non può essere convertito.")
+        }
         if format == .pades, !DocumentSigningConfiguration.canSelectPAdES(for:documents[index].snapshot) {
             throw Self.failure("Questo documento non è un PDF. Per questo file scegli CAdES.")
+        }
+        if format == .xades, !DocumentSigningConfiguration.canSelectXAdES(for:documents[index].snapshot) {
+            throw Self.failure("XAdES richiede un documento XML UTF-8 nel profilo supportato.")
         }
         invalidateReview(); revision = UUID()
         documents[index].configuration = .init(snapshotID:id,format:format)
         documents[index].destination = nil
+    }
+
+    public func selectCounterSignature(_ key: String, for id: UUID) throws {
+        guard !isFrozen,!isPreparing,!isRunning,let index=documents.firstIndex(where:{$0.id==id}),
+              documents[index].format == .cadesCounterSign,
+              documents[index].snapshot.cmsSignatureTargets.contains(where:{$0.signatureKey==key}) else { throw Self.failure("Firma da controfirmare non disponibile.") }
+        invalidateReview();revision=UUID();documents[index].configuration.counterSignatureKey=key
     }
 
     /// Read-only preflight for the main-screen summary. Does not freeze/approve,
@@ -108,6 +121,7 @@ public struct BatchApproval: Sendable {
         invalidateReview()
         let request = reviewRequest, version = revision, selected = documents.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
+        let counterKeys=Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.configuration.counterSignatureKey) })
         let control = SigningOperation()
         let cancelled: @Sendable () -> Bool = { control.isCancellationRequested || isCancelled() }
         let work = Task.detached(priority: .userInitiated) {
@@ -123,7 +137,7 @@ public struct BatchApproval: Sendable {
                 try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot, certificate: certificate,
                     certificateDER: der, destination: output.url, destinationDirectoryIdentity: output.directoryIdentity,
                     padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper, isCancelled: cancelled) : nil,
-                    padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext, includeSigningTime: includeSigningTime)
+                    padesAppearance: appearances[snapshot.identity.id], providerContext: providerContext, includeSigningTime: includeSigningTime, counterSignatureKey: counterKeys[snapshot.identity.id] ?? nil)
             }
             return BatchApproval(id: UUID(), jobs: jobs)
         }
@@ -174,6 +188,19 @@ public struct BatchApproval: Sendable {
         let operation = SigningOperation(), capture = captureDocument
         acquisitionOperation = operation
         defer { if acquisitionOperation === operation { isPreparing = false; acquisitionOperation = nil } }
+        if format == .asice {
+            let work = Task.detached(priority:.userInitiated) { Result { try ASiC.capture(sources:urls,kind:.extended,isCancelled:{ operation.isCancellationRequested }) } }
+            let value = await withTaskCancellationHandler(operation:{ await work.value },onCancel:{ operation.requestCancellation();work.cancel() })
+            guard acquisitionID == request, !Task.isCancelled else { if case .success(let s) = value { s.retire() };return }
+            switch value {
+            case .success(let snapshot):
+                if documents.count >= Self.maximumDocuments || documents.reduce(0,{ $0+$1.snapshot.identity.byteCount })+snapshot.identity.byteCount > Self.maximumTotalBytes {
+                    snapshot.retire();selectionIssues.append("Limite della sessione superato.")
+                } else { documents.append(BatchDocument(snapshot:snapshot)) }
+            case .failure(let error): selectionIssues.append("ASiC-E: " + error.localizedDescription)
+            }
+            return
+        }
         for url in urls.prefix(Self.maximumDocuments) {
             guard acquisitionID == request, !Task.isCancelled else { operation.requestCancellation(); break }
             guard documents.count < Self.maximumDocuments else {
@@ -182,7 +209,10 @@ public struct BatchApproval: Sendable {
             if documents.contains(where: { $0.snapshot.originalURL.standardizedFileURL == url.standardizedFileURL }) {
                 selectionIssues.append("\(url.lastPathComponent): documento già selezionato."); continue
             }
-            let captureTask = Task.detached(priority: .userInitiated) { Result { try capture(url, format, operation) } }
+            let captureTask = Task.detached(priority: .userInitiated) { Result {
+                if format == .asics { return try ASiC.capture(sources:[url],kind:.simple,isCancelled:{ operation.isCancellationRequested }) }
+                return try capture(url, format, operation)
+            } }
             let captured = await withTaskCancellationHandler(operation: { await captureTask.value },
                 onCancel: { operation.requestCancellation(); captureTask.cancel() })
             guard acquisitionID == request, !Task.isCancelled else { if case .success(let snapshot) = captured { snapshot.retire() }; break }
@@ -226,6 +256,7 @@ public struct BatchApproval: Sendable {
         let request = UUID(); acquisitionID = request
         let selected = documents.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
+        let counterKeys=Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.configuration.counterSignatureKey) })
         do {
             let prepared = try await Task.detached(priority: .userInitiated) {
                 try CertificateEligibility.requireEligible(certificateDER: der)
@@ -235,7 +266,7 @@ public struct BatchApproval: Sendable {
                     try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot,
                         certificate: certificate, certificateDER: der, destination: output.url,
                         destinationDirectoryIdentity: output.directoryIdentity,
-                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil, includeSigningTime: includeSigningTime)
+                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil, includeSigningTime: includeSigningTime, counterSignatureKey: counterKeys[snapshot.identity.id] ?? nil)
                 }
                 return BatchApproval(id: UUID(), jobs: jobs)
             }.value

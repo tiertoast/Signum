@@ -4,8 +4,24 @@ import CryptoKit
 import Darwin
 
 public enum SigningFormat: String, Sendable {
-    case cades, pades
-    public var maximumDocumentBytes: Int { SigningResourceLimits.maximumDocumentBytes }
+    case cades, cadesDetached, cadesCoSign, cadesCounterSign, pades, xades, asics, asice
+    public var maximumDocumentBytes: Int { isASiC ? ASiCZIP.maximumArchive : self == .xades ? XAdES.maximumDocumentBytes : SigningResourceLimits.maximumDocumentBytes }
+    public var isAdvancedCAdES: Bool { [.cadesDetached,.cadesCoSign,.cadesCounterSign].contains(self) }
+    public var outputExtension: String { self == .cadesDetached ? "p7s" : (self == .cades || isAdvancedCAdES) ? "p7m" : self == .pades ? "pdf" : self == .xades ? "xml" : rawValue }
+    public var isASiC: Bool { self == .asics || self == .asice }
+    public var title: String {
+        switch self {
+        case .cadesDetached: return "CAdES detached — firma .p7s"
+        case .cadesCoSign: return "Cofirma CAdES — stesso contenuto"
+        case .cadesCounterSign: return "Controfirma CMS — firma selezionata"
+        case .cades: return "CAdES — documento .p7m"
+        case .pades: return "PAdES — PDF firmato"
+        case .xades: return "XAdES — XML firmato"
+        case .asics: return "ASiC-S — un documento"
+        case .asice: return "ASiC-E — più documenti"
+        }
+    }
+    public var shortTitle: String { isAdvancedCAdES ? title : isASiC ? (self == .asics ? "ASiC-S" : "ASiC-E") : self == .pades ? "PAdES · PDF" : self == .xades ? "XAdES · XML" : "CAdES · .p7m" }
 }
 
 /// A private CoW acquisition, immutable approved bytes and a retained descriptor.
@@ -21,6 +37,8 @@ public final class DocumentSnapshot: @unchecked Sendable {
     public let originalURL: URL // Display/destination suggestion only, never a signing input.
     /// Immutable acquisition hint for legacy callers/limits, not the pending signing choice.
     public let format: SigningFormat
+    public let cmsSignatureTargets: [CAdESAdvanced.Target]
+    public let containerPayloadNames: [String]
     public let fileURL: URL // Private helper input; the helper must verify identity.sha256.
     public var approvedBytes: Data { bytes } // Value semantics, no mapped mutable file.
     private let bytes: Data
@@ -52,7 +70,7 @@ public final class DocumentSnapshot: @unchecked Sendable {
     }
 
     static func capture(source: URL, format: SigningFormat, privateRoot: URL,
-                        io: CaptureIO = CaptureIO(), timeout: TimeInterval = 30,
+                        io: CaptureIO = CaptureIO(), timeout: TimeInterval = 30, presentationSource: URL? = nil,
                         isCancelled: @escaping () -> Bool = { false }) throws -> DocumentSnapshot {
         let deadline = io.clock() + max(0, timeout)
         let check = {
@@ -156,7 +174,7 @@ public final class DocumentSnapshot: @unchecked Sendable {
         }
         try watch.requireUnchanged()
         try check()
-        let result = DocumentSnapshot(source: original, format: format, bytes: content, root: root,
+        let result = DocumentSnapshot(source: presentationSource ?? original, format: format, bytes: content, root: root,
                                       directory: directory, fd: fd, name: name,
                                       directoryIdentity: directoryIdentity, fileIdentity: info, privateRoot: privateRoot)
         keep = true
@@ -166,6 +184,8 @@ public final class DocumentSnapshot: @unchecked Sendable {
     private init(source: URL, format: SigningFormat, bytes: Data, root: Int32, directory: Int32,
                  fd: Int32, name: String, directoryIdentity: stat, fileIdentity: stat, privateRoot: URL) {
         self.originalURL = source; self.format = format; self.bytes = bytes
+        self.cmsSignatureTargets = SignatureFormatDetector.candidate(bytes) == .cades ? ((try? CAdESAdvanced.targets(in:bytes)) ?? []) : []
+        self.containerPayloadNames = format.isASiC ? ((try? ASiC.payloadNames(in:bytes)) ?? []) : []
         self.identity = Identity(id: UUID(), sha256: Self.digest(bytes), byteCount: bytes.count)
         self.root = root; self.directory = directory; self.descriptor = fd; self.directoryName = name
         self.directoryIdentity = directoryIdentity; self.fileIdentity = fileIdentity

@@ -14,6 +14,7 @@ public extension SignatureQualificationService {
     /// Existing validation performs all cryptographic and semantic checks afterwards.
     func validate(_ report: VerificationReport, catalog service: EuropeanTrustCatalogService,
                   countries: Set<String> = [], mode: RevocationMode = .offline, observedAt: Date = Date(),
+                  evaluationMode: SignatureEvaluationMode = .historical,
                   isCancelled: @escaping @Sendable () -> Bool = { false }) async -> EuropeanValidationResult {
         let certificates = report.signatures.flatMap { s in
             (s.signerDER.map { [$0] } ?? []) + s.embeddedCertificateDERs +
@@ -42,7 +43,7 @@ public extension SignatureQualificationService {
         } catch { warning = String(describing:error) }
         if isCancelled() || Task.isCancelled { return .init(catalog:nil,requestedCountries:requested,signatures:[],warning:"Annullato") }
         let lists = view.map { $0.catalogs.sorted { $0.key < $1.key }.map(\.value) } ?? []
-        let values = await validate(report,authenticatedLists:lists,mode:mode,observedAt:observedAt,isCancelled:isCancelled)
+        let values = await validate(report,authenticatedLists:lists,mode:mode,observedAt:observedAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
         return .init(catalog:view,requestedCountries:requested,signatures:values,warning:warning)
     }
     private static func issuerCountryHints(_ der: Data) -> [String] {

@@ -6,12 +6,16 @@ import CoreGraphics
 /// and identity are independent; an approved SigningJob copies the chosen value.
 public struct DocumentSigningConfiguration: Equatable, Sendable {
     public let snapshotID: UUID
+    public var counterSignatureKey: String? = nil
     public let format: SigningFormat
     public init(snapshotID: UUID, format: SigningFormat) {
         self.snapshotID = snapshotID; self.format = format
     }
     public static func canSelectPAdES(for snapshot: DocumentSnapshot) -> Bool {
         snapshot.approvedBytes.prefix(1024).range(of:Data("%PDF-".utf8)) != nil
+    }
+    public static func canSelectXAdES(for snapshot: DocumentSnapshot) -> Bool {
+        SignatureFormatDetector.candidate(snapshot.approvedBytes) == .xml
     }
     static func requirePDF(_ snapshot: DocumentSnapshot) throws {
         guard let provider=CGDataProvider(data:snapshot.approvedBytes as CFData),

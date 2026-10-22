@@ -1,24 +1,27 @@
 import Foundation
 import CryptoKit
 
-/// Experimental, attached CMS/CAdES candidate.
-/// Only RSA PKCS#1 v1.5 with SHA-256 and one signer's leaf certificate.
+/// Bounded CMS/CAdES builder, attached or detached.
+/// RSA PKCS#1 v1.5 with SHA-256 and one signer's leaf certificate;
+/// advanced operations reuse its attributes and SignerInfo, preserving old signatures.
 /// Independently validate any generated .p7m with a separate implementation.
 public enum CAdES {
     public static let maximumDocumentBytes = SigningResourceLimits.maximumDocumentBytes
 
     public struct Prepared {
         public let attributesToSign: Data
+        private let detached: Bool
         private let document: Data
         private let certificateDER: Data
         private let signerIdentifier: Data
         private let digestAlgorithm: Data
 
-        public init(document: Data, certificateDER: Data, declaredSigningTime: Date? = Date()) throws {
+        public init(document: Data, certificateDER: Data, declaredSigningTime: Date? = Date(), detached: Bool = false, counterSignature: Bool = false) throws {
             guard !document.isEmpty && document.count <= CAdES.maximumDocumentBytes else {
                 throw SignumError.module("Serve un documento non vuoto, fino a \(maximumDocumentBytes / 1024 / 1024) MiB.")
             }
             let identity = try DER.certificateIdentity(certificateDER)
+            self.detached = detached
             self.document = document
             self.certificateDER = certificateDER
             self.signerIdentifier = DER.sequence([identity.issuer, identity.serial])
@@ -33,10 +36,10 @@ public enum CAdES {
             let signingCertificateV2 = DER.sequence([DER.sequence([essCertIDv2])])
 
             var attributes = [
-                DER.attribute(oid: DER.contentTypeAttributeOID, value: DER.dataOID),
                 DER.attribute(oid: DER.messageDigestAttributeOID, value: DER.octets(messageDigest)),
                 DER.attribute(oid: DER.signingCertificateV2AttributeOID, value: signingCertificateV2)
             ]
+            if !counterSignature { attributes.append(DER.attribute(oid: DER.contentTypeAttributeOID, value: DER.dataOID)) }
             if let declaredSigningTime {
                 attributes.append(DER.attribute(oid: DER.signingTimeAttributeOID, value: try DER.signingTime(declaredSigningTime)))
             }
@@ -67,6 +70,10 @@ public enum CAdES {
             // enclosing level. Prepared still owns the immutable approved Data.
             let signedPrefix = DER.integerOne + DER.set([digestAlgorithm])
             let signedSuffix = DER.contextImplicit0(certificateDER) + DER.set([signerInfo])
+            if detached {
+                let signed = DER.sequence([signedPrefix, DER.sequence([DER.dataOID]), signedSuffix])
+                return DER.sequence([DER.signedDataOID, DER.contextExplicit0(signed)])
+            }
             let octets = DER.header(0x04, length: document.count)
             let explicitDocument = DER.header(0xA0, length: octets.count + document.count)
             let encapsulatedLength = DER.dataOID.count + explicitDocument.count + octets.count + document.count

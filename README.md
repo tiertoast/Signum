@@ -4,9 +4,30 @@
 
 Signum is a lightweight, native macOS application for local digital signatures and verification, built in Swift/SwiftUI with native cryptographic helpers. It is designed for everyday document workflows, including the Italian public administration, while avoiding dependence on any single token vendor's desktop software.
 
-> **Current release (21 October 2026): [Signum 0.5.0 Beta — Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta).** The Beta was manually accepted on the development hardware and published as a GitHub pre-release. It is **ad-hoc signed, not Developer ID signed or notarized**, and remains an experimental Beta, not a certified universal eIDAS validation solution.
+> **Previous release (21 October 2026): [Signum 0.5.0 Beta — Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta).** The Beta was manually accepted on the development hardware and published as a GitHub pre-release. It is **ad-hoc signed, not Developer ID signed or notarized**, and remains an experimental Beta, not a certified universal eIDAS validation solution.
 
 For planned work, scope and milestone gates, see the **[development roadmap](docs/ROADMAP.md)**. For distribution and assurance gaps, see **[release readiness](docs/RELEASE_READINESS.md)**.
+
+## Signum 0.6.0 Beta — Build 3
+
+**Signum 0.6.0 Development Preview — Build 3** consolidates current-time eIDAS
+assessment, XAdES-B enveloped, ASiC-S/E with detached XAdES, detached CAdES,
+co-/counter-signatures and PDF/TXT verification reports. Manual Build 3 acceptance
+was confirmed on 22 October 2026 and Beta publication authorized.
+**[Signum 0.6.0 Beta](https://github.com/tiertoast/Signum/releases/tag/v0.6.0-beta)**
+distributes the exact accepted Development Preview Build 3 ZIP, with its original
+isolated identity and ad hoc signature; no rebuild, Developer ID or notarization.
+The released 0.4/0.5 Betas and previous previews remain unchanged.
+
+Verification summaries and reports display each signer's personal Subject name,
+Italian personal codice fiscale when unambiguously present, and individual outcomes.
+Company identifiers are not presented as personal fiscal codes. Missing identity
+fields are explicitly unavailable; identity alone does not grant trust or QES.
+Burgundy accents apply to reports only; the GUI redesign remains planned for 0.7.
+
+See [0.6 release notes and manual checklist](docs/SIGNUM_0.6_RELEASE_NOTES.md)
+and [Build 3 scope/provenance](docs/SIGNUM_0.6_BUILD3_RC.md). Profiles remain bounded:
+no XAdES-T/LT/LTA, ASiC CAdES, timestamp issuance, encryption or universal eIDAS claim.
 
 ## Available in 0.5 Beta
 

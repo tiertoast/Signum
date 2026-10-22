@@ -1,6 +1,7 @@
 #ifndef SIGNUM_XML_SECURITY_H
 #define SIGNUM_XML_SECURITY_H
 #include <stddef.h>
+#include "CXAdES.h"
 /* No network, PKI path building, revocation, or qualification. Serialized by Swift. */
 int signum_xml_verify(const unsigned char *xml, size_t size,
                       const unsigned char *certificate, size_t cert_size,

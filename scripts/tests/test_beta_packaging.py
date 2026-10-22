@@ -15,6 +15,26 @@ spec.loader.exec_module(package)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_06_preview_is_isolated_and_05_identity_is_preserved(self):
+        identity, name = package.preview_metadata("0.6.0", 1)
+        self.assertEqual(identity, "io.github.tiertoast.Signum.DevelopmentPreview.V06.B1")
+        self.assertEqual(name, "Signum 0.6 Development Preview — Build 1")
+        self.assertTrue(identity.startswith("io.github.tiertoast.Signum.DevelopmentPreview"))
+        build2_identity, build2_name = package.preview_metadata("0.6.0", 2)
+        self.assertEqual(build2_identity, "io.github.tiertoast.Signum.DevelopmentPreview.V06.B2")
+        self.assertEqual(build2_name, "Signum 0.6 Development Preview — Build 2")
+        self.assertNotEqual(identity, build2_identity)
+        self.assertEqual(package.preview_metadata("0.6.0",3),
+                         ("io.github.tiertoast.Signum.DevelopmentPreview.V06.B3", "Signum 0.6 Development Preview — Build 3"))
+
+        self.assertEqual(package.preview_metadata("0.5.0", 7),
+                         ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))
+        self.assertEqual(package.preview_metadata("0.5.0", 6)[0],
+                         "io.github.tiertoast.Signum.DevelopmentPreview.B6")
+        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 1)]:
+            with self.assertRaises(ValueError):
+                package.preview_metadata(version, build)
+
     def test_legacy_script_fails_clearly_without_creating_any_bundle(self):
         with tempfile.TemporaryDirectory() as root:
             for args in ([], ["--help"], ["--output", "Signum.app"]):

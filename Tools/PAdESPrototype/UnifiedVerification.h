@@ -1,5 +1,6 @@
 #pragma once
 #include "PAdESVerification.h"
+#include <openssl/cms.h>
 namespace signum {
 struct InspectedAttribute { std::string oid, der; };
 struct InspectedEvidence {
@@ -9,6 +10,7 @@ struct InspectedEvidence {
 struct InspectedSignature {
     std::string integrity = "notVerifiable", reason, subject, issuer, fingerprint, algorithm, declaredTime;
     std::string signerDER, signatureValue, signatureKey, contentsSHA1;
+    std::string parentSignatureKey, signerPath;
     size_t signerIndex = 0;
     std::vector<InspectedAttribute> signedAttributes, unsignedAttributes;
     std::vector<std::string> timestampTokens;
@@ -25,8 +27,10 @@ struct Inspection {
     Bytes content;
     bool previewablePDF = false;
 };
-std::vector<InspectedSignature> inspectCMS(const Bytes& bytes, const Bytes* detached, Bytes* payload);
+std::vector<InspectedSignature> inspectCMS(const Bytes& bytes, const Bytes* detached, Bytes* payload, const Bytes* counterTarget = nullptr, size_t depth = 0, const std::string& pathPrefix = "");
+int verifyCounterSignature(CMS_SignerInfo*, X509*, const Bytes&);
+Bytes counterEnvelope(const Bytes&, const Bytes&, CMS_ContentInfo*);
 Inspection inspectPAdES(const Bytes& bytes);
 bool isPreviewablePDF(const Bytes& bytes);
-int verificationMain();
+int verificationMain(bool external = false);
 }

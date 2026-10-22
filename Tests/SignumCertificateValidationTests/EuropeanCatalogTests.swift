@@ -1,5 +1,5 @@
 import XCTest
-import SignumCore
+@testable import SignumCore
 import SignumTrustCore
 @testable import SignumTrustAuthentication
 @testable import SignumCertificateValidation
@@ -181,4 +181,26 @@ final class EuropeanCatalogTests: XCTestCase {
         let expired = await SignatureQualificationService().validate(report,authenticatedLists:[catalog],mode:.offline,observedAt:catalog.document.nextUpdate.addingTimeInterval(1))
         XCTAssertTrue(expired.allSatisfy { $0.qualification.state == .indeterminate })
     }
+    func testCurrentTimeWithoutTimestampRetainsSixCountryCoverageAndExcludesOthers() async throws {
+        let original = try self.report(), at = try now()
+        let signatures = original.signatures.map { value -> SignatureVerificationResult in
+            var value = value
+            if let e = value.evidence {
+                value.evidence = .init(signatureValue:e.signatureValue,signatureKey:e.signatureKey,signerIndex:e.signerIndex,
+                    signedAttributes:e.signedAttributes,unsignedAttributes:[],timestampTokens:[],embedded:e.embedded,issue:"")
+            }
+            return value
+        }
+        let report = VerificationReport(id:original.id,documentName:original.documentName,sha256:original.sha256,format:original.format,
+            signatures:signatures,documentState:original.documentState,issue:original.issue,previewPDF:nil,originalContent:nil)
+        for country in ["IT","AT","DE","BE","FR","ES","BG"] {
+            let values = await SignatureQualificationService().validate(report,authenticatedLists:[try list(country)],mode:.offline,observedAt:at,evaluationMode:.currentTime)
+            let q = try XCTUnwrap(values.first { $0.qualification.statements?.compliance == true })
+            XCTAssertEqual(q.qualification.state,country == "BG" ? .indeterminate : .qualified,q.qualification.reason)
+            XCTAssertEqual(q.evidence.time.state,.notProven); XCTAssertNil(q.evidence.time.provenTime)
+            XCTAssertEqual(q.evidence.revocation.state,.good)
+            if country != "BG" { XCTAssertEqual(q.qualification.service?.country,country) }
+        }
+    }
+
 }
