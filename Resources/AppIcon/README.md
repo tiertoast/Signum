@@ -1,37 +1,20 @@
-# Signum Refined
+# Signum Refined — Icon Composer source
 
-`Refined-Default-1024.png` is the unmodified `Icon-iOS-Default-1024@1x.png`
-from the user's Apple Icon Composer **Icon Exports.zip**, selected as Refined.
-SHA-256: `e558bf5f1769775b98f58ad797adb25a0040687a8e0763ac931eedd9dae90f6a`.
+`../AppIcon.icon` is a byte-for-byte copy of the user-supplied
+`Downloads/Icon.icon` document, renamed only at the enclosing directory level.
+The visible layer is `Signum-Refined-White-Transparent.svg`; its transform,
+background, shadows, translucency and hidden alternative layer are unchanged.
 
-The archive contains flattened default, dark, clear and tinted PNG exports,
-not a layered `.icon` document. The default export is the static app identity;
-no automatic appearance switching or Liquid Glass layers are claimed.
+The app packager compiles this document with Xcode's `actool`, targeting macOS
+13 and the Mac device family. It includes both generated `Assets.car` (native
+layered icon) and `AppIcon.icns` (older-system fallback), merging the compiler's
+`CFBundleIconName` and `CFBundleIconFile` metadata before code signing. Both
+outputs are hashed in the build manifest. No manual padding or raster conversion
+is applied. The previous flattened PNG workflow has been removed.
 
-Run from the repository root on macOS:
+Xcode must have its required components installed. Open `Package.swift` to work
+in Xcode, then use `scripts/build-preview-app.py` for a complete `.app` bundle;
+SwiftPM alone builds executables. A future Xcode app target should use this same
+Icon Composer document as its AppIcon source.
 
-```sh
-swift scripts/build-app-icon.swift
-```
-
-This generates `Resources/AppIcon.icns` using AppKit and Apple's `iconutil`.
-The original artwork fills its 1024px canvas; the generator centers it in an
-824px square, preserving its baked rounded corners and transparent corners.
-The resulting transparent margin keeps the icon proportionate in macOS.
-All ten macOS 1x/2x slots (16, 32, 128, 256, 512pt) are included.
-
-The supported app packager copies the ICNS to `Contents/Resources` before
-code signing, declares `CFBundleIconFile` in `Contents/Info.plist`, and records
-its SHA-256 in `BuildManifest.json`. This supplies Finder, Dock and the standard
-About-panel app icon without a runtime override.
-
-There is no checked-in `.xcodeproj` or asset catalog. Xcode opens `Package.swift`;
-`swift build` / Xcode's package executable do not assemble a Finder `.app`.
-Use `scripts/build-preview-app.py` for the actual app bundle. No SwiftPM resource
-declaration is needed for this bundle-level resource. If a dedicated Xcode app
-target is added later, it must copy this ICNS and use the same plist key (or
-migrate explicitly to a layered Icon Composer source).
-
-Apple references:
-[CFBundleIconFile](https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html),
-[App icons](https://developer.apple.com/design/human-interface-guidelines/app-icons).
+[Apple's Icon Composer integration documentation](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)

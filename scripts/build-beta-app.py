@@ -110,6 +110,23 @@ def private_dependency(ref, prefix):
     return path
 
 
+def compile_app_icon(destination, minimum_os):
+    """Compile the original layered document and merge Apple's bundle metadata."""
+    partial = destination.parent / "icon-partial.plist"
+    run(["/usr/bin/xcrun", "actool", REPO / "Resources/AppIcon.icon",
+         "--compile", destination, "--platform", "macosx", "--target-device", "mac",
+         "--minimum-deployment-target", minimum_os, "--app-icon", "AppIcon",
+         "--output-partial-info-plist", partial])
+    metadata = plistlib.loads(partial.read_bytes())
+    partial.unlink()  # Compiler metadata is not a bundle resource.
+    if metadata.get("CFBundleIconName") != "AppIcon":
+        raise ValueError("Missing compiled Icon Composer metadata")
+    for name in ("AppIcon.icns", "Assets.car"):
+        if not (destination / name).is_file():
+            raise ValueError("Missing compiled Icon Composer output: " + name)
+    return metadata
+
+
 def preview_metadata(version, build):
     if version == "0.7.0":
         if build != 1:
@@ -258,11 +275,9 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
             os.symlink("../Resources/" + resources[0].name, app / "Contents/Helpers" / resources[0].name, target_is_directory=True)
         info.update(CFBundleIdentifier=(preview_id if preview else "io.github.tiertoast.Signum.BetaFoundation"),
                     CFBundleName=(preview_name if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
+        info.update(compile_app_icon(app / "Contents/Resources", declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
-        icon = REPO / "Resources" / info["CFBundleIconFile"]
-        if not icon.is_file() or icon.read_bytes()[:4] != b"icns":
-            raise ValueError("Missing or invalid macOS app icon")
-        shutil.copy2(icon, app / "Contents/Resources" / icon.name)
+        icon = app / "Contents/Resources/AppIcon.icns"
         shutil.copytree(prefix / "share/signum-notices", app / "Contents/Resources/Notices")
         manifest = {"configuration": configuration, "architecture": "arm64",
                     "sourceCommit": run(["/usr/bin/git", "rev-parse", "HEAD"], capture=True, cwd=REPO).strip(),
@@ -270,6 +285,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
                     "minimumOSFromMachO": ".".join(map(str, max(versions))), "declaredMinimumOS": declared_target, "native": native_metadata,
                     "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
                     "appIconSHA256": hashlib.sha256(icon.read_bytes()).hexdigest(),
+                    "appIconAssetsSHA256": hashlib.sha256((app / "Contents/Resources/Assets.car").read_bytes()).hexdigest(),
                     "signing": "ad-hoc only; no Developer ID, hardened runtime or notarization",
                     "external": "User-installed PKCS#11 middleware for signing/discovery; bundled OpenSSL for unified verification; system /usr/bin/openssl for legacy verify-cades"}
         # Inner dylibs, helpers, main executable, then the enclosing bundle.

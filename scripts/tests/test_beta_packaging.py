@@ -23,24 +23,17 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             package.preview_metadata("0.7.0", 2)
 
-    def test_declared_icon_contains_complete_macos_representations(self):
-        info = plistlib.loads((package.REPO / "Resources/Info.plist").read_bytes())
-        icon = package.REPO / "Resources" / info["CFBundleIconFile"]
-        data = icon.read_bytes()
-        self.assertEqual(data[:4], b"icns")
-        self.assertEqual(int.from_bytes(data[4:8], "big"), len(data))
-        chunks = set()
-        offset = 8
-        while offset < len(data):
-            size = int.from_bytes(data[offset + 4:offset + 8], "big")
-            self.assertGreaterEqual(size, 8)
-            chunks.add(data[offset:offset + 4])
-            offset += size
-        self.assertEqual(offset, len(data))
-        self.assertTrue(chunks & {b"icp4", b"ic04", b"is32"})
-        self.assertTrue(chunks & {b"icp5", b"ic05", b"il32"})
-        self.assertTrue({b"ic07", b"ic08", b"ic09", b"ic10",
-                         b"ic11", b"ic12", b"ic13", b"ic14"}.issubset(chunks))
+    def test_layered_document_compiles_for_macos13_with_native_and_fallback_icons(self):
+        with tempfile.TemporaryDirectory() as root:
+            destination = Path(root) / "Resources"
+            destination.mkdir()
+            metadata = package.compile_app_icon(destination, "13.0")
+            self.assertEqual(metadata["CFBundleIconName"], "AppIcon")
+            self.assertEqual(metadata["CFBundleIconFile"], "AppIcon")
+            data = (destination / "AppIcon.icns").read_bytes()
+            self.assertEqual(data[:4], b"icns")
+            self.assertEqual(int.from_bytes(data[4:8], "big"), len(data))
+            self.assertGreater((destination / "Assets.car").stat().st_size, 0)
 
     def test_06_preview_is_isolated_and_05_identity_is_preserved(self):
         identity, name = package.preview_metadata("0.6.0", 1)

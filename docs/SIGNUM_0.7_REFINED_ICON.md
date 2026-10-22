@@ -1,75 +1,51 @@
-# 0.7 Refined icon integration — local validation
+# 0.7 Refined — native Icon Composer integration
 
-Date: 22 October 2026. Base: `61fa0b7` (main after the 0.6 verification reports merge).
-Branch: `feature/signum-0.7-refined-icon`.
+Updated 22 October 2026 on `feature/signum-0.7-refined-icon` (draft PR #7).
+This supersedes the earlier flattened-PNG integration.
 
-## Scope
+## Source and packaging
 
-Integrates the selected Refined artwork from Apple Icon Composer's `Icon Exports.zip`
-(archive SHA-256 `c381183d0f3377b1197a10c3818b9acb04b642d382b15f8852c1add7aed9a5a8`).
-See [asset provenance and regeneration](../Resources/AppIcon/README.md).
+The user supplied `/Users/andreaoregioni/Downloads/Icon.icon`. Its icon.json and
+both SVG assets are preserved byte-for-byte in `Resources/AppIcon.icon`.
+The selected Refined layer, hidden alternative, transforms and materials remain
+as authored. No manual inset or flattening is performed.
 
-Adds the static multi-resolution `AppIcon.icns`, bundle plist declaration, copying
-before signing, and icon hash in the build manifest. A separate 0.7.0 Development
-Preview Build 1 identifier allows coexistence with 0.6. Debug/Release are both
-available in the existing preview packager. No Xcode project exists; SwiftPM
-builds executables and the audited packager creates the macOS application.
+The audited local packager invokes Apple's actool for macOS 13, producing
+Assets.car and AppIcon.icns. It merges Apple's generated icon metadata into the
+bundle plist, records both output hashes, then signs and audits the complete app.
+The 0.7 preview identifier still coexists with 0.6. No Sources, Package.swift,
+engine logic, dependency versions or HalleyMac changes were made.
 
-No changes to `Sources/`, `Package.swift`, signing/verification logic, test fixtures,
-or HalleyMac. Existing 0.5/0.6 preview identities are preserved. The foundational
-plist version is unchanged; preview packaging supplies the 0.7 version.
+## Local validation
 
-Two build portability fixes were needed on Xcode 27.1: use an absolute logical
-`/Signum` prefix for compiler path mapping (relative `.` produced checkout-parent
-paths in Debug module metadata), and configure libxml2's system configuration
-directory as `/etc` (its default embedded the private staging prefix). Dependency
-versions and portability/signature audits remain unchanged.
+Xcode 27.1 / Apple Silicon. Native compilation initially failed because the
+installed Xcode lacked CoreSimulator.framework. Its matching XcodeSystemResources.pkg
+was extracted into ignored `.build/xcode-system-resources` and used through a
+build-tool-only DYLD_FRAMEWORK_PATH (including CoreSimulator's nested Frameworks).
+This override is never passed to product startup, native library builds or audits.
+The attempted first-launch setup was stopped; no system installation was required.
+A normally initialized Xcode needs no override.
 
-## Local checks
-
-- Xcode 27.1 / Apple Swift 6.4, Apple Silicon host; deployment target macOS 13.
-- 21 Python packaging/runner tests passed, including all icon representation slots
-  and isolated 0.7 identity. Initial assertions were updated for 0.7 support and
-  iconutil's `ic04`/`ic05` representation encodings.
-- 20 targeted Swift tests passed: 2 AppVersion and 18 VerificationReportExport.
-  Tests require the locally built PAdES helper and a linker rpath for the private
-  native libraries; initial attempts without these prerequisites failed at setup.
-- Complete Debug and Release app packaging passed: app/CLI/worker/helper,
-  native dependency closure, minimum OS, ad-hoc code signature, relocation and
-  synthetic CLI-to-worker discovery.
-- 10 packaged synthetic contract checks passed for each configuration.
-- Both GUIs remained alive for four seconds. Dynamic loader logs passed the
-  bundle-only library audit; only the smoke-test processes were terminated.
-- Finder's `NSWorkspace.icon(forFile:)` and the launched app's
-  `NSRunningApplication.icon` produced identical 256px images in each configuration.
-  Their appearance was inspected alongside decoded ICNS sizes on light/dark
-  backgrounds. All ten iconset PNGs decode. Regeneration produces the same ICNS
-  SHA-256: `cfd50fe5108c163abe21a6d9322e1b60028f52f82d5d021b8a54c881a7ec146e`.
-
-The original PNG artwork is retained byte-for-byte. There is no layered `.icon`
-source in the attachment, so dynamic Icon Composer appearance/material behavior
-is outside this static integration. This is targeted validation, not a new full
-engine acceptance campaign, real-token test, or runtime test on macOS 13/14.
+Validation passed: 21 Python packaging/runner tests including real actool
+compilation; Debug and Release complete bundle builds, ad-hoc signatures, native
+closure and relocation; 10 synthetic packaged binding checks per configuration.
+Both GUIs survived four seconds with audited loaded libraries. Finder and running
+app icon images matched byte-for-byte at 256px in each configuration. Both asset
+hashes match the manifests, and the source matches the user document. Evidence is
+under `.build/composer-*.log` and `.build/icon-validation/Composer-*`.
+These are targeted checks, not a full engine regression or real macOS 13 runtime
+test. Native appearance was inspected on the current host; older-system fallback
+was decoded separately. No release, tag, DMG, GitHub Actions or installation.
 
 ## Reproduce
 
 ```sh
-swift scripts/build-app-icon.swift
 python3 -m unittest discover -s scripts/tests -v
-# Build pinned native sources using the existing private recipe first.
 python3 scripts/build-preview-app.py --version 0.7.0 --build-number 1 \
-  --configuration debug --output /new/path/Debug/Signum.app \
+  --configuration release --output /new/path/Signum.app \
   --native-prefix /private/prefix --cmake /local/cmake
-# Repeat with --configuration release and a new output path.
-python3 scripts/test-packaged-bindings.py --bundle /new/path/Debug/Signum.app
-SIGNUM_TEST_PADES_HELPER=/local/signum-pades-local \
-PKG_CONFIG_PATH=/private/prefix/lib/pkgconfig \
-PKG_CONFIG_LIBDIR=/private/prefix/lib/pkgconfig \
-swift test --scratch-path .build/icon-swift-tests \
-  -Xlinker -rpath -Xlinker /private/prefix/lib \
-  --filter 'AppVersionTests|VerificationReportExportTests'
+python3 scripts/test-packaged-bindings.py --bundle /new/path/Signum.app
 ```
 
-Local evidence is under `.build/icon-*.log` and `.build/icon-validation/`.
-No GitHub Actions, release, tag, DMG, Developer ID signing or notarization was
-performed. Existing installed apps and other checkouts were not replaced.
+Use a new output path for every build, and repeat with configuration debug.
+See `Resources/AppIcon/README.md` for source and integration details.
