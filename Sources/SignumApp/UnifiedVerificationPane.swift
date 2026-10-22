@@ -165,6 +165,8 @@ struct UnifiedVerificationPane: View {
                                     if let hash=report.detachedContentSHA256 { Text("Contenuto separato · SHA-256: "+hash).font(.caption).textSelection(.enabled) }
                                     Text(report.summary)
                                     ForEach(report.signatures) { signature in
+                                        Text("Firma \(signature.id + 1) · " + (signature.signerIdentity?.personalName ?? "Non disponibile")).fontWeight(.medium)
+                                        Text("Codice Fiscale: " + (signature.signerIdentity?.fiscalCode ?? "Non disponibile")).font(.caption)
                                         Text("Integrità: " + signature.integrity.description).font(.caption)
                                         Text(signature.reason.isEmpty ? (signature.integrity == .verified ? "Firma e riferimenti del contenuto verificati dal motore crittografico nativo." : "Il motore crittografico non ha confermato l’integrità di questa firma.") : signature.reason).font(.caption)
                                         if let path = row.paths[signature.id] {
@@ -186,6 +188,8 @@ struct UnifiedVerificationPane: View {
                                             ForEach(report.signatures) { signature in
                                                 VStack(alignment: .leading, spacing: 3) {
                                                     Text("Firma \(signature.id+1) · " + signature.integrity.description)
+                                                    Text("Nome e cognome: " + (signature.signerIdentity?.personalName ?? "Non disponibile"))
+                                                    Text("Codice Fiscale: " + (signature.signerIdentity?.fiscalCode ?? "Non disponibile"))
                                                     if let cert = signature.certificate {
                                                         Text(cert.subject); Text("Emittente: " + cert.issuer)
                                                         Text("Certificato SHA-256: " + cert.sha256).textSelection(.enabled)

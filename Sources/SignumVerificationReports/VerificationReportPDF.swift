@@ -65,12 +65,14 @@ struct ReportPDFLayout {
         let title=signer.identity.count>140 ? String(signer.identity.prefix(140))+"…":signer.identity
         let titleLines=Self.wrapped("Firma \(signer.number) | "+title,width:Self.width-2*Self.margin-28,size:11,bold:true)
         let rows=signer.outcomes.map{ Self.wrapped($0.state,width:Self.width-2*Self.margin-160,size:9.5) }
-        let height=CGFloat(titleLines.count)*17+CGFloat(rows.reduce(0){$0+max(1,$1.count)})*15+28
+        let fiscalLines=Self.wrapped("Codice Fiscale: "+signer.fiscalCode,width:Self.width-2*Self.margin-28,size:9.5)
+        let height=CGFloat(fiscalLines.count)*15+CGFloat(titleLines.count)*17+CGFloat(rows.reduce(0){$0+max(1,$1.count)})*15+28
         try ensure(height+10)
         pages[pages.count-1].boxes.append(.init(rect:CGRect(x:Self.margin,y:y,width:Self.width-2*Self.margin,height:height),ink:.init(r:0.955,g:0.966,b:0.975)))
         pages[pages.count-1].boxes.append(.init(rect:CGRect(x:Self.margin,y:y,width:2,height:height),ink:.accent))
         y+=12
         for line in titleLines {pages[pages.count-1].lines.append(.init(text:line,x:Self.margin+14,y:y,height:17,ink:.text));y+=17}
+        for line in fiscalLines {pages[pages.count-1].lines.append(.init(text:line,x:Self.margin+14,y:y,height:15,ink:.text));y+=15}
         y+=5
         for (i,outcome) in signer.outcomes.enumerated() {
             pages[pages.count-1].lines.append(.init(text:Self.attributed(outcome.label,size:9),x:Self.margin+14,y:y,height:15,ink:.accent))

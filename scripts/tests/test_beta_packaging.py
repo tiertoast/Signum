@@ -24,6 +24,8 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(build2_identity, "io.github.tiertoast.Signum.DevelopmentPreview.V06.B2")
         self.assertEqual(build2_name, "Signum 0.6 Development Preview — Build 2")
         self.assertNotEqual(identity, build2_identity)
+        self.assertEqual(package.preview_metadata("0.6.0",3),
+                         ("io.github.tiertoast.Signum.DevelopmentPreview.V06.B3", "Signum 0.6 Development Preview — Build 3"))
 
         self.assertEqual(package.preview_metadata("0.5.0", 7),
                          ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))

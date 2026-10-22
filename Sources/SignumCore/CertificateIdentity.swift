@@ -5,6 +5,8 @@ import Foundation
 public struct SignumCertificateIdentity: Equatable, Sendable {
     public let fullName: String
     public let fiscalCode: String?
+    /// Complete personal Subject givenName + surname; CN alone is not proof of a personal name.
+    public let personalName: String?
     public let issuer: String?
     public let organization: String?
 
@@ -14,7 +16,8 @@ public struct SignumCertificateIdentity: Equatable, Sendable {
         self = try CertificateIdentityReader.read(certificateDER)
     }
 
-    init(fullName: String, fiscalCode: String?, issuer: String?, organization: String? = nil) {
+    init(fullName: String, fiscalCode: String?, issuer: String?, organization: String? = nil, personalName: String? = nil) {
+        self.personalName = personalName
         self.fullName = fullName
         self.fiscalCode = fiscalCode
         self.issuer = issuer
@@ -33,6 +36,7 @@ enum CertificateIdentityReader {
     private static let surname = Data([0x55, 0x04, 0x04])      // 2.5.4.4
     private static let serialNumber = Data([0x55, 0x04, 0x05]) // 2.5.4.5
     private static let givenName = Data([0x55, 0x04, 0x2A])    // 2.5.4.42
+    private static let country = Data([0x55, 0x04, 0x06]) // 2.5.4.6
     private static let organization = Data([0x55, 0x04, 0x0A]) // 2.5.4.10
 
     static func read(_ certificate: Data) throws -> SignumCertificateIdentity {
@@ -73,21 +77,28 @@ enum CertificateIdentityReader {
         let composedName = [first, last].filter { !$0.isEmpty }.joined(separator: " ")
         let name = !composedName.isEmpty ? composedName : (subject[commonName] ?? "Certificato X.509")
 
-        let candidates = [
-            subject[serialNumber],
-            subject[commonName]
-        ].compactMap { $0 }
-        let code = candidates.compactMap(fiscalCode(in:)).first
+        // Only structured personal identifiers: never scan arbitrary CN/organization text.
+        let subjectSerial = subject[serialNumber]?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
+        let italian = subject[country]?.uppercased() == "IT"
+        let candidate = subjectSerial.hasPrefix("TINIT-") ? String(subjectSerial.dropFirst(6)) : (italian ? subjectSerial : "")
+        var code = fiscalCode(in: candidate)
+        // Existing CNS profile: CF/DEVICE-ID in CN, with a complete personal name.
+        if code == nil, subject[serialNumber] == nil, !first.isEmpty, !last.isEmpty,
+           let cn = subject[commonName], cn.contains("/") {
+            code = fiscalCode(in: String(cn.split(separator:"/",omittingEmptySubsequences:false)[0]).uppercased())
+        }
 
         return SignumCertificateIdentity(
             fullName: name,
             fiscalCode: code,
-            issuer: issuer[commonName], organization: subject[organization]
+            issuer: issuer[commonName], organization: subject[organization],
+            personalName: first.isEmpty || last.isEmpty ? nil : composedName
         )
     }
 
     private static func readName(_ name: DER.Node, bytes: [UInt8]) throws -> [Data: String] {
         var result = [Data: String]()
+        var ambiguous = Set<Data>()
         var cursor = name.contents.lowerBound
         while cursor < name.contents.upperBound {
             let rdn = try DER.read(bytes, at: &cursor, limit: name.contents.upperBound)
@@ -103,8 +114,9 @@ enum CertificateIdentityReader {
                     throw SignumError.invalidCertificate
                 }
                 let oid = Data(bytes[type.contents])
-                if result[oid] == nil, let string = decodeString(value, bytes: bytes) {
-                    result[oid] = string
+                if let string = decodeString(value, bytes: bytes) {
+                    if let previous=result[oid], previous != string { ambiguous.insert(oid) }
+                    result[oid] = ambiguous.contains(oid) ? "" : string
                 }
             }
         }
@@ -130,10 +142,10 @@ enum CertificateIdentityReader {
     }
 
     private static func fiscalCode(in candidate: String) -> String? {
-        let upper = candidate.uppercased()
-        // Italian personal codice fiscale (16 characters). Do not guess from unrelated serials.
-        let pattern = #"(?<![A-Z0-9])[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z](?![A-Z0-9])"#
-        guard let range = upper.range(of: pattern, options: .regularExpression) else { return nil }
-        return String(upper[range])
+        // Italian personal CF including omocodia substitutions; this is identifier
+        // extraction, not a registry/checksum attestation. VAT/NTR identifiers excluded.
+        let pattern = #"\A[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]\z"#
+        guard candidate.range(of: pattern, options: .regularExpression) != nil else { return nil }
+        return candidate
     }
 }

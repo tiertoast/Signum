@@ -214,10 +214,39 @@ final class VerificationReportExportTests: XCTestCase {
         XCTAssertTrue(details.contains{$0.label=="Aggiornamento Trusted List" && $0.value=="Data non disponibile nei risultati del motore."})
         XCTAssertTrue(details.contains{$0.label=="Dettagli OCSP/CRL" && $0.value.contains("non disponibili")})
     }
+    func namedSignature(_ id: Int, first: String="Mario", last: String="Rossi", code: String="TINIT-RSSMRA80A01H501U", integrity: CryptographicIntegrity = .verified, parent: String?=nil) -> SignatureVerificationResult {
+        func field(_ oid: UInt8,_ value: String) -> Data {DER.set([DER.sequence([DER.wrap(0x06,Data([0x55,0x04,oid])),DER.wrap(0x0C,Data(value.utf8))])])}
+        let subject=DER.sequence([field(42,first),field(4,last),field(5,code)])
+        let tbs=DER.sequence([DER.wrap(0x02,Data([1])),DER.sequence([]),DER.sequence([]),DER.sequence([]),subject])
+        let der=DER.sequence([tbs])
+        var result=SignatureVerificationResult(id:id,integrity:integrity,certificate:.init(subject:"Subject originale di prova",issuer:"CA Test",sha256:DocumentSnapshot.digest(der)),algorithm:"RSA/SHA-256",declaredTime:"",reason:"Esito individuale del motore.",signedRevisionEnd:nil,laterChanges:false,cmsLayer:1)
+        result.signerDER=der;result.counterSignatureOf=parent
+        result.evidence=signature(id).evidence
+        return result
+    }
+    func testPersonalIdentitiesAndIndividualOutcomesAppearInFirstPageAndTextSummaryForAllFormats() throws {
+        let a=namedSignature(0),b=namedSignature(1,first:"Élodie",last:"Müller",code:"VATFR-123456789",integrity:.invalid,parent:a.evidence!.signatureKey)
+        for format in [VerifiedDocumentFormat.cades,.pades,.xml,.asic] {
+            let d=try VerificationReportDocument(report:report([a,b],format:format),validations:[],verificationDate:at,exportedAt:later)
+            let pdf=try XCTUnwrap(PDFDocument(data:VerificationReportPDF.data(d)))
+            let page=try XCTUnwrap(pdf.page(at:0)?.string)
+            for expected in ["Mario Rossi","RSSMRA80A01H501U","Élodie Müller","Non disponibile",a.integrity.description,b.integrity.description] {
+                XCTAssertTrue(page.contains(expected),"\(format): \(expected)")
+                let summary=d.plainText.components(separatedBy:"FIRMA 1")[0]
+                XCTAssertTrue(summary.contains(expected),expected)
+            }
+            XCTAssertEqual(d.signers[0].identity,"Mario Rossi");XCTAssertEqual(d.signers[1].fiscalCode,"Non disponibile")
+            XCTAssertTrue(d.signers[0].fields.contains{$0.label=="Codice Fiscale" && $0.value=="RSSMRA80A01H501U"})
+            XCTAssertEqual(d.signers[1].outcomes[0].state,CryptographicIntegrity.invalid.description)
+        }
+        let unavailable=try document(signatures:[signature()],validations:[])
+        XCTAssertEqual(unavailable.signers[0].identity,"Non disponibile")
+        XCTAssertEqual(unavailable.signers[0].fiscalCode,"Non disponibile")
+    }
     func testWriteSyntheticExamplesForVisualAcceptance() throws {
         guard let path=ProcessInfo.processInfo.environment["SIGNUM_TEST_REPORT_OUTPUT"] else {return}
         let root=URL(fileURLWithPath:path);try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
-        let a=signature(name:"Alex Test - Certificato sintetico"),b=signature(1,parent:a.evidence!.signatureKey,name:"Èlodie Müller - Controfirmataria di prova")
+        let a=namedSignature(0),b=namedSignature(1,first:"Élodie",last:"Müller",code:"VATFR-123456789",parent:a.evidence!.signatureKey)
         let base=validation()
         let evidence=SignatureEvidenceValidationResult(signatureID:0,revocation:.init(state:.good,reason:base.evidence.revocation.reason,certificates:[
             .init(state:.good,kind:.ocsp,evaluatedAt:at,thisUpdate:at.addingTimeInterval(-3600),nextUpdate:later,revokedAt:nil,reason:"Risposta OCSP sintetica: stato non revocato, intervallo dell’evidenza disponibile.")

@@ -71,6 +71,45 @@ final class CertificateIdentityTests: XCTestCase {
         XCTAssertThrowsError(try SignumCertificateIdentity(certificateDER: Data([0x30, 0x82, 0x01])))
     }
 
+    func testPersonalNameAndStructuredIdentifiersDoNotConfuseCompaniesOrForeignSerials() throws {
+        let personal=[field([0x55,0x04,0x2A],"Élodie"),field([0x55,0x04,0x04],"Müller")]
+        let foreign=try SignumCertificateIdentity(certificateDER:certificate(subject:personal+[
+            field([0x55,0x04,0x06],"FR"),field([0x55,0x04,0x05],"RSSMRA80A01H501U")]))
+        XCTAssertEqual(foreign.personalName,"Élodie Müller");XCTAssertNil(foreign.fiscalCode)
+        for serial in ["VATIT-12345678901","NTRIT-RSSMRA80A01H501U","VATIT-RSSMRA80A01H501U","TINIT-12345678901","prefix RSSMRA80A01H501U suffix"] {
+            let identity=try SignumCertificateIdentity(certificateDER:certificate(subject:personal+[
+                field([0x55,0x04,0x06],"IT"),field([0x55,0x04,0x05],serial)]))
+            XCTAssertNil(identity.fiscalCode,serial)
+        }
+        let company=try SignumCertificateIdentity(certificateDER:certificate(subject:[
+            field([0x55,0x04,0x03],"Impresa Test"),field([0x55,0x04,0x0A],"Impresa Test"),
+            field([0x55,0x04,0x05],"VATIT-12345678901")]))
+        XCTAssertNil(company.personalName);XCTAssertNil(company.fiscalCode)
+        XCTAssertEqual(company.organization,"Impresa Test")
+    }
+    func testIncompleteAmbiguousAndOmocodiaSubjectFieldsAreExplicit() throws {
+        let incomplete=try SignumCertificateIdentity(certificateDER:certificate(subject:[field([0x55,0x04,0x2A],"Mario")]))
+        XCTAssertNil(incomplete.personalName)
+        let duplicate=try SignumCertificateIdentity(certificateDER:certificate(subject:[
+            field([0x55,0x04,0x2A],"Mario"),field([0x55,0x04,0x2A],"Altro"),field([0x55,0x04,0x04],"Rossi")]))
+        XCTAssertNil(duplicate.personalName)
+        let identity=try SignumCertificateIdentity(certificateDER:certificate(subject:[
+            field([0x55,0x04,0x2A],"Mario"),field([0x55,0x04,0x04],"Rossi"),
+            field([0x55,0x04,0x05],"tinit-rssmraULALMHRLmu")]))
+        XCTAssertEqual(identity.personalName,"Mario Rossi");XCTAssertEqual(identity.fiscalCode,"RSSMRAULALMHRLMU")
+    }
+    func testVerificationIdentityUsesOnlyTheBoundSignerCertificate() throws {
+        let der=certificate(subject:[field([0x55,0x04,0x2A],"Mario"),field([0x55,0x04,0x04],"Rossi"),field([0x55,0x04,0x05],"TINIT-RSSMRA80A01H501U")])
+        var signature=SignatureVerificationResult(id:0,integrity:.invalid,certificate:.init(subject:"Untrusted display text",issuer:"CA",sha256:DocumentSnapshot.digest(der)),algorithm:"test",declaredTime:"",reason:"invalid",signedRevisionEnd:nil,laterChanges:false,cmsLayer:1)
+        signature.signerDER=der
+        XCTAssertEqual(signature.signerIdentity?.personalName,"Mario Rossi")
+        XCTAssertEqual(signature.integrity,.invalid) // identity never promotes a verdict
+        signature.signerDER=nil;signature.embeddedCertificateDERs=[der]
+        XCTAssertNil(signature.signerIdentity) // never pick an arbitrary embedded certificate
+        signature.signerDER=certificate(subject:[field([0x55,0x04,0x03],"Another certificate")])
+        XCTAssertNil(signature.signerIdentity) // digest mismatch
+    }
+
     func testDeviceTypeIsConservativeForUnknownHardware() {
         let usbToken = SignumToken(slot: 1, label: "DigitalDNA",
                                    manufacturer: "NXP", model: "SecID P71",

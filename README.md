@@ -8,6 +8,24 @@ Signum is a lightweight, native macOS application for local digital signatures a
 
 For planned work, scope and milestone gates, see the **[development roadmap](docs/ROADMAP.md)**. For distribution and assurance gaps, see **[release readiness](docs/RELEASE_READINESS.md)**.
 
+## 0.6 release candidate — pending manual acceptance
+
+**Signum 0.6.0 Development Preview — Build 3** consolidates current-time eIDAS
+assessment, XAdES-B enveloped, ASiC-S/E with detached XAdES, detached CAdES,
+co-/counter-signatures and PDF/TXT verification reports. It is prepared on the
+0.6 branch; **v0.6.0-beta is not published yet**. The released 0.5 Beta and previous
+previews remain available and unchanged.
+
+Verification summaries and reports display each signer's personal Subject name,
+Italian personal codice fiscale when unambiguously present, and individual outcomes.
+Company identifiers are not presented as personal fiscal codes. Missing identity
+fields are explicitly unavailable; identity alone does not grant trust or QES.
+Burgundy accents apply to reports only; the GUI redesign remains planned for 0.7.
+
+See [0.6 release notes and manual checklist](docs/SIGNUM_0.6_RELEASE_NOTES.md)
+and [Build 3 scope/provenance](docs/SIGNUM_0.6_BUILD3_RC.md). Profiles remain bounded:
+no XAdES-T/LT/LTA, ASiC CAdES, timestamp issuance, encryption or universal eIDAS claim.
+
 ## Available in 0.5 Beta
 
 | Area | Current scope |

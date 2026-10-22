@@ -30,6 +30,14 @@ public struct SignatureVerificationResult: Identifiable, Equatable, Sendable {
     public var evidence: SignatureEvidenceEnvelope? = nil
     public var signerDER: Data? = nil
     public var embeddedCertificateDERs: [Data] = []
+    /// Informational Subject fields from this SignerInfo's bound certificate only.
+    /// Identity does not assert integrity, chain trust or legal qualification.
+    public var signerIdentity: SignumCertificateIdentity? {
+        guard let der=signerDER, let certificate,
+              DocumentSnapshot.digest(der)==certificate.sha256.lowercased() else { return nil }
+        return try? SignumCertificateIdentity(certificateDER:der)
+    }
+
     public let trust = UnassessedValidation.notChecked
     public let revocation = UnassessedValidation.notChecked
     public let qualification = UnassessedValidation.notChecked

@@ -9,6 +9,7 @@ public struct VerificationReportDocument: Sendable {
     public struct Outcome: Sendable { public let label: String; public let state: String; public let reason: String }
     public struct Signer: Sendable {
         public let number: Int, identity: String
+        public let fiscalCode: String
         public let fields: [Field], outcomes: [Outcome], details: [Field]
     }
     public let documentName, sha256, format, productVersion: String
@@ -117,7 +118,11 @@ public struct VerificationReportDocument: Sendable {
         signers=report.signatures.map { signature in
             let number=(report.signatures.firstIndex{$0.id==signature.id} ?? 0)+1
             let value=validations.first{$0.signatureID==signature.id}
-            var identityFields=[field("Firmatario",signature.certificate?.subject ?? "Certificato non disponibile"),
+            let identity=signature.signerIdentity
+            let personalName=Self.clean(identity?.personalName ?? "Non disponibile")
+            let fiscalCode=Self.clean(identity?.fiscalCode ?? "Non disponibile")
+            var identityFields=[field("Nome e cognome",personalName),field("Codice Fiscale",fiscalCode),
+                field("Subject del certificato",signature.certificate?.subject ?? "Certificato non disponibile"),
                 field("Emittente",signature.certificate?.issuer ?? "Non disponibile"),
                 field("Certificato SHA-256",signature.certificate?.sha256 ?? "Non disponibile"),field("Algoritmo",signature.algorithm)]
             if let parent=signature.counterSignatureOf {
@@ -179,7 +184,7 @@ public struct VerificationReportDocument: Sendable {
             } else {
                 for label in ["Attendibilità X.509","Revoca","Evidenze temporali","Qualificazione eIDAS"] {outcomes.append(outcome(label,"Non valutata",missing))}
             }
-            return Signer(number:number,identity:Self.clean(signature.certificate?.subject ?? "Certificato non disponibile"),fields:identityFields,outcomes:outcomes,details:details)
+            return Signer(number:number,identity:personalName,fiscalCode:fiscalCode,fields:identityFields,outcomes:outcomes,details:details)
         }
         var limits=[
             "Gli esiti sono indipendenti e riferiti alla sessione e alle evidenze disponibili. Il rapporto non esegue una nuova verifica e non è una certificazione di validità giuridica.",
@@ -199,6 +204,11 @@ public struct VerificationReportDocument: Sendable {
         var rows=["SIGNUM", "Digital signatures. Simply native.","RAPPORTO DI VERIFICA", "Signum "+productVersion,
                   "Esportato il: "+Self.date(exportedAt),""]
         rows += fields.map{$0.label+": "+$0.value}
+        rows += ["", "SINTESI DEI FIRMATARI"]
+        for signer in signers {
+            rows += ["Firma \(signer.number) · Nome e cognome: "+signer.identity,"Codice Fiscale: "+signer.fiscalCode]
+            rows += signer.outcomes.map { $0.label+": "+$0.state }
+        }
         for signer in signers {
             rows += ["","FIRMA \(signer.number)"]+signer.fields.map{$0.label+": "+$0.value}
             for outcome in signer.outcomes {rows += [outcome.label+": "+outcome.state,"Motivazione: "+outcome.reason]}
