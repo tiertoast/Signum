@@ -17,9 +17,14 @@ struct SystemDocumentRequest: Identifiable {
     func receive(_ urls: [URL], action: SystemDocumentAction = .verify) {
         let files = urls.filter(\.isFileURL)
         guard !files.isEmpty else { return }
-        // Keep events separate and bound each acquisition to the workspace limit.
-        for offset in stride(from: 0, to: files.count, by: 32) {
-            pending.append(.init(urls: Array(files[offset..<min(offset + 32, files.count)]), action: action))
+        var remaining = files
+        if let last = pending.last, last.action == action, last.urls.count < 32 {
+            let count = min(32 - last.urls.count, remaining.count)
+            pending[pending.count - 1] = .init(urls: last.urls + remaining.prefix(count), action: action)
+            remaining.removeFirst(count)
+        }
+        for offset in stride(from: 0, to: remaining.count, by: 32) {
+            pending.append(.init(urls: Array(remaining[offset..<min(offset + 32, remaining.count)]), action: action))
         }
         revision += 1
     }

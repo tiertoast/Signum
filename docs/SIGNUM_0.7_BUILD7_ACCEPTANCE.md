@@ -13,7 +13,8 @@ le operazioni distinte del motore. Esiti incerti e sblocco automatico invariati.
 
 ## Finder
 
-SystemDocuments riceve e accoda gli URL locali prima dell’esistenza della finestra,
+La scena SwiftUI usa una finestra unica e onOpenURL per evitare che gli eventi
+finiscano in workspace nascosti. SystemDocuments riceve e accoda gli URL locali prima dell’esistenza della finestra,
 limita ogni acquisizione a 32 e conserva gli eventi successivi. Il normale workspace
 Firma acquisisce soltanto i file: nessun consenso o PIN viene fornito dal servizio.
 Verifica usa VerificationWorkspace e SignumVerificationService esistenti, con il

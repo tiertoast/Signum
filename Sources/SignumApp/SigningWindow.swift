@@ -285,6 +285,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
     func routeSystemDocuments() async {
         guard !routingSystemDocuments, !interfaceLocked, !batch.isFrozen else { return }
         routingSystemDocuments = true
+        await Task.yield() // Coalesce URLs delivered by one Finder selection.
         defer { routingSystemDocuments = false }
         while !interfaceLocked, !batch.isFrozen, let request = systemDocuments.next() {
             let scoped = request.urls.filter { $0.startAccessingSecurityScopedResource() }

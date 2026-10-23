@@ -33,6 +33,8 @@ import XCTest
         XCTAssertEqual(sign?.urls.first?.lastPathComponent, "to-sign.pdf")
         XCTAssertTrue(sign?.action == .sign)
         XCTAssertNil(inbox.next())
+        inbox.receive([files[0]]); inbox.receive([files[1]])
+        XCTAssertEqual(inbox.next()?.urls.count, 2)
         XCTAssertFalse(BatchSigningCoordinator().isApproved)
     }
 
