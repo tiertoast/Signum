@@ -243,6 +243,7 @@ extension SignumWindow {
                 if batch.isApproved { authorizeNextDocument() } else { prepareBatch() }
             } label: { Text(batch.isApproved ? "Firma" : "Firma…").frame(maxWidth: .infinity) }
                 .buttonStyle(.borderedProminent).controlSize(.large)
+                .tint(SignumAppearance.burgundy)
                 .accessibilityIdentifier("signum.approve-signing")
                 .disabled(batch.isApproved ? !canAuthorizeNext : !canApproveBatch)
         }.frame(maxWidth: .infinity, alignment: .leading)

@@ -37,7 +37,9 @@ Apri file firmato e Mostra nel Finder continuano a usare l’URL della ricevuta.
 Impostazioni conserva le quattro schede e Indietro/⌘,. Generali usa sezioni e
 colonne, senza il secondo DisclosureGroup sull’autenticazione. Rimossi i GroupBox
 da Firma grafica e Trusted Lists; dettagli del catalogo consultabili in popover.
-Burgundy #64313E e icona Refined sono preservati.
+Burgundy #64313E e icona Refined sono preservati. Il Burgundy rimane esatto
+sui pulsanti principali; una variante chiara #DCA1AD per i testi dei controlli
+in Dark Mode evita il basso contrasto del Burgundy scuro sul fondo scuro.
 
 ## Verifiche locali
 

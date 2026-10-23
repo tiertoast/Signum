@@ -15,6 +15,7 @@ enum SignumFormat: String, Hashable {
     @StateObject var interaction = SigningInteraction()
     @StateObject var review = SigningReview()
     @StateObject var results: SigningSessionResults
+    @Environment(\.colorScheme) var colorScheme
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     @State var refresh = DeviceRefreshLifecycle()
     @State var discoveryOperation: SigningOperation?
@@ -206,7 +207,7 @@ enum SignumFormat: String, Hashable {
                     .disabled(interfaceLocked || batch.isFrozen)
             }
         }
-        .tint(SignumAppearance.burgundy)
+        .tint(colorScheme == .dark ? SignumAppearance.burgundyForeground : SignumAppearance.burgundy)
         .onReceive(NotificationCenter.default.publisher(for: .signumShowSettings)) { _ in
             navigation.openSettings(blocked: interfaceLocked || batch.isFrozen)
         }
@@ -333,7 +334,7 @@ enum SignumFormat: String, Hashable {
                     if !batch.isFrozen {
                         Menu(SignumFormat(rawValue: entry.format.rawValue)?.displayTitle ?? entry.format.shortTitle) {
                             Button("CAdES — Firma P7M") { setDocumentFormat(.cades,for:entry.id) }
-                            Button("XAdES — XML firmato") { setDocumentFormat(.xades,for:entry.id) }
+                            Button("XAdES — Firma XML") { setDocumentFormat(.xades,for:entry.id) }
                                 .disabled(!DocumentSigningConfiguration.canSelectXAdES(for:entry.snapshot))
                             Button("PAdES — Firma PDF") { setDocumentFormat(.pades,for:entry.id) }
                                 .disabled(!DocumentSigningConfiguration.canSelectPAdES(for:entry.snapshot))

@@ -6,6 +6,8 @@ extension Notification.Name { static let signumShowSettings = Notification.Name(
 /// Visual vocabulary for Signum 0.7. System colors and materials remain in
 /// charge of content and legibility; Burgundy is reserved for tint and actions.
 enum SignumAppearance {
+    // Foreground variant only: preserve contrast on native dark control surfaces.
+    static let burgundyForeground = Color(red: 220.0 / 255.0, green: 161.0 / 255.0, blue: 173.0 / 255.0)
     static let burgundy = Color(red: 100.0 / 255.0, green: 49.0 / 255.0, blue: 62.0 / 255.0)
 }
 
@@ -91,6 +93,7 @@ struct SignumEmptyDocumentsView: View {
                 .multilineTextAlignment(.center)
             Button("Aggiungi documenti…", action: choose)
                 .buttonStyle(.borderedProminent)
+                .tint(SignumAppearance.burgundy)
                 .controlSize(.large)
         }
         .padding(28)
