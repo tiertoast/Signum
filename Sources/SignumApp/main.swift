@@ -196,6 +196,23 @@ private enum SignumFormat: String, Hashable {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if operation == .sign {
+                    Button(action: chooseFile) {
+                        Label("Aggiungi documenti", systemImage: "plus")
+                    }
+                    .disabled(interfaceLocked || batch.isFrozen)
+                    .help("Aggiungi documenti alla sessione di firma")
+                } else if operation == .devices {
+                    Button(action: { discover() }) {
+                        Label("Cerca dispositivi", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(interfaceLocked || batch.isFrozen)
+                    .help("Cerca nuovamente dispositivi e certificati")
+                }
+            }
+        }
         .tint(SignumAppearance.burgundy)
         .onAppear {
             guard automaticallyDiscover, !discoveryStarted else { return }
