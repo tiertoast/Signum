@@ -91,7 +91,12 @@ private enum SignumFormat: String, Hashable {
     init(batch: BatchSigningCoordinator? = nil, initialDevices: DeviceSelection = .init(),
          initialProvider: ProviderSelection = .init(), selectedSnapshot: DocumentSnapshot? = nil,
          automaticallyDiscover: Bool = true, defaults: UserDefaults = .standard,
-         workspace: SigningWorkspaceSelection? = nil, trustedLists: TrustedListsModel? = nil) {
+         workspace: SigningWorkspaceSelection? = nil, trustedLists: TrustedListsModel? = nil,
+         initialSection: SignumSection = .sign, initiallyExpandedDetails: Bool = false) {
+        _operation = State(initialValue: initialSection)
+        _showCertificates = State(initialValue: initiallyExpandedDetails)
+        _showSigningOptions = State(initialValue: initiallyExpandedDetails)
+        _showConnections = State(initialValue: initiallyExpandedDetails)
         self.trustedLists = trustedLists
         self.automaticallyDiscover = automaticallyDiscover
         preferences = SigningExperiencePreferences(defaults: defaults)
@@ -198,13 +203,13 @@ private enum SignumFormat: String, Hashable {
         .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if operation == .sign {
+                if (operation ?? .sign) == .sign {
                     Button(action: chooseFile) {
                         Label("Aggiungi documenti", systemImage: "plus")
                     }
                     .disabled(interfaceLocked || batch.isFrozen)
                     .help("Aggiungi documenti alla sessione di firma")
-                } else if operation == .devices {
+                } else if (operation ?? .sign) == .devices {
                     Button(action: { discover() }) {
                         Label("Cerca dispositivi", systemImage: "arrow.clockwise")
                     }
@@ -744,6 +749,8 @@ private enum SignumFormat: String, Hashable {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                         .disabled(!canApproveBatch)
+                    Text("Il clic su Firma approva i documenti e le destinazioni mostrati.")
+                        .font(.caption).foregroundStyle(.secondary)
                     if review.isPreparing { ProgressView("Preparazione del riepilogo…").controlSize(.small) }
                     if !review.issue.isEmpty { Text(review.issue).font(.caption) }
                     if selectedDocument?.format == .pades, let entry = selectedDocument,

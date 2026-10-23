@@ -113,7 +113,8 @@ def private_dependency(ref, prefix):
 def compile_app_icon(destination, minimum_os):
     """Compile the original layered document and merge Apple's bundle metadata."""
     partial = destination.parent / "icon-partial.plist"
-    run(["/usr/bin/xcrun", "actool", REPO / "Resources/AppIcon.icon",
+    actool = run(["/usr/bin/xcrun", "--find", "actool"], capture=True).strip()
+    run([actool, REPO / "Resources/AppIcon.icon",
          "--compile", destination, "--platform", "macosx", "--target-device", "mac",
          "--minimum-deployment-target", minimum_os, "--app-icon", "AppIcon",
          "--output-partial-info-plist", partial])

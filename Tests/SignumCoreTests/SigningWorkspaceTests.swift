@@ -53,6 +53,40 @@ import CoreGraphics
         let folder = try FixtureFiles.directory("signing-workspace",evidence:true)
         try bytes.write(to: folder.appendingPathComponent(name + ".png"))
     }
+    func test07SectionsAndExpandedOptionsRenderAtMinimumSizeInBothAppearances() async throws {
+        try await fixture { _, defaults, batch, devices, provider, _ in
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                for section in SignumSection.allCases {
+                    let frame = NSRect(x: 0, y: 0, width: 980, height: 650)
+                    let window = NSWindow(contentRect: frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    let previousAppearance = NSApp.appearance
+                    NSApp.appearance = NSAppearance(named: appearance)
+                    defer { NSApp.appearance = previousAppearance }
+                    window.appearance = NSAppearance(named: appearance)
+                    let view = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                        automaticallyDiscover: false, defaults: defaults, initialSection: section,
+                        initiallyExpandedDetails: true)
+                    let host = NSHostingView(rootView: view.environment(\.colorScheme, appearance == .darkAqua ? .dark : .light))
+                    host.wantsLayer = true
+                    host.frame = frame; window.contentView = host; window.orderFront(nil)
+                    defer { window.close() }
+                    try await Task.sleep(nanoseconds: 150_000_000)
+                    host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+                    // NavigationSplitView installs its titlebar after presentation.
+                    // Resize the content once that native toolbar is installed.
+                    window.setContentSize(frame.size)
+                    host.layoutSubtreeIfNeeded()
+                    XCTAssertEqual(host.bounds.width, 980, accuracy: 1)
+                    XCTAssertEqual(host.bounds.height, 650, accuracy: 1)
+                    XCTAssertFalse(descendants(host).compactMap { $0 as? NSSplitView }.isEmpty,
+                                   "Native sidebar must remain present")
+                    XCTAssertFalse(batch.isApproved); XCTAssertFalse(batch.isRunning)
+                }
+            }
+        }
+    }
+
     func testPINIsReachableWithoutScrollingThirtyTwoDocuments() async throws {
         try await fixture { root, defaults, batch, devices, provider, der in
             let files = try (1...32).map { number -> URL in

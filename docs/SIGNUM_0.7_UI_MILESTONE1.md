@@ -32,7 +32,10 @@ workspace with technical information available on demand.
 4. Validate native materials on current macOS, Light/Dark Mode, VoiceOver,
    keyboard navigation, minimum window size, and older supported macOS.
 
-## Local acceptance gate (not yet executed for these UI changes)
+## Local acceptance gate
+
+Automated Build 1 validation has been run; manual acceptance is still pending.
+See [results and manual checklist](SIGNUM_0.7_BUILD1_ACCEPTANCE.md).
 
 - Build and launch the macOS app with the local preview packager; do not use
   GitHub Actions. Verify native sidebar, toolbar, resizing, and both appearances.

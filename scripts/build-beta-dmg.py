@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,6 +36,9 @@ def build(app, notes, output):
             or manifest.get('sourceTrackedDirty') is not False):
         raise ValueError('A clean Release arm64 build is required')
     version, number = manifest['version'], manifest['build']
+    info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+    preview_name = info.get('CFBundleDisplayName', '')
+    volume_name = preview_name if 'Development Preview' in preview_name else 'Signum ' + version + ' Beta b' + number
     run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app])
     for relative, digest in manifest['nestedCodeSHA256'].items():
         component = (app / relative).resolve(strict=True)
@@ -45,7 +49,7 @@ def build(app, notes, output):
         temporary = Path(folder)
         stage = temporary / 'contents'
         stage.mkdir()
-        shutil.copytree(app, stage / 'Signum.app', symlinks=True)
+        shutil.copytree(app, stage / app.name, symlinks=True)
         shutil.copyfile(manifest_path, stage / 'BuildManifest.json')
         shutil.copyfile(notes, stage / 'ReleaseNotes.md')
         (stage / 'Applications').symlink_to('/Applications', target_is_directory=True)
@@ -55,7 +59,7 @@ def build(app, notes, output):
                 checks.append(sha256(path) + '  ' + str(path.relative_to(stage)))
         (stage / 'SHA256SUMS').write_text('\n'.join(checks) + '\n')
         image = temporary / 'image.dmg'
-        run(['/usr/bin/hdiutil', 'create', '-volname', 'Signum ' + version + ' Beta b' + number,
+        run(['/usr/bin/hdiutil', 'create', '-volname', volume_name,
              '-srcfolder', stage, '-fs', 'HFS+', '-format', 'UDZO', image])
         run(['/usr/bin/hdiutil', 'verify', image])
         digest = sha256(image)
