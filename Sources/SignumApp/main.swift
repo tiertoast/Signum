@@ -18,7 +18,6 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
     let services = SignumServices()
     let trustedLists = try? TrustedListsModel.developmentPreview()
     func applicationDidFinishLaunching(_ notification: Notification) { trustedLists?.start(); NSApp.servicesProvider = services; NSUpdateDynamicServices() }
-    func application(_ application: NSApplication, open urls: [URL]) { SystemDocuments.shared.receive(urls) }
     func applicationWillTerminate(_ notification: Notification) { trustedLists?.stop() }
 }
 
@@ -26,8 +25,9 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
 struct SignumApp: App {
     @NSApplicationDelegateAdaptor(SignumLifecycle.self) private var lifecycle
     var body: some Scene {
-        WindowGroup("Signum") {
+        Window("Signum", id: "signum-main") {
             SignumWindow(trustedLists: lifecycle.trustedLists)
+                .onOpenURL { url in SystemDocuments.shared.receive([url]) }
                 .frame(minWidth: 980, minHeight: 650)
         }
         .defaultSize(width: 1320, height: 830)
