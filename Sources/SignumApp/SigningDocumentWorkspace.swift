@@ -9,40 +9,54 @@ extension SignumWindow {
     var documentWorkspace: some View {
         VStack(spacing: 0) {
             if !batch.documents.isEmpty {
-                HStack(spacing: 0) {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
-                        ForEach(batch.documents) { entry in
-                            Button { showDocument(entry.id) } label: {
-                                Label(entry.snapshot.originalURL.lastPathComponent, systemImage: entry.id == documentSnapshot?.identity.id ? "doc.fill" : "doc")
-                                    .lineLimit(1).frame(maxWidth: 210)
-                                    .padding(8)
-                                    .background(entry.id == documentSnapshot?.identity.id ? Color.secondary.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(batch.isRunning || interaction.isSubmittingPIN)
-                            .accessibilityAddTraits(entry.id == documentSnapshot?.identity.id ? .isSelected : [])
-                        }
-                        }.padding(12)
-                    }
+                HStack {
+                    Text("Documenti").font(.headline)
+                    Spacer()
                     Button(action: chooseFile) { Image(systemName: "plus") }
                         .buttonStyle(.borderless)
                         .accessibilityLabel("Aggiungi documenti")
                         .accessibilityIdentifier("signum.add-more-documents")
                         .help("Aggiungi altri documenti")
                         .disabled(interfaceLocked || batch.isFrozen)
-                        .padding(.trailing, 14)
-                }.frame(height: 56)
+                }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 4)
+                List(selection: Binding<UUID?>(get: { selectedDocument?.id }, set: { id in
+                    guard !batch.isRunning, !interaction.isSubmittingPIN else { return }
+                    showDocument(id)
+                })) {
+                    ForEach(batch.documents) { entry in
+                        HStack(spacing: 8) {
+                            Image(systemName: BatchWorkspaceSummary.symbol(entry.state))
+                            Text(entry.snapshot.originalURL.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 4)
+                            Text(BatchWorkspaceSummary.status(entry.state)).font(.caption).foregroundStyle(.secondary)
+                        }.tag(entry.id).help(entry.snapshot.originalURL.lastPathComponent + (entry.result.isEmpty ? "" : "\n" + entry.result))
+                    }
+                }.listStyle(.plain)
+                    .frame(height: CGFloat(min(batch.documents.count, 3) * 30 + 8))
+                    .disabled(batch.isRunning || interaction.isSubmittingPIN)
+                    .accessibilityIdentifier("signum.document-list")
                 Divider()
                 if let entry = selectedDocument {
-                    HStack {
-                        Text(entry.snapshot.originalURL.lastPathComponent).font(.headline).lineLimit(1)
-                        Spacer()
-                        if entry.format == .pades {
-                            Button(workspace.showingPDFPreview ? "Conferma anteprima" : "Modifica aspetto…") {
-                                workspace.showingPDFPreview.toggle()
-                            }.disabled(interfaceLocked || batch.isFrozen || (workspace.showingPDFPreview && !readyPreviews.contains(entry.id)))
+                    let destination = displayedDestination(for: entry)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Text(destination.final ? "Destinazione" : "Destinazione prevista")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Esito e dettagli…") { showingDocumentDetails = true }
+                                .buttonStyle(.borderless)
+                                .popover(isPresented: $showingDocumentDetails) {
+                                    ScrollView { documentRow(entry).padding(16) }.frame(width: 440, height: 280)
+                                }
+                            if entry.format == .pades {
+                                Button(workspace.showingPDFPreview ? "Conferma anteprima" : "Modifica aspetto…") {
+                                    workspace.showingPDFPreview.toggle()
+                                }.disabled(interfaceLocked || batch.isFrozen || (workspace.showingPDFPreview && !readyPreviews.contains(entry.id)))
+                            }
                         }
+                        Text(verbatim: destination.url?.path ?? "Scegli la cartella di destinazione nell’inspector.")
+                            .font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("signum.document-output-path")
                     }.padding(.horizontal, 16).padding(.vertical, 10)
                     if entry.format == .pades && workspace.showingPDFPreview {
                         ScrollView { pdfWorkspace.frame(minHeight: 540) }
@@ -51,17 +65,11 @@ extension SignumWindow {
                     } else {
                         VStack(spacing: 12) {
                             Image(systemName: "doc.text").font(.system(size: 44)).foregroundStyle(.secondary)
-                            Text(entry.snapshot.originalURL.lastPathComponent).font(.headline).textSelection(.enabled)
-                            Text("\(SignumFormat(rawValue: entry.format.rawValue)?.displayTitle ?? entry.format.title) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.snapshot.identity.byteCount), countStyle: .file))")
-                                .foregroundStyle(.secondary)
-                            Text("Il contenuto non dispone di un’anteprima PDF.").font(.callout).foregroundStyle(.secondary)
+                            Text("Anteprima non disponibile per questo documento.")
+                                .font(.callout).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity).padding()
                     }
                 }
-                Divider()
-                DisclosureGroup("Documenti ed esiti · \(batch.documents.count)") {
-                    ScrollView { VStack(alignment: .leading) { ForEach(batch.documents) { documentRow($0) } } }.frame(maxHeight: 170)
-                }.padding(12)
                 if !results.receipts.isEmpty {
                     DisclosureGroup("Attività recenti") { SigningReceiptsView(receipts: results.receipts, clear: results.clear).transition(.opacity).frame(height: 180) }.padding(12)
                 }

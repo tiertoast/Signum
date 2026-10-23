@@ -8,52 +8,73 @@ extension SignumWindow {
             documentWorkspace.frame(minWidth: 410, maxWidth: .infinity, maxHeight: .infinity)
             VStack(spacing: 0) {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Picker("Firmatario", selection: Binding(get: { devices.selectedRouteID ?? "" }, set: { selectRoute($0) })) {
-                            Text("Seleziona certificato…").tag("")
-                            ForEach(CertificateVisibility(devices.certificates).eligible) { group in
-                                ForEach(group.routes) { route in
-                                    Text(group.routes.count > 1 ? "\(route.title) · \(route.providerName) · slot \(route.token.slot)" : route.title).tag(route.id)
+                    VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Firmatario").font(.headline)
+                            Picker("Firmatario", selection: Binding(get: { devices.selectedRouteID ?? "" }, set: { selectRoute($0) })) {
+                                Text("Seleziona certificato…").tag("")
+                                ForEach(CertificateVisibility(devices.certificates).eligible) { group in
+                                    ForEach(group.routes) { route in
+                                        Text(group.routes.count > 1 ? "\(route.title) · \(route.providerName) · slot \(route.token.slot)" : route.title).tag(route.id)
+                                    }
                                 }
-                            }
-                        }.disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
-                        certificateSelectionFeedback
-                        Picker("Formato", selection: formatBinding) {
-                            Text(SignumFormat.cades.displayTitle).tag(SignumFormat.cades)
-                            Text(SignumFormat.pades.displayTitle).tag(SignumFormat.pades)
-                                .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectPAdES(for: $0.snapshot) } ?? false)
-                            Section("Altri formati") {
-                                Text(SignumFormat.cadesDetached.displayTitle).tag(SignumFormat.cadesDetached)
-                                Text(SignumFormat.cadesCoSign.displayTitle).tag(SignumFormat.cadesCoSign)
-                                Text(SignumFormat.cadesCounterSign.displayTitle).tag(SignumFormat.cadesCounterSign)
-                                Text(SignumFormat.xades.displayTitle).tag(SignumFormat.xades)
-                                    .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectXAdES(for: $0.snapshot) } ?? false)
-                                Text(SignumFormat.asics.displayTitle).tag(SignumFormat.asics).disabled(selectedDocument != nil)
-                                Text(SignumFormat.asice.displayTitle).tag(SignumFormat.asice).disabled(selectedDocument != nil)
-                            }
-                        }.disabled(interfaceLocked || batch.isFrozen || selectedDocument?.format.isASiC == true)
-                        Picker("Destinazione", selection: $saveAlongsideOriginal) {
-                            Text("Accanto agli originali").tag(true)
-                            Text("Cartella comune").tag(false)
-                        }.disabled(interfaceLocked || batch.isFrozen)
-                        if !saveAlongsideOriginal {
-                            Button(customDirectory?.lastPathComponent ?? "Scegli cartella…") { chooseDestination() }
+                            }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
+                                .modifier(SignumFlexibleControl())
+                                .disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
+                            certificateSelectionFeedback
+                        }
+                        Divider()
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Formato").font(.headline)
+                            Picker("Formato", selection: formatBinding) {
+                                Text(SignumFormat.cades.displayTitle).tag(SignumFormat.cades)
+                                Text(SignumFormat.pades.displayTitle).tag(SignumFormat.pades)
+                                    .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectPAdES(for: $0.snapshot) } ?? false)
+                                Section("Altri formati") {
+                                    Text(SignumFormat.cadesDetached.displayTitle).tag(SignumFormat.cadesDetached)
+                                    Text(SignumFormat.cadesCoSign.displayTitle).tag(SignumFormat.cadesCoSign)
+                                    Text(SignumFormat.cadesCounterSign.displayTitle).tag(SignumFormat.cadesCounterSign)
+                                    Text(SignumFormat.xades.displayTitle).tag(SignumFormat.xades)
+                                        .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectXAdES(for: $0.snapshot) } ?? false)
+                                    Text(SignumFormat.asics.displayTitle).tag(SignumFormat.asics).disabled(selectedDocument != nil)
+                                    Text(SignumFormat.asice.displayTitle).tag(SignumFormat.asice).disabled(selectedDocument != nil)
+                                }
+                            }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
+                                .modifier(SignumFlexibleControl())
+                                .disabled(interfaceLocked || batch.isFrozen || selectedDocument?.format.isASiC == true)
+                            Text(formatBinding.wrappedValue.shortDescription).font(.caption).foregroundStyle(.secondary)
+                            Text("Documenti successivi").font(.caption).foregroundStyle(.secondary)
+                            Picker("Documenti successivi", selection: $subsequentFormat) {
+                                Text("Automatico — usa il formato selezionato sopra").tag(Optional<SignumFormat>.none)
+                                ForEach(SignumFormat.allCases, id: \.self) { value in
+                                    Text(value.displayTitle).tag(Optional(value))
+                                }
+                            }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
+                                .modifier(SignumFlexibleControl())
                                 .disabled(interfaceLocked || batch.isFrozen)
+                            counterSignatureSelection
                         }
-                        counterSignatureSelection
-                        DisclosureGroup("Opzioni avanzate", isExpanded: $showSigningOptions) {
-                            if selectedDocument != nil && !batch.isFrozen {
-                                Picker("Nuovi documenti", selection: $format) { newDocumentFormats }
-                                    .disabled(interfaceLocked)
+                        Divider()
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Destinazione").font(.headline)
+                            Picker("Destinazione", selection: $saveAlongsideOriginal) {
+                                Text("Accanto agli originali").tag(true)
+                                Text("Cartella comune").tag(false)
+                            }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
+                                .modifier(SignumFlexibleControl())
+                                .disabled(interfaceLocked || batch.isFrozen)
+                            if !saveAlongsideOriginal {
+                                Button(customDirectory?.lastPathComponent ?? "Scegli cartella…") { chooseDestination() }
+                                    .disabled(interfaceLocked || batch.isFrozen)
                             }
-                            SignumContextHelp(title: "Informazioni sulla firma", text: formatDetails + "\n\n" + authenticationExplanation)
                         }
+                        SignumContextHelp(title: "Informazioni sulla firma", text: formatDetails + "\n\n" + authenticationExplanation)
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Divider()
                 signingControls.padding(16)
             }
-            .frame(minWidth: 300, idealWidth: 320, maxWidth: 340)
+            .frame(minWidth: 300, idealWidth: 320, maxWidth: 440)
             .background(Color(nsColor: .controlBackgroundColor))
         }
     }
@@ -88,25 +109,18 @@ extension SignumWindow {
 
     @ViewBuilder var counterSignatureSelection: some View {
         if let entry = selectedDocument, entry.format == .cadesCounterSign {
+            VStack(alignment: .leading, spacing: 6) {
+            Text("Firma da controfirmare").font(.caption).foregroundStyle(.secondary)
             Picker("Firma da controfirmare", selection: Binding(get: { entry.configuration.counterSignatureKey ?? "" }, set: { key in
                 do { try batch.selectCounterSignature(key, for: entry.id); provider.pin = "" }
                 catch { status = error.localizedDescription }
             })) {
                 Text("Seleziona firma…").tag("")
                 ForEach(entry.snapshot.cmsSignatureTargets) { target in Text(target.title).tag(target.signatureKey) }
-            }.disabled(interfaceLocked || batch.isFrozen)
+            }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
+                .modifier(SignumFlexibleControl()).disabled(interfaceLocked || batch.isFrozen)
+            }
         }
-    }
-
-    @ViewBuilder var newDocumentFormats: some View {
-        Text(SignumFormat.cades.displayTitle).tag(SignumFormat.cades)
-        Text(SignumFormat.cadesDetached.displayTitle).tag(SignumFormat.cadesDetached)
-        Text(SignumFormat.cadesCoSign.displayTitle).tag(SignumFormat.cadesCoSign)
-        Text(SignumFormat.cadesCounterSign.displayTitle).tag(SignumFormat.cadesCounterSign)
-        Text(SignumFormat.xades.displayTitle).tag(SignumFormat.xades)
-        Text(SignumFormat.asics.displayTitle).tag(SignumFormat.asics)
-        Text(SignumFormat.asice.displayTitle).tag(SignumFormat.asice)
-        Text(SignumFormat.pades.displayTitle).tag(SignumFormat.pades)
     }
 
     var formatDetails: String {
@@ -198,7 +212,7 @@ extension SignumWindow {
                 if !batch.isApproved {
                     Text(signingAvailability).font(.callout).accessibilityIdentifier("signum.signing-availability")
                     if canApproveBatch {
-                        Text("Firma… approva documenti e destinazioni mostrati.")
+                        Text(SigningConsentDeclaration.text(documentCount: batch.documents.count))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } else {
@@ -220,8 +234,10 @@ extension SignumWindow {
                         Button("Ho verificato l'esito: consenti il prossimo documento") { batch.acknowledgeUncertainOutcome(); provider.pin = "" }
                             .disabled(batch.isRunning)
                     }
-                    Button("Annulla documenti in attesa") { batch.cancelPending(); provider.pin = "" }
-                        .disabled(batch.nextDocument == nil)
+                    if presentation.pinPrompt == nil || interfaceLocked {
+                        Button("Annulla documenti in attesa") { batch.cancelPending(); provider.pin = "" }
+                            .disabled(batch.nextDocument == nil)
+                    }
                     if batch.isRunning {
                         ProgressView("Firma in corso…").controlSize(.small)
                         Button("Interrompi firma corrente") { batch.activeOperation?.requestCancellation(); authenticationSession?.requestStop() }
@@ -239,13 +255,22 @@ extension SignumWindow {
                     Button("Annulla lettura") { work.requestCancellation() }
                 }
             }
-            Button {
-                if batch.isApproved { authorizeNextDocument() } else { prepareBatch() }
-            } label: { Text(batch.isApproved ? "Firma" : "Firma…").frame(maxWidth: .infinity) }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-                .tint(SignumAppearance.burgundy)
-                .accessibilityIdentifier("signum.approve-signing")
-                .disabled(batch.isApproved ? !canAuthorizeNext : !canApproveBatch)
+            HStack(spacing: 10) {
+                if batch.isApproved, presentation.pinPrompt != nil, !interfaceLocked {
+                    Button { batch.cancelPending(); provider.pin = "" } label: {
+                        Text("Annulla").frame(maxWidth: .infinity)
+                    }.buttonStyle(.bordered).controlSize(.large)
+                        .disabled(batch.nextDocument == nil)
+                        .accessibilityIdentifier("signum.cancel-pending")
+                }
+                Button {
+                    if batch.isApproved { authorizeNextDocument() } else { prepareBatch() }
+                } label: { Text(batch.isApproved ? "Firma" : "Firma…").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .tint(SignumAppearance.burgundy)
+                    .accessibilityIdentifier("signum.approve-signing")
+                    .disabled(batch.isApproved ? !canAuthorizeNext : !canApproveBatch)
+            }.modifier(SignumFlexibleControl())
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 

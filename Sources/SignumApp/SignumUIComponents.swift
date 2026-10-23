@@ -1,5 +1,6 @@
 #if os(macOS)
 import SwiftUI
+import SignumCore
 
 extension Notification.Name { static let signumShowSettings = Notification.Name("Signum.ShowSettings") }
 
@@ -140,6 +141,40 @@ extension SignumFormat {
         case .asics: return "Contenitore firmato — 1 file (ASiC-S)"
         case .asice: return "Contenitore firmato — più file (ASiC-E)"
         }
+    }
+}
+enum SigningIncomingFormat {
+    static func resolve(override: SignumFormat?, selected: SigningFormat?, fallback: SignumFormat) -> SignumFormat {
+        override ?? selected.flatMap { SignumFormat(rawValue: $0.rawValue) } ?? fallback
+    }
+}
+
+enum SigningConsentDeclaration {
+    static func text(documentCount: Int) -> String {
+        documentCount > 1
+            ? "Dichiaro di aver preso visione dei documenti, di sottoscriverne il contenuto e di essere consapevole della validità ai sensi della legge delle firme apposte."
+            : "Dichiaro di aver preso visione del documento, di sottoscriverne il contenuto e di essere consapevole della validità ai sensi della legge della firma apposta."
+    }
+}
+
+extension SignumFormat {
+    var shortDescription: String {
+        switch self {
+        case .cades: return "Crea un file .p7m contenente il documento e la firma digitale."
+        case .pades: return "Appone la firma digitale direttamente al PDF."
+        case .xades: return "Inserisce la firma digitale nel documento XML."
+        case .cadesDetached: return "Crea una firma .p7s separata; conserva anche il documento originale."
+        case .cadesCoSign: return "Aggiunge una firma al contenuto di un file P7M già firmato."
+        case .cadesCounterSign: return "Firma una delle firme già presenti nel file P7M."
+        case .asics: return "Riunisce un documento e la sua firma in un contenitore."
+        case .asice: return "Riunisce più documenti e la loro firma in un contenitore."
+        }
+    }
+}
+struct SignumFlexibleControl: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26, *) { content.buttonSizing(.flexible) }
+        else { content }
     }
 }
 #endif

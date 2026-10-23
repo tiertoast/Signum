@@ -22,7 +22,8 @@
       "PAdESSourcePreflightTests",
       "PAdESStatusIntegrationTests",
       "SigningFormatStabilizationTests",
-      "UnifiedVerificationTests"
+      "UnifiedVerificationTests",
+      "SigningIncomingFormatTests"
     ],
     "poppler": [
       "PAdESDefaultSigningTests",
@@ -101,7 +102,8 @@
       "PAdESStabilizationSigningTests",
       "PAdESStatusIntegrationTests",
       "SigningFormatStabilizationTests",
-      "UnifiedVerificationTests"
+      "UnifiedVerificationTests",
+      "SigningIncomingFormatTests"
     ],
     "poppler": [
       "PAdESDefaultSigningTests",

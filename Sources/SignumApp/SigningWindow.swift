@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import SignumCore
 import SignumTrustIntegration
 
-enum SignumFormat: String, Hashable {
+enum SignumFormat: String, Hashable, CaseIterable {
     case cades, cadesDetached, cadesCoSign, cadesCounterSign, pades, xades, asics, asice
 }
 
@@ -49,8 +49,9 @@ enum SignumFormat: String, Hashable {
         get { navigation.section }
         nonmutating set { navigation.select(newValue ?? .sign) }
     }
-    @State var showSigningOptions = false
     @State var format: SignumFormat = .cades
+    @State var subsequentFormat: SignumFormat?
+    @State var showingDocumentDetails = false
     @State var pdfPlacement: PAdESPlacement?
     @StateObject var workspace: SigningWorkspaceSelection
     var documentSnapshot: DocumentSnapshot? { workspace.snapshot }
@@ -72,13 +73,12 @@ enum SignumFormat: String, Hashable {
          initialProvider: ProviderSelection = .init(), selectedSnapshot: DocumentSnapshot? = nil,
          automaticallyDiscover: Bool = true, defaults: UserDefaults = .standard,
          workspace: SigningWorkspaceSelection? = nil, trustedLists: TrustedListsModel? = nil,
-         initialSection: SignumSection = .sign, initiallyExpandedDetails: Bool = false,
+         initialSection: SignumSection = .sign,
          sessionResults: SigningSessionResults? = nil,
          initialSidebarVisibility: NavigationSplitViewVisibility = .all) {
         _sidebarVisibility = State(initialValue: initialSidebarVisibility)
         _results = StateObject(wrappedValue: sessionResults ?? SigningSessionResults())
         _navigation = State(initialValue: SignumNavigation(section: initialSection))
-        _showSigningOptions = State(initialValue: initiallyExpandedDetails)
         self.trustedLists = trustedLists
         self.automaticallyDiscover = automaticallyDiscover
         preferences = SigningExperiencePreferences(defaults: defaults)
@@ -138,12 +138,13 @@ enum SignumFormat: String, Hashable {
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
             List(selection: Binding(get: { operation }, set: { if !interfaceLocked && !batch.isFrozen { operation = $0 } })) {
-                Label("Firma", systemImage: SignumSection.sign.symbol)
-                    .tag(SignumSection.sign)
-                Label("Verifica", systemImage: SignumSection.verify.symbol)
-                    .tag(SignumSection.verify)
-                Label("Dispositivi", systemImage: SignumSection.devices.symbol)
-                    .tag(SignumSection.devices)
+                sidebarLabel(.sign).tag(SignumSection.sign)
+                    .listRowSeparator(.visible, edges: .bottom)
+                    .listRowSeparatorTint(Color(nsColor: .separatorColor).opacity(0.4))
+                sidebarLabel(.verify).tag(SignumSection.verify)
+                    .listRowSeparator(.visible, edges: .bottom)
+                    .listRowSeparatorTint(Color(nsColor: .separatorColor).opacity(0.4))
+                sidebarLabel(.devices).tag(SignumSection.devices)
 
             }
             .listStyle(.sidebar)
@@ -272,6 +273,26 @@ enum SignumFormat: String, Hashable {
             .frame(maxWidth: 760, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+    }
+
+    func sidebarLabel(_ section: SignumSection) -> some View {
+        Label {
+            Text(section.title).font(.system(size: 14))
+        } icon: {
+            Image(systemName: section.symbol)
+                .foregroundStyle(colorScheme == .dark ? SignumAppearance.burgundyForeground : SignumAppearance.burgundy)
+        }
+    }
+
+    var incomingFormat: SignumFormat {
+        SigningIncomingFormat.resolve(override: subsequentFormat, selected: selectedDocument?.format, fallback: format)
+    }
+
+    func displayedDestination(for entry: BatchDocument) -> (url: URL?, final: Bool) {
+        let job = (batch.approval ?? review.approval)?.jobs.first { $0.snapshotIdentity.id == entry.id }
+        if let url = entry.destination { return (url, true) }
+        if review.matches(reviewContext, batch: batch), let url = job?.destination { return (url, true) }
+        return (destinationPolicy?.proposedURL(for: entry.snapshot, format: entry.format), false)
     }
 
     var formatBinding: Binding<SignumFormat> {
@@ -506,8 +527,8 @@ enum SignumFormat: String, Hashable {
         picker.title = "Seleziona i documenti da firmare"
         picker.canChooseFiles = true; picker.canChooseDirectories = false
         picker.allowsMultipleSelection = true
-        if format == .pades { picker.allowedContentTypes = [.pdf] }
-        else if format == .xades { picker.allowedContentTypes = [.xml] }
+        if incomingFormat == .pades { picker.allowedContentTypes = [.pdf] }
+        else if incomingFormat == .xades { picker.allowedContentTypes = [.xml] }
         if picker.runModal() == .OK { addDocuments(picker.urls) }
     }
 
@@ -527,7 +548,7 @@ enum SignumFormat: String, Hashable {
     }
 
     func addDocuments(_ urls: [URL]) {
-        guard !interfaceLocked, !batch.isFrozen, let kind = SigningFormat(rawValue: format.rawValue) else { return }
+        guard !interfaceLocked, !batch.isFrozen, let kind = SigningFormat(rawValue: incomingFormat.rawValue) else { return }
         provider.pin = ""
         guard let acquisition = batch.enqueueDocuments(urls, format: kind) else { return }
         Task { @MainActor in

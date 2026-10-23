@@ -32,8 +32,11 @@ class PackagingTests(unittest.TestCase):
         build5, name5 = package.preview_metadata("0.7.0", 5)
         self.assertNotIn(build5, (identity, build2, build3, build4))
         self.assertIn("Build 5", name5)
+        build6, name6 = package.preview_metadata("0.7.0", 6)
+        self.assertNotIn(build6, (identity, build2, build3, build4, build5))
+        self.assertIn("Build 6", name6)
         with self.assertRaises(ValueError):
-            package.preview_metadata("0.7.0", 6)
+            package.preview_metadata("0.7.0", 7)
 
     def test_sdk_metadata_is_distinct_from_deployment_minimum(self):
         load = "cmd LC_BUILD_VERSION\n platform MACOS\n minos 13.0\n sdk 27.0\n"
@@ -72,7 +75,7 @@ class PackagingTests(unittest.TestCase):
                          ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))
         self.assertEqual(package.preview_metadata("0.5.0", 6)[0],
                          "io.github.tiertoast.Signum.DevelopmentPreview.B6")
-        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 6)]:
+        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 7)]:
             with self.assertRaises(ValueError):
                 package.preview_metadata(version, build)
 

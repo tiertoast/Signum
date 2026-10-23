@@ -94,6 +94,31 @@ import CoreGraphics
         }
     }
 
+    func testDisplayedDestinationIncludesOutputFilenameAndApprovedCollisionName() async throws {
+        try await fixture { root, defaults, batch, _, _, der in
+            let file = root.appendingPathComponent("original.txt")
+            try Data("Synthetic destination".utf8).write(to: file)
+            await batch.addDocuments([file], format: .cadesDetached)
+            let first = batch.documents[0]
+            let view = SignumWindow(batch: batch, selectedSnapshot: first.snapshot, automaticallyDiscover: false, defaults: defaults)
+            XCTAssertEqual(view.displayedDestination(for: first).url?.path, first.snapshot.originalURL.deletingLastPathComponent().appendingPathComponent("original.txt-detached.p7s").path)
+            XCTAssertFalse(view.displayedDestination(for: first).final)
+            try batch.setFormat(.cades, for: first.id)
+            XCTAssertEqual(view.displayedDestination(for: batch.documents[0]).url?.lastPathComponent, "original.txt.p7m")
+            let occupied = root.appendingPathComponent("original.txt.p7m")
+            try Data("Existing output".utf8).write(to: occupied)
+            let plan = try await batch.prepareApproval(provider: "/synthetic/provider.dylib", slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
+            try batch.confirm(plan)
+            let shown = view.displayedDestination(for: batch.documents[0])
+            XCTAssertTrue(shown.final)
+            XCTAssertEqual(shown.url, plan.jobs[0].destination)
+            XCTAssertEqual(shown.url?.lastPathComponent, "original (2).txt.p7m")
+            XCTAssertEqual(try Data(contentsOf: occupied), Data("Existing output".utf8))
+            XCTAssertFalse(batch.isRunning)
+        }
+    }
+
     func testAddingLaterDocumentsKeepsSelectedSnapshotAndPerDocumentConfiguration() async throws {
         try await fixture { root, defaults, batch, _, _, _ in
             let first = root.appendingPathComponent("first.txt"), second = root.appendingPathComponent("second.txt")
@@ -111,7 +136,7 @@ import CoreGraphics
             XCTAssertEqual(batch.documents[0].id, id)
             XCTAssertTrue(batch.documents[0].snapshot === snapshot)
             XCTAssertEqual(batch.documents[0].format, .cadesDetached)
-            XCTAssertEqual(batch.documents[1].format, .cades)
+            XCTAssertEqual(batch.documents[1].format, .cadesDetached, "Automatic follows the selected document; existing configuration is preserved")
             XCTAssertTrue(workspace.snapshot === snapshot); XCTAssertEqual(workspace.generation, generation)
             XCTAssertFalse(batch.isApproved)
         }
@@ -129,8 +154,7 @@ import CoreGraphics
                     defer { NSApp.appearance = previousAppearance }
                     window.appearance = NSAppearance(named: appearance)
                     let view = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
-                        automaticallyDiscover: false, defaults: defaults, initialSection: section,
-                        initiallyExpandedDetails: true)
+                        automaticallyDiscover: false, defaults: defaults, initialSection: section)
                     let host = NSHostingView(rootView: view.environment(\.colorScheme, appearance == .darkAqua ? .dark : .light))
                     host.wantsLayer = true
                     host.frame = frame; window.contentView = host; window.orderFront(nil)
