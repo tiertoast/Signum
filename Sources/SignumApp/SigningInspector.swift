@@ -9,7 +9,6 @@ extension SignumWindow {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        Text("Firma").font(.headline)
                         Picker("Firmatario", selection: Binding(get: { devices.selectedRouteID ?? "" }, set: { selectRoute($0) })) {
                             Text("Seleziona certificato…").tag("")
                             ForEach(CertificateVisibility(devices.certificates).eligible) { group in
@@ -17,8 +16,9 @@ extension SignumWindow {
                             }
                         }.disabled(interfaceLocked || batch.isFrozen)
                         if let route = devices.selectedRoute {
-                            Text(route.deviceDescription).font(.caption).foregroundStyle(.secondary)
+                            Text(route.identity?.issuer ?? route.deviceDescription).font(.caption).foregroundStyle(.secondary)
                         }
+                        certificateSelectionFeedback
                         Picker("Formato", selection: formatBinding) {
                             Text("CAdES · .p7m").tag(SignumFormat.cades)
                             Text("PAdES · PDF").tag(SignumFormat.pades)
@@ -44,22 +44,50 @@ extension SignumWindow {
                         if selectedDocument?.format == .cadesCounterSign {
                             formatPicker
                         }
-                        DisclosureGroup("Opzioni", isExpanded: $showSigningOptions) {
+                        DisclosureGroup("Opzioni avanzate", isExpanded: $showSigningOptions) {
                             formatPicker
                             destinationControls
+                            Text(authenticationExplanation).font(.caption).foregroundStyle(.secondary)
+                            statusFooter
+                            Button("Dispositivi e certificati…") { operation = .devices }
+                                .disabled(interfaceLocked || batch.isFrozen)
                         }
-                        DisclosureGroup("Dettagli certificato", isExpanded: $showCertificates) { certificateControls }
-                        DisclosureGroup("Dispositivi e diagnostica", isExpanded: $showConnections) { tokenControls }
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Divider()
-                signingControls.padding(14)
-                statusFooter.padding(.horizontal, 14).padding(.bottom, 12)
+                signingControls.padding(16)
             }
-            .frame(minWidth: 300, idealWidth: 330, maxWidth: 390)
+            .frame(minWidth: 300, idealWidth: 320, maxWidth: 340)
             .background(Color(nsColor: .controlBackgroundColor))
         }
     }
+    var signingAvailability: String {
+        if busy || batch.isPreparing { return work == nil ? "Preparazione documenti…" : workPhase.message }
+        if batch.documents.isEmpty { return "Aggiungi un documento per iniziare" }
+        if devices.isSearching { return "Ricerca dei certificati…" }
+        guard devices.selectedRoute != nil else { return "Seleziona un certificato per firmare" }
+        if !review.issue.isEmpty { return review.issue }
+        if !saveAlongsideOriginal && customDirectory == nil { return "Scegli la cartella di destinazione" }
+        if workspace.showingPDFPreview || batch.documents.contains(where: { $0.format == .pades && !readyPreviews.contains($0.id) }) {
+            return "Controlla e conferma l’anteprima di ogni PDF"
+        }
+        if review.isPreparing { return "Verifica dei documenti e del certificato…" }
+        return canApproveBatch ? "Pronto per la firma" : status
+    }
+
+    @ViewBuilder var certificateSelectionFeedback: some View {
+        if !devices.isSearching && devices.selectedRoute == nil {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(review.credentialUnavailable ? status : (devices.message.isEmpty ? "Nessun certificato selezionato." : devices.message))
+                    .font(.caption).textSelection(.enabled)
+                Button("Ripeti ricerca") { discover() }
+                    .disabled(interfaceLocked || batch.isFrozen)
+            }
+        } else if let route = devices.selectedRoute, !route.assessment.permitsSigning {
+            Text(route.assessment.explanation).font(.caption).textSelection(.enabled)
+        }
+    }
+
     var formatPicker: some View {
         SignumInspectorSection(selectedDocument == nil ? "Formato nuovi documenti" : "Formato firma") {
             VStack(alignment:.leading,spacing:6) {
@@ -218,21 +246,9 @@ extension SignumWindow {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 10) {
                 if !batch.isApproved {
-                    Button("Firma…") { prepareBatch() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .disabled(!canApproveBatch)
-                    Text("Il clic su Firma approva i documenti e le destinazioni mostrati.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if review.isPreparing { ProgressView("Preparazione del riepilogo…").controlSize(.small) }
-                    if !review.issue.isEmpty { Text(review.issue).font(.caption) }
-                    if selectedDocument?.format == .pades, let entry = selectedDocument,
-                        !readyPreviews.contains(entry.id) {
-                        Text("Controlla prima l’anteprima PDF e torna all’elenco documenti.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    DisclosureGroup("Dettagli autenticazione") {
-                        Text(authenticationExplanation)
+                    Text(signingAvailability).font(.callout).accessibilityIdentifier("signum.signing-availability")
+                    if canApproveBatch {
+                        Text("Firma… approva documenti e destinazioni mostrati.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } else {
@@ -247,9 +263,8 @@ extension SignumWindow {
                             .textFieldStyle(.roundedBorder).privacySensitive().focused($pinFocused)
                             .onSubmit { authorizeNextDocument() }.onAppear { pinFocused = true }
                             .disabled(interfaceLocked)
-                        Button("Firma") { authorizeNextDocument() }.disabled(!canAuthorizeNext)
                     }
-                    if presentation.stage == .completed { Text("Sessione conclusa. Consulta gli esiti a destra.").font(.caption) }
+                    if presentation.stage == .completed { Text("Sessione conclusa. Consulta gli esiti nei documenti.").font(.caption) }
                     if batch.needsOutcomeReview {
                         Text("Esito incerto: controlla dispositivo ed eventuale output prima di continuare. La firma non verrà ripetuta.").font(.caption)
                         Button("Ho verificato l'esito: consenti il prossimo documento") { batch.acknowledgeUncertainOutcome(); provider.pin = "" }
@@ -258,7 +273,7 @@ extension SignumWindow {
                     Button("Annulla documenti in attesa") { batch.cancelPending(); provider.pin = "" }
                         .disabled(batch.nextDocument == nil)
                     if batch.isRunning {
-                        ProgressView().controlSize(.small)
+                        ProgressView("Firma in corso…").controlSize(.small)
                         Button("Interrompi firma corrente") { batch.activeOperation?.requestCancellation(); authenticationSession?.requestStop() }
                     }
                 }
@@ -273,8 +288,14 @@ extension SignumWindow {
                     ProgressView(workPhase.message).controlSize(.small)
                     Button("Annulla lettura") { work.requestCancellation() }
                 }
-            }.padding(5)
-        }
+            }
+            Button {
+                if batch.isApproved { authorizeNextDocument() } else { prepareBatch() }
+            } label: { Text(batch.isApproved ? "Firma" : "Firma…").frame(maxWidth: .infinity) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .accessibilityIdentifier("signum.approve-signing")
+                .disabled(batch.isApproved ? !canAuthorizeNext : !canApproveBatch)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     var statusFooter: some View {

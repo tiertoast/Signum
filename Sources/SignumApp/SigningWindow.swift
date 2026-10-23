@@ -40,6 +40,7 @@ enum SignumFormat: String, Hashable {
     @State var authorizedManualPaths: [String] = []
     @State var work: SigningOperation?
     @State var workPhase: SigningOperationPhase = .idle
+    @State var sidebarVisibility: NavigationSplitViewVisibility
     @State var operation: SignumSection? = .sign
     @State var showCertificates = false
     @State var showSigningOptions = false
@@ -67,7 +68,9 @@ enum SignumFormat: String, Hashable {
          automaticallyDiscover: Bool = true, defaults: UserDefaults = .standard,
          workspace: SigningWorkspaceSelection? = nil, trustedLists: TrustedListsModel? = nil,
          initialSection: SignumSection = .sign, initiallyExpandedDetails: Bool = false,
-         sessionResults: SigningSessionResults? = nil) {
+         sessionResults: SigningSessionResults? = nil,
+         initialSidebarVisibility: NavigationSplitViewVisibility = .all) {
+        _sidebarVisibility = State(initialValue: initialSidebarVisibility)
         _results = StateObject(wrappedValue: sessionResults ?? SigningSessionResults())
         _operation = State(initialValue: initialSection)
         _showCertificates = State(initialValue: initiallyExpandedDetails)
@@ -130,7 +133,7 @@ enum SignumFormat: String, Hashable {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
             List(selection: $operation) {
                 Label("Firma", systemImage: SignumSection.sign.symbol)
                     .tag(SignumSection.sign)
@@ -141,22 +144,10 @@ enum SignumFormat: String, Hashable {
 
             }
             .listStyle(.sidebar)
-            .frame(minWidth: 180, idealWidth: 205)
-            .navigationTitle("Signum")
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
             .disabled(interfaceLocked || batch.isFrozen)
         } detail: {
             VStack(spacing: 0) {
-                HStack {
-                    Text((operation ?? .sign).title)
-                        .font(.title2.weight(.semibold))
-                    Spacer()
-                    Text(AppVersion.label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-                Divider()
                 switch operation ?? .sign {
                 case .sign:
                     signingScreen
@@ -174,6 +165,7 @@ enum SignumFormat: String, Hashable {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationSplitViewStyle(.balanced)
+        .navigationTitle("Signum")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if (operation ?? .sign) == .sign {
@@ -186,7 +178,7 @@ enum SignumFormat: String, Hashable {
             }
             ToolbarItem(placement: .automatic) {
                 Button(action: { discover() }) {
-                    Label(devices.isSearching ? "Ricerca in corso…" : "Aggiorna dispositivi", systemImage: "arrow.clockwise")
+                    Label("Aggiorna dispositivi", systemImage: "arrow.clockwise")
                 }
                 .disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
                 .help(batch.isFrozen ? "Disponibile dopo la conclusione della sessione approvata" : "Aggiorna dispositivi, token e certificati senza PIN")

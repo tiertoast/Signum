@@ -53,6 +53,24 @@ import CoreGraphics
         let folder = try FixtureFiles.directory("signing-workspace",evidence:true)
         try bytes.write(to: folder.appendingPathComponent(name + ".png"))
     }
+    func testAvailabilityExplainsMissingInputCertificateAndPDFConsentWithoutApproving() async throws {
+        try await fixture { root, defaults, batch, devices, provider, _ in
+            let empty = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                automaticallyDiscover: false, defaults: defaults)
+            XCTAssertEqual(empty.signingAvailability, "Aggiungi un documento per iniziare")
+            let file = root.appendingPathComponent("synthetic.txt")
+            try Data("Synthetic input".utf8).write(to: file)
+            await batch.addDocuments([file], format: .cades)
+            let missing = SignumWindow(batch: batch, automaticallyDiscover: false, defaults: defaults)
+            XCTAssertEqual(missing.signingAvailability, "Seleziona un certificato per firmare")
+            let workspace = SigningWorkspaceSelection(snapshot: batch.documents[0].snapshot, format: .pades)
+            let pdfConsent = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                automaticallyDiscover: false, defaults: defaults, workspace: workspace)
+            XCTAssertEqual(pdfConsent.signingAvailability, "Controlla e conferma l’anteprima di ogni PDF")
+            XCTAssertFalse(batch.isApproved); XCTAssertFalse(batch.isFrozen)
+        }
+    }
+
     func test07SectionsAndExpandedOptionsRenderAtMinimumSizeInBothAppearances() async throws {
         try await fixture { _, defaults, batch, devices, provider, _ in
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {

@@ -60,6 +60,7 @@ extension SignumWindow {
                 if !results.receipts.isEmpty {
                     SigningReceiptsView(receipts: results.receipts)
                 }
+                if results.receipts.isEmpty { Spacer(minLength: 0) }
                 SignumEmptyDocumentsView(choose: chooseFile).padding(22)
                 if results.receipts.isEmpty { Spacer(minLength: 0) }
             }
