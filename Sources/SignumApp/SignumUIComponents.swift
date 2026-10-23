@@ -74,7 +74,7 @@ struct SignumEmptyDocumentsView: View {
         .frame(maxWidth: .infinity, minHeight: 230)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(.quaternary, style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
+                .strokeBorder(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
         )
         .accessibilityElement(children: .contain)
     }
