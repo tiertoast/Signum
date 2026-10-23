@@ -35,8 +35,18 @@ class PackagingTests(unittest.TestCase):
         build6, name6 = package.preview_metadata("0.7.0", 6)
         self.assertNotIn(build6, (identity, build2, build3, build4, build5))
         self.assertIn("Build 6", name6)
+        self.assertIn("Build 7", package.preview_metadata("0.7.0", 7)[1])
         with self.assertRaises(ValueError):
-            package.preview_metadata("0.7.0", 7)
+            package.preview_metadata("0.7.0", 8)
+
+    def test_finder_types_and_services_are_alternate_handlers(self):
+        info = plistlib.loads((SCRIPT.parents[1] / "Resources/Info.plist").read_bytes())
+        self.assertTrue(all(t["LSHandlerRank"] == "Alternate" for t in info["CFBundleDocumentTypes"]))
+        generic = info["CFBundleDocumentTypes"][-1]
+        self.assertNotIn("CFBundleTypeIconFile", generic)
+        self.assertEqual({s["NSMessage"] for s in info["NSServices"]}, {"signDocuments", "verifyDocuments"})
+        self.assertEqual(len(info["UTImportedTypeDeclarations"]), 4)
+        self.assertTrue((SCRIPT.parents[1] / "Resources/DocumentIcons/SignedDocument.svg").is_file())
 
     def test_sdk_metadata_is_distinct_from_deployment_minimum(self):
         load = "cmd LC_BUILD_VERSION\n platform MACOS\n minos 13.0\n sdk 27.0\n"
@@ -75,7 +85,7 @@ class PackagingTests(unittest.TestCase):
                          ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))
         self.assertEqual(package.preview_metadata("0.5.0", 6)[0],
                          "io.github.tiertoast.Signum.DevelopmentPreview.B6")
-        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 7)]:
+        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 8)]:
             with self.assertRaises(ValueError):
                 package.preview_metadata(version, build)
 

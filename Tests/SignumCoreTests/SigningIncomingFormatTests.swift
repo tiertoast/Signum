@@ -21,6 +21,21 @@ import XCTest
             XCTAssertEqual(SigningIncomingFormat.resolve(override: nil, selected: batch.documents[0].format, fallback: .cades), .pades)
         }
     }
+    func testSystemEventsSurviveColdStartAndStayOrderedWithoutAuthorizingSigning() {
+        let inbox = SystemDocuments()
+        let files = (0..<40).map { URL(fileURLWithPath: "/synthetic/input-\($0).p7m") }
+        inbox.receive(files)
+        inbox.receive([URL(string: "https://example.invalid/file")!], action: .sign)
+        inbox.receive([URL(fileURLWithPath: "/synthetic/to-sign.pdf")], action: .sign)
+        XCTAssertEqual(inbox.next()?.urls.count, 32)
+        XCTAssertEqual(inbox.next()?.urls.count, 8)
+        let sign = inbox.next()
+        XCTAssertEqual(sign?.urls.first?.lastPathComponent, "to-sign.pdf")
+        XCTAssertTrue(sign?.action == .sign)
+        XCTAssertNil(inbox.next())
+        XCTAssertFalse(BatchSigningCoordinator().isApproved)
+    }
+
     func testAutomaticAndOverrideRetainSpecialFormatIdentifiers() {
         for format in SignumFormat.allCases {
             let core = SigningFormat(rawValue: format.rawValue)!

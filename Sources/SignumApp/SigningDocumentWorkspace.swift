@@ -29,7 +29,7 @@ extension SignumWindow {
                             Text(entry.snapshot.originalURL.lastPathComponent).lineLimit(1).truncationMode(.middle)
                             Spacer(minLength: 4)
                             Text(BatchWorkspaceSummary.status(entry.state)).font(.caption).foregroundStyle(.secondary)
-                        }.tag(entry.id).help(entry.snapshot.originalURL.lastPathComponent + (entry.result.isEmpty ? "" : "\n" + entry.result))
+                        }.padding(.horizontal, 12).tag(entry.id).help(entry.snapshot.originalURL.lastPathComponent + (entry.result.isEmpty ? "" : "\n" + entry.result))
                     }
                 }.listStyle(.plain)
                     .frame(height: CGFloat(min(batch.documents.count, 3) * 30 + 8))

@@ -15,8 +15,10 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
 
 
 @MainActor final class SignumLifecycle: NSObject, NSApplicationDelegate {
+    let services = SignumServices()
     let trustedLists = try? TrustedListsModel.developmentPreview()
-    func applicationDidFinishLaunching(_ notification: Notification) { trustedLists?.start() }
+    func applicationDidFinishLaunching(_ notification: Notification) { trustedLists?.start(); NSApp.servicesProvider = services; NSUpdateDynamicServices() }
+    func application(_ application: NSApplication, open urls: [URL]) { SystemDocuments.shared.receive(urls) }
     func applicationWillTerminate(_ notification: Notification) { trustedLists?.stop() }
 }
 

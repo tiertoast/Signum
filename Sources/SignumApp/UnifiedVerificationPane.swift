@@ -129,7 +129,7 @@ enum VerificationDropLoader {
 
 struct UnifiedVerificationPane: View {
     @StateObject private var workspace: VerificationWorkspace
-    init(catalog: (any TrustedListCatalogProviding)? = nil) { _workspace = StateObject(wrappedValue: VerificationWorkspace(catalog: catalog)) }
+    init(catalog: (any TrustedListCatalogProviding)? = nil, workspace: VerificationWorkspace? = nil) { _workspace = StateObject(wrappedValue: workspace ?? VerificationWorkspace(catalog: catalog)) }
     @State private var targeted = false
     @State private var preview: VerificationReport?
     @State private var extractionIssue = ""

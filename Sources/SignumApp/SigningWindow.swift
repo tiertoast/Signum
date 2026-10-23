@@ -10,6 +10,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
 }
 
 @MainActor struct SignumWindow: View {
+    @ObservedObject var systemDocuments = SystemDocuments.shared
+    @State var routingSystemDocuments = false
+    @StateObject var verificationWorkspace: VerificationWorkspace
     let trustedLists: TrustedListsModel?
     @StateObject var batch: BatchSigningCoordinator
     @StateObject var interaction = SigningInteraction()
@@ -79,6 +82,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         _sidebarVisibility = State(initialValue: initialSidebarVisibility)
         _results = StateObject(wrappedValue: sessionResults ?? SigningSessionResults())
         _navigation = State(initialValue: SignumNavigation(section: initialSection))
+        _verificationWorkspace = StateObject(wrappedValue: VerificationWorkspace(catalog: trustedLists?.catalogProvider))
         self.trustedLists = trustedLists
         self.automaticallyDiscover = automaticallyDiscover
         preferences = SigningExperiencePreferences(defaults: defaults)
@@ -158,7 +162,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     signingScreen
                 case .verify:
                     ScrollView {
-                        UnifiedVerificationPane(catalog: trustedLists?.catalogProvider)
+                        UnifiedVerificationPane(catalog: trustedLists?.catalogProvider, workspace: verificationWorkspace)
                             .padding(20)
                     }
                 case .devices:
@@ -208,7 +212,10 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     .disabled(interfaceLocked || batch.isFrozen)
             }
         }
-        .tint(colorScheme == .dark ? SignumAppearance.burgundyForeground : SignumAppearance.burgundy)
+        .onChange(of: batch.isFrozen) { frozen in if !frozen { Task { await routeSystemDocuments() } } }
+        .onDisappear { verificationWorkspace.cancel() }
+        .onReceive(systemDocuments.$revision) { _ in Task { await routeSystemDocuments() } }
+        .onChange(of: interfaceLocked) { locked in if !locked { Task { await routeSystemDocuments() } } }
         .onReceive(NotificationCenter.default.publisher(for: .signumShowSettings)) { _ in
             navigation.openSettings(blocked: interfaceLocked || batch.isFrozen)
         }
@@ -272,6 +279,44 @@ enum SignumFormat: String, Hashable, CaseIterable {
             .padding(22)
             .frame(maxWidth: 760, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    func routeSystemDocuments() async {
+        guard !routingSystemDocuments, !interfaceLocked, !batch.isFrozen else { return }
+        routingSystemDocuments = true
+        defer { routingSystemDocuments = false }
+        while !interfaceLocked, !batch.isFrozen, let request = systemDocuments.next() {
+            let scoped = request.urls.filter { $0.startAccessingSecurityScopedResource() }
+            defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
+            if request.action == .sign {
+                operation = .sign
+                addDocuments(request.urls) // Acquisition only: approval/PIN remain mandatory.
+                while batch.isPreparing { try? await Task.sleep(nanoseconds: 10_000_000) }
+            } else {
+                operation = .verify
+                var originals: [URL: URL] = [:]
+                var files: [URL] = []
+                for url in request.urls {
+                    if url.pathExtension.lowercased() == "p7s" {
+                        let chooser = NSOpenPanel()
+                        chooser.title = "Seleziona l’originale per " + url.lastPathComponent
+                        chooser.canChooseDirectories = false; chooser.allowsMultipleSelection = false
+                        if chooser.runModal() == .OK, let original = chooser.url { originals[url] = original; files.append(url) }
+                    } else { files.append(url) }
+                }
+                let extraScopes = originals.values.filter { $0.startAccessingSecurityScopedResource() }
+                defer { extraScopes.forEach { $0.stopAccessingSecurityScopedResource() } }
+                let detached = originals
+                if !files.isEmpty {
+                    await verificationWorkspace.verify(files, using: { file, control in
+                        if let original = detached[file] {
+                            return try SignumVerificationService.verifyDetached(signature: file, content: original, isCancelled: { control.isCancellationRequested })
+                        }
+                        return try SignumVerificationService.verify(file: file, isCancelled: { control.isCancellationRequested })
+                    })
+                }
+            }
         }
     }
 

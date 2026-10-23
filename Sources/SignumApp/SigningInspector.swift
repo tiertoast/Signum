@@ -42,7 +42,7 @@ extension SignumWindow {
                             }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
                                 .modifier(SignumFlexibleControl())
                                 .disabled(interfaceLocked || batch.isFrozen || selectedDocument?.format.isASiC == true)
-                            Text(formatBinding.wrappedValue.shortDescription).font(.caption).foregroundStyle(.secondary)
+                            Text(formatDetails + "\n" + authenticationExplanation).font(.caption).foregroundStyle(.secondary)
                             Text("Documenti successivi").font(.caption).foregroundStyle(.secondary)
                             Picker("Documenti successivi", selection: $subsequentFormat) {
                                 Text("Automatico — usa il formato selezionato sopra").tag(Optional<SignumFormat>.none)
@@ -68,7 +68,6 @@ extension SignumWindow {
                                     .disabled(interfaceLocked || batch.isFrozen)
                             }
                         }
-                        SignumContextHelp(title: "Informazioni sulla firma", text: formatDetails + "\n\n" + authenticationExplanation)
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Divider()
@@ -235,12 +234,16 @@ extension SignumWindow {
                             .disabled(batch.isRunning)
                     }
                     if presentation.pinPrompt == nil || interfaceLocked {
-                        Button("Annulla documenti in attesa") { batch.cancelPending(); provider.pin = "" }
-                            .disabled(batch.nextDocument == nil)
-                    }
-                    if batch.isRunning {
-                        ProgressView("Firma in corso…").controlSize(.small)
-                        Button("Interrompi firma corrente") { batch.activeOperation?.requestCancellation(); authenticationSession?.requestStop() }
+                        if batch.isRunning || batch.isContinuingAuthenticated {
+                            ProgressView("Firma in corso…").controlSize(.small)
+                        }
+                        HStack(spacing: 8) {
+                            Button("Annulla documenti in attesa") { batch.cancelPending(); provider.pin = "" }
+                                .disabled(batch.nextDocument == nil)
+                            if batch.isRunning || batch.isContinuingAuthenticated {
+                                Button("Interrompi firma corrente") { batch.activeOperation?.requestCancellation(); authenticationSession?.requestStop() }
+                            }
+                        }.buttonStyle(.bordered).controlSize(.small).modifier(SignumFlexibleControl())
                     }
                 }
                 if batch.isPreparing { ProgressView("Preparazione documenti…").controlSize(.small) }
@@ -265,7 +268,7 @@ extension SignumWindow {
                 }
                 Button {
                     if batch.isApproved { authorizeNextDocument() } else { prepareBatch() }
-                } label: { Text(batch.isApproved ? "Firma" : "Firma…").frame(maxWidth: .infinity) }
+                } label: { Text(presentation.stage == .signing ? "Firma in corso…" : (batch.isApproved ? "Firma" : "Firma…")).frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent).controlSize(.large)
                     .tint(SignumAppearance.burgundy)
                     .accessibilityIdentifier("signum.approve-signing")

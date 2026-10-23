@@ -137,8 +137,8 @@ def compile_app_icon(destination, minimum_os):
 
 def preview_metadata(version, build):
     if version == "0.7.0":
-        if build not in (1, 2, 3, 4, 5, 6):
-            raise ValueError("Only 0.7 Development Preview Builds 1, 2, 3, 4, 5 and 6 are declared")
+        if build not in (1, 2, 3, 4, 5, 6, 7):
+            raise ValueError("Only 0.7 Development Preview Builds 1, 2, 3, 4, 5, 6 and 7 are declared")
         return (f"io.github.tiertoast.Signum.DevelopmentPreview.V07.B{build}",
                 f"Signum 0.7 Development Preview — Build {build}")
     if version == "0.6.0":
@@ -293,6 +293,8 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
             os.symlink("../Resources/" + resources[0].name, app / "Contents/Helpers" / resources[0].name, target_is_directory=True)
         info.update(CFBundleIdentifier=(preview_id if preview else "io.github.tiertoast.Signum.BetaFoundation"),
                     CFBundleName=(preview_name if preview else "Signum Beta Foundation"), LSMinimumSystemVersion=enforce_minimum(versions, declared_target))
+        for service in info.get("NSServices", []): service["NSPortName"] = info["CFBundleName"]
+        shutil.copy2(REPO / "Resources/DocumentIcons/SignedDocument.icns", app / "Contents/Resources/SignedDocument.icns")
         info.update(compile_app_icon(app / "Contents/Resources", declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
         icon = app / "Contents/Resources/AppIcon.icns"
