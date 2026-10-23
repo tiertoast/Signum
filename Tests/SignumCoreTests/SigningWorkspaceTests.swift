@@ -150,14 +150,16 @@ import CoreGraphics
                 certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
             try batch.confirm(plan)
             try await batch.authorizeNext(pin: "synthetic-ui") { _, _, _ in throw SignumError.module("Synthetic error details") }
+            let receipts = SigningSessionResults()
             try await render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
-                automaticallyDiscover: false, defaults: defaults), name: "compact-error") { host in
+                automaticallyDiscover: false, defaults: defaults, sessionResults: receipts), name: "compact-error") { host in
                 XCTAssertTrue(descendants(host).contains { $0 is NSScrollView })
                 XCTAssertFalse(descendants(host).contains { $0 is NSSecureTextField })
             }
-            XCTAssertEqual(batch.documents[0].state, .failed)
-            XCTAssertTrue(batch.documents[0].result.contains("Synthetic error details"))
-            XCTAssertEqual(BatchWorkspaceSummary.summary(batch.documents.map(\.state)), "0 firmati · 1 non riuscito")
+            XCTAssertFalse(batch.isFrozen)
+            XCTAssertTrue(batch.documents.isEmpty)
+            XCTAssertEqual(receipts.receipts.first?.state, .failed)
+            XCTAssertTrue(receipts.receipts.first?.detail.contains("Synthetic error details") == true)
             XCTAssertFalse(FileManager.default.fileExists(atPath: plan.jobs[0].destination.path))
         }
     }

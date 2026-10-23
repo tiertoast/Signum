@@ -50,3 +50,8 @@ See [results and manual checklist](SIGNUM_0.7_BUILD1_ACCEPTANCE.md).
 
 Do not merge into `main` or publish a release until local build and
 manual GUI acceptance are complete.
+
+## Build 2
+
+The signing workspace and completed-session presentation are superseded by
+[Native Experience Build 2](SIGNUM_0.7_BUILD2_ACCEPTANCE.md).

@@ -6,6 +6,57 @@ import PDFKit
 @testable import SignumCore
 
 @MainActor final class DynamicFormatWorkspaceTests: XCTestCase {
+    func testReadOnlyPDFPaperUsesBlackDefaultInkAndPreservesExplicitColors() throws {
+        let stream = "BT /F1 18 Tf 10 40 Td (Default ink) Tj ET\n1 0 0 rg BT /F1 18 Tf 10 10 Td (Red ink) Tj ET\n"
+        let objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 80] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", "<< /Length \(stream.utf8.count) >>\nstream\n" + stream + "endstream"]
+        var data = Data("%PDF-1.4\n".utf8), offsets = [Int]()
+        for (i, object) in objects.enumerated() { offsets.append(data.count); data.append(Data("\(i+1) 0 obj\n\(object)\nendobj\n".utf8)) }
+        let xref = data.count
+        data.append(Data("xref\n0 6\n0000000000 65535 f \n".utf8))
+        for offset in offsets { data.append(Data(String(format: "%010d 00000 n \n", offset).utf8)) }
+        data.append(Data("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
+        let document = try XCTUnwrap(PDFDocument(data: data)), delegate = PaperDocumentDelegate()
+        document.delegate = delegate
+        let page = try XCTUnwrap(document.page(at: 0))
+        let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 80, bitsPerComponent: 8, bytesPerRow: 800,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 80))
+        page.draw(with: .mediaBox, to: context)
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        var black = 0, red = 0
+        for i in 0..<(200*80) {
+            let p = i*4
+            if pixels[p] < 60 && pixels[p+1] < 60 && pixels[p+2] < 60 { black += 1 }
+            if pixels[p] > 180 && pixels[p+1] < 60 && pixels[p+2] < 60 { red += 1 }
+        }
+        XCTAssertGreaterThan(black, 20, "Default PDF ink must not inherit a white UI fill")
+        XCTAssertGreaterThan(red, 20, "Explicit document colors must remain unchanged")
+    }
+
+    func testCAdESPDFHasReadOnlyPDFKitPreviewWithoutApprovingPAdES() async throws {
+        try await SigningFormatStabilizationTests().fixture { _, batch, file in
+            await batch.addDocuments([file], format: .cades)
+            let snapshot = batch.documents[0].snapshot, original = try snapshot.verifiedBytes()
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+            let view = SignumWindow(batch: batch, selectedSnapshot: snapshot, automaticallyDiscover: false, defaults: defaults)
+            let host = NSHostingView(rootView: view)
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+            defer { window.close() }
+            let deadline = Date().addingTimeInterval(5)
+            while !PAdESGeometryStabilizationTests().descendants(host).contains(where: { ($0 as? PDFView)?.document != nil }) && Date() < deadline {
+                try await Task.sleep(nanoseconds: 10_000_000); host.layoutSubtreeIfNeeded()
+            }
+            let previews = PAdESGeometryStabilizationTests().descendants(host).compactMap { $0 as? PDFView }
+            XCTAssertEqual(previews.first?.document?.pageCount, 1)
+            XCTAssertFalse(previews.contains { $0 is PlacementPDFView })
+            XCTAssertFalse(batch.isApproved); XCTAssertEqual(batch.documents[0].format, .cades)
+            XCTAssertEqual(try snapshot.verifiedBytes(), original)
+        }
+    }
+
     func testSameSnapshotChangingFormatRevokesPreviousPaneCallbacks() async throws {
         try await SigningFormatStabilizationTests().fixture { _,batch,file in
             await batch.addDocuments([file],format:.cades)

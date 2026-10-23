@@ -130,10 +130,10 @@ def compile_app_icon(destination, minimum_os):
 
 def preview_metadata(version, build):
     if version == "0.7.0":
-        if build != 1:
-            raise ValueError("Only 0.7 Development Preview Build 1 is declared")
-        return ("io.github.tiertoast.Signum.DevelopmentPreview.V07.B1",
-                "Signum 0.7 Development Preview — Build 1")
+        if build not in (1, 2):
+            raise ValueError("Only 0.7 Development Preview Builds 1 and 2 are declared")
+        return (f"io.github.tiertoast.Signum.DevelopmentPreview.V07.B{build}",
+                f"Signum 0.7 Development Preview — Build {build}")
     if version == "0.6.0":
         if build not in (1, 2, 3):
             raise ValueError("Only 0.6 Development Preview Builds 1, 2 and 3 are declared")

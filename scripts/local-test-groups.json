@@ -10,7 +10,8 @@
       "MiddlewareRegistryTests",
       "PAdESInputContractTests",
       "SigningWorkspaceSelectionTests",
-      "SignumCoreTests"
+      "SignumCoreTests",
+      "DeviceRefreshLifecycleTests"
     ],
     "native-helper": [
       "BatchDestinationTests",
@@ -47,7 +48,8 @@
       "SigningInteractionTests",
       "SigningJobTests",
       "SigningOperationTests",
-      "SigningReviewTests"
+      "SigningReviewTests",
+      "SigningSessionReleaseTests"
     ],
     "integration": [
       "AutomaticSelectionConsentTests",
