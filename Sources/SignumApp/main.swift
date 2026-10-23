@@ -33,10 +33,6 @@ struct SignumApp: App {
     }
 }
 
-private enum SignumOperation: String, Hashable {
-    case sign, verify, settings
-}
-
 private enum SignumFormat: String, Hashable {
     case cades, cadesDetached, cadesCoSign, cadesCounterSign, pades, xades, asics, asice
 }
@@ -70,7 +66,10 @@ private enum SignumFormat: String, Hashable {
     @State private var authorizedManualPaths: [String] = []
     @State private var work: SigningOperation?
     @State private var workPhase: SigningOperationPhase = .idle
-    @State private var operation: SignumOperation = .sign
+    @State private var operation: SignumSection? = .sign
+    @State private var showCertificates = false
+    @State private var showSigningOptions = false
+    @State private var showConnections = false
     @State private var format: SignumFormat = .cades
     @State private var pdfPlacement: PAdESPlacement?
     @StateObject private var workspace: SigningWorkspaceSelection
@@ -150,81 +149,54 @@ private enum SignumFormat: String, Hashable {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                Image(systemName: "signature").font(.largeTitle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Signum").font(.title2.bold())
-                    Text("Firma digitale per macOS · sviluppo sperimentale")
-                        .font(.caption).foregroundStyle(.secondary)
+        NavigationSplitView {
+            List(selection: $operation) {
+                Label("Firma", systemImage: SignumSection.sign.symbol)
+                    .tag(SignumSection.sign)
+                Label("Verifica", systemImage: SignumSection.verify.symbol)
+                    .tag(SignumSection.verify)
+                Label("Dispositivi", systemImage: SignumSection.devices.symbol)
+                    .tag(SignumSection.devices)
+                Section {
+                    Label("Impostazioni", systemImage: SignumSection.settings.symbol)
+                        .tag(SignumSection.settings)
                 }
-                Spacer()
-                Text(AppVersion.label).font(.caption).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-
-            Picker("Sezione", selection: $operation) {
-                Text("Firma").tag(SignumOperation.sign)
-                Text("Verifica").tag(SignumOperation.verify)
-                Text("Impostazioni").tag(SignumOperation.settings)
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
+            .listStyle(.sidebar)
+            .frame(minWidth: 180, idealWidth: 205)
+            .navigationTitle("Signum")
             .disabled(interfaceLocked || batch.isFrozen)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            if operation == .sign {
-                HSplitView {
-                    VStack(spacing: 0) {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 14) {
-                                tokenControls
-                                certificateControls
-                                formatPicker
-                                destinationControls
-                            }.padding(16).frame(maxWidth: .infinity, alignment: .topLeading)
-                        }.frame(minHeight: 100)
-                        Divider()
-                        signingControls.padding(.horizontal, 16).padding(.vertical, 10)
-                        statusFooter.padding(.horizontal, 16).padding(.bottom, 12)
-                    }.frame(minWidth: 350, idealWidth: 420, maxWidth: 500)
-
-                    sessionWorkspace
-                        .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+        } detail: {
+            VStack(spacing: 0) {
+                HStack {
+                    Text((operation ?? .sign).title)
+                        .font(.title2.weight(.semibold))
+                    Spacer()
+                    Text(AppVersion.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if operation == .verify {
-                            UnifiedVerificationPane(catalog: trustedLists?.catalogProvider)
-                        } else {
-                            Button("Configura dispositivo…") { showDeviceConfiguration = true }
-                            Picker("Autenticazione nella firma multipla", selection: $authenticationModeRaw) {
-                                ForEach(BatchAuthenticationMode.allCases, id: \.rawValue) { mode in Text(mode.title).tag(mode.rawValue) }
-                            }
-                            Text(authenticationMode.explanation).font(.caption).foregroundStyle(.secondary)
-                            GroupBox("Firma digitale") {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Toggle("Includi data e ora della firma", isOn: $includeSigningTime).disabled(batch.isFrozen || interfaceLocked)
-                                    Text("La data e ora dichiarate della firma non costituiscono una marca temporale certificata.").font(.caption).foregroundStyle(.secondary)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
-                            Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.").font(.caption).foregroundStyle(.secondary)
-                            SignumGraphicSettingsPane()
-                            if let trustedLists { TrustedListsPane(model: trustedLists) }
-                        }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                Divider()
+                switch operation ?? .sign {
+                case .sign:
+                    signingScreen
+                case .verify:
+                    ScrollView {
+                        UnifiedVerificationPane(catalog: trustedLists?.catalogProvider)
+                            .padding(20)
                     }
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                case .devices:
+                    devicesScreen
+                case .settings:
+                    settingsScreen
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .navigationSplitViewStyle(.balanced)
+        .tint(SignumAppearance.burgundy)
         .onAppear {
             guard automaticallyDiscover, !discoveryStarted else { return }
             discoveryStarted = true
@@ -266,6 +238,139 @@ private enum SignumFormat: String, Hashable {
             selectionRequestID = UUID()
             devices.beginDiscovery(); provider.beginDiscovery()
             workspace.select(nil)
+        }
+    }
+
+    private var signingScreen: some View {
+        HSplitView {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        signingSummary
+                        DisclosureGroup("Certificati", isExpanded: $showCertificates) {
+                            certificateControls
+                                .padding(.top, 8)
+                        }
+                        DisclosureGroup("Opzioni di firma", isExpanded: $showSigningOptions) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                formatPicker
+                                destinationControls
+                            }
+                            .padding(.top, 8)
+                        }
+                        DisclosureGroup("Dispositivi e connessioni", isExpanded: $showConnections) {
+                            tokenControls
+                                .padding(.top, 8)
+                        }
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                Divider()
+                signingControls
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                statusFooter
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
+            .frame(minWidth: 300, idealWidth: 360, maxWidth: 430)
+
+            sessionWorkspace
+                .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var signingSummary: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "signature")
+                    .font(.title2)
+                    .foregroundStyle(SignumAppearance.burgundy)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Firma documenti")
+                        .font(.headline)
+                    Text(batch.documents.isEmpty ? "Aggiungi un documento per iniziare." :
+                            "\(batch.documents.count) documenti nella sessione")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Divider()
+            SignumSummaryRow(title: "Formato",
+                value: selectedDocument?.format.title ??
+                    (SigningFormat(rawValue: format.rawValue)?.title ?? "CAdES"))
+            SignumSummaryRow(title: "Firmatario",
+                value: devices.selectedRoute == nil ? "Certificato da selezionare" : selectedHolder)
+            SignumSummaryRow(title: "Destinazione",
+                value: saveAlongsideOriginal ? "Accanto agli originali" :
+                    (customDirectory?.lastPathComponent ?? "Cartella da selezionare"))
+            if devices.selectedRoute == nil {
+                Button("Seleziona un certificato…") {
+                    showCertificates = true
+                }
+                .disabled(interfaceLocked || batch.isFrozen)
+            }
+            Button("Modifica formato e destinazione") {
+                showSigningOptions = true
+            }
+            .font(.callout)
+            .disabled(interfaceLocked || batch.isFrozen)
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var devicesScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Dispositivi e certificati")
+                    .font(.headline)
+                Text("Visualizza i dispositivi collegati e scegli il certificato da usare per la firma.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                tokenControls
+                certificateControls
+            }
+            .padding(22)
+            .frame(maxWidth: 760, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var settingsScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Button("Configura dispositivo…") { showDeviceConfiguration = true }
+                Picker("Autenticazione nella firma multipla", selection: $authenticationModeRaw) {
+                    ForEach(BatchAuthenticationMode.allCases, id: \.rawValue) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                Text(authenticationMode.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                GroupBox("Firma digitale") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle("Includi data e ora della firma", isOn: $includeSigningTime)
+                            .disabled(batch.isFrozen || interfaceLocked)
+                        Text("La data e ora dichiarate della firma non costituiscono una marca temporale certificata.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
+                Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                SignumGraphicSettingsPane()
+                if let trustedLists { TrustedListsPane(model: trustedLists) }
+            }
+            .padding(22)
+            .frame(maxWidth: 760, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
@@ -376,11 +481,20 @@ private enum SignumFormat: String, Hashable {
                         Button("Nuova sessione") { resetSession() }.disabled(interfaceLocked)
                     }
                 }
-                Text("Trascina qui i documenti. Le copie firmate usano i byte selezionati, anche se l'originale cambia.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 28)
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3)))
-                    .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted, perform: receiveDrop)
+                if batch.documents.isEmpty {
+                    SignumEmptyDocumentsView(choose: chooseFile)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(dropTargeted ? SignumAppearance.burgundy : .clear, lineWidth: 2)
+                        )
+                        .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted, perform: receiveDrop)
+                } else {
+                    Text("Trascina qui altri documenti")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.3)))
+                        .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted, perform: receiveDrop)
+                }
                 if !batch.isApproved, let route = devices.selectedRoute {
                     Text("Firmatario: \(selectedHolder) · Certificato: \(route.title)").font(.caption).textSelection(.enabled)
                 }
@@ -396,7 +510,6 @@ private enum SignumFormat: String, Hashable {
                 }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        if batch.documents.isEmpty { Text("Aggiungi uno o più documenti per preparare la firma.").foregroundStyle(.secondary).padding() }
                         ForEach(batch.documents) { entry in documentRow(entry) }
                         ForEach(Array(batch.selectionIssues.enumerated()), id: \.offset) { _, message in Text(message).font(.caption) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -610,12 +723,21 @@ private enum SignumFormat: String, Hashable {
         GroupBox("Firma") {
             VStack(alignment: .leading, spacing: 10) {
                 if !batch.isApproved {
-                    Text(authenticationExplanation).font(.caption).foregroundStyle(.secondary)
-                    Button(presentation.signButtonTitle) { prepareBatch() }.disabled(!canApproveBatch)
+                    Button(presentation.signButtonTitle) { prepareBatch() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(!canApproveBatch)
                     if review.isPreparing { ProgressView("Preparazione del riepilogo…").controlSize(.small) }
                     if !review.issue.isEmpty { Text(review.issue).font(.caption) }
-                    Text("Il clic approva i documenti e le destinazioni mostrati. Per ogni PDF apri prima l'anteprima, poi torna a Documenti ed esiti.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    if selectedDocument?.format == .pades, let entry = selectedDocument,
+                        !readyPreviews.contains(entry.id) {
+                        Text("Controlla prima l’anteprima PDF e torna all’elenco documenti.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    DisclosureGroup("Dettagli autenticazione") {
+                        Text(authenticationExplanation)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 } else {
                     if !authenticationStatus.isEmpty { Text(authenticationStatus).font(.caption) }
                     if !batch.authenticationNotice.isEmpty { Text(batch.authenticationNotice).font(.caption) }
@@ -654,8 +776,6 @@ private enum SignumFormat: String, Hashable {
                     ProgressView(workPhase.message).controlSize(.small)
                     Button("Annulla lettura") { work.requestCancellation() }
                 }
-                Text("Il clic su Firma approva questi documenti. " + authenticationExplanation + " Nessun tentativo automatico aggiuntivo.")
-                    .font(.caption).foregroundStyle(.secondary)
             }.padding(5)
         }
     }
