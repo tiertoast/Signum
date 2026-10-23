@@ -31,6 +31,27 @@ enum SignumSection: String, Hashable, CaseIterable {
     }
 }
 
+/// Settings stay attached to the document window and its operation locks.
+/// Returning never rebuilds the signing workspace or replaces its selection.
+struct SignumNavigation {
+    var section: SignumSection
+    private(set) var settingsOrigin: SignumSection = .sign
+    init(section: SignumSection = .sign) { self.section = section }
+    mutating func select(_ next: SignumSection) {
+        if next == .settings { openSettings(blocked: false) }
+        else { section = next }
+    }
+    mutating func openSettings(blocked: Bool) {
+        guard !blocked else { return }
+        if section != .settings { settingsOrigin = section }
+        section = .settings
+    }
+    mutating func back() {
+        guard section == .settings else { return }
+        section = settingsOrigin
+    }
+}
+
 /// Short summaries deliberately omit diagnostic paths, fingerprints and PKCS#11
 /// details, which remain available through the existing disclosure controls.
 struct SignumSummaryRow: View {

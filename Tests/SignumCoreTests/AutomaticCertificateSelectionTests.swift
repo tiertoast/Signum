@@ -1,5 +1,6 @@
 #if os(macOS)
 import XCTest
+import Darwin
 @testable import SignumCore
 @testable import SignumApp
 
@@ -90,7 +91,9 @@ final class AutomaticCertificateSelectionTests: XCTestCase {
         let a=try provider(),b=try provider("B","replaced")
         var s=DeviceSelection();var r=s.beginDiscovery();s.acceptCompleteFixture([a],request:r)
         let original=s.selectedRouteID
-        r=s.beginDiscovery();s.acceptCompleteFixture([a,b],request:r);XCTAssertNil(s.selectedRoute)
+        r=s.beginDiscovery();s.acceptCompleteFixture([a,b],request:r)
+        XCTAssertEqual(s.selectedRouteID,original);XCTAssertTrue(s.selectionWasPreserved)
+        XCTAssertEqual(s.selectionOrigin,.automatic)
         r=s.beginDiscovery();s.acceptCompleteFixture([],request:r);XCTAssertNil(s.selectedRoute)
         for changed in [a,try provider("A",slot:99),try provider("A","replaced"),b] {
             r=s.beginDiscovery();XCTAssertNil(s.selectedRoute);s.acceptCompleteFixture([changed],request:r)
@@ -107,6 +110,90 @@ final class AutomaticCertificateSelectionTests: XCTestCase {
         r=s.beginDiscovery();s.acceptCompleteFixture([a],request:r,at:Date(timeIntervalSince1970:0))
         XCTAssertNil(s.selectedRoute)
     }
+    func testIdenticalCanonicalBindingDeduplicatesProviderDisplayAliasesOnly() throws {
+        let a = try provider()
+        let alias = DiscoveredMiddleware(id: "alias-observation", definition: .init(id: "alias", name: "Alias", manufacturer: "Test", candidatePaths: ["/alias"]),
+            origin: a.origin, candidatePath: "/alias", inspection: a.inspection, status: .ready,
+            tokens: a.tokens, version: nil, unavailableSlots: 0)
+        var selection = DeviceSelection(); let request = selection.beginDiscovery()
+        selection.acceptCompleteFixture([a, alias], request: request)
+        XCTAssertTrue(selection.discoveryComplete)
+        XCTAssertEqual(selection.certificates.count, 1)
+        XCTAssertEqual(selection.certificates[0].routes.count, 1)
+        XCTAssertEqual(selection.selectionOrigin, .automatic)
+        // Same DER through genuinely different modules remains an explicit choice.
+        var separate = DeviceSelection(); let next = separate.beginDiscovery()
+        separate.acceptCompleteFixture([a, try provider("B")], request: next)
+        XCTAssertEqual(separate.certificates.count, 1)
+        XCTAssertEqual(separate.certificates[0].routes.count, 2)
+        XCTAssertNil(separate.selectedRoute)
+    }
+
+    func testUnmatchedDuplicateCannotProveCompleteCoverage() throws {
+        let a = try provider("bit4id"), b = try provider("B")
+        let alias = row(b, status: .duplicate)
+        var selection = DeviceSelection(); let request = selection.beginDiscovery()
+        selection.acceptCompleteFixture([a, alias], request: request)
+        XCTAssertFalse(selection.discoveryComplete); XCTAssertNil(selection.selectedRoute)
+        XCTAssertTrue(selection.completenessIssues.contains { $0.contains("alias") })
+    }
+
+    func testPartialDiscoveryExplainsWhyNewSelectionIsNotAutomaticAndPreservesExistingBinding() throws {
+        let a = try provider(), unreadable = row(try provider("B"), state: .empty)
+        var fresh = DeviceSelection(); let first = fresh.beginDiscovery()
+        fresh.acceptCompleteFixture([a, unreadable], request: first)
+        XCTAssertFalse(fresh.discoveryComplete); XCTAssertNil(fresh.selectedRoute)
+        XCTAssertTrue(fresh.completenessIssues.contains { $0.contains("autenticazione") })
+        var selected = DeviceSelection(); let initial = selected.beginDiscovery()
+        selected.acceptCompleteFixture([a], request: initial)
+        let id = selected.selectedRouteID
+        let refresh = selected.beginDiscovery()
+        selected.acceptCompleteFixture([unreadable, a], request: refresh)
+        XCTAssertEqual(selected.selectedRouteID, id)
+        XCTAssertTrue(selected.selectionWasPreserved)
+        XCTAssertFalse(selected.discoveryComplete)
+        selected.select(routeID: id)
+        XCTAssertFalse(selected.selectionWasPreserved)
+    }
+
+    func testChangedModuleIdentityCannotPreserveManualBindingOnTheSameInode() throws {
+        let a = try provider()
+        var selection = DeviceSelection(); let first = selection.beginDiscovery()
+        selection.acceptCompleteFixture([a], request: first); selection.select(routeID: selection.selectedRouteID)
+        let original = selection.selectedRouteID
+        var stat = stat(); stat.st_dev = 1; stat.st_ino = 2; stat.st_size = 987
+        let changed = DiscoveredMiddleware(id: a.id, definition: a.definition, origin: a.origin,
+            candidatePath: a.candidatePath, inspection: .init(canonicalPath: a.inspection!.canonicalPath, identity: .init(stat)),
+            status: .ready, tokens: a.tokens, version: nil, unavailableSlots: 0)
+        let next = selection.beginDiscovery(); selection.acceptCompleteFixture([changed], request: next)
+        XCTAssertNotEqual(selection.selectedRouteID, original)
+        XCTAssertFalse(selection.selectionWasPreserved)
+    }
+
+    func testRealManualSymlinkOrderKeepsTheSameExplicitCredentialWithoutLogin() throws {
+        let der = try CertificateEligibilityTests.fixtures.get().der("valid")
+        let mock = try MockModule(certificate: der, audit: true)
+        let alias = mock.folder.appendingPathComponent("alias.dylib")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: mock.path)
+        let worker = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker")
+        let discovery = MiddlewareDiscovery(client: .init(executable: worker))
+        let paths = [mock.path.path, alias.path]
+        var selection = DeviceSelection(); var request = selection.beginDiscovery()
+        let initial = discovery.discover(registry: [], manualPaths: paths)
+        selection.accept(initial, request: request, expectedPaths: Set(paths))
+        XCTAssertTrue(selection.discoveryComplete)
+        let id = try XCTUnwrap(selection.selectedRouteID)
+        selection.select(routeID: id)
+        request = selection.beginDiscovery()
+        let reversed = discovery.discover(registry: [], manualPaths: Array(paths.reversed()))
+        selection.accept(reversed, request: request, expectedPaths: Set(paths))
+        XCTAssertTrue(selection.discoveryComplete)
+        XCTAssertEqual(selection.selectedRouteID, id); XCTAssertTrue(selection.selectionWasPreserved)
+        XCTAssertEqual(selection.selectionOrigin, .manual)
+        let audit = try String(contentsOf: mock.folder.appendingPathComponent("operations"))
+        for forbidden in ["8", "9", "16"] { XCTAssertFalse(audit.split(separator: "\n").contains(Substring(forbidden)), "Public discovery must never authenticate or sign") }
+    }
+
     func testLegacyCertificateCacheDoesNotPickFirstOfMultipleEligible() throws {
         let der=try CertificateEligibilityTests.fixtures.get().der("valid")
         var cache=LoadedCertificates()

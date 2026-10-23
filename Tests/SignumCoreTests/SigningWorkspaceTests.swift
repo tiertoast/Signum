@@ -71,6 +71,52 @@ import CoreGraphics
         }
     }
 
+    func testSettingsReturnToTheirOriginAndRejectOpeningWhileLocked() {
+        for origin in [SignumSection.sign, .verify, .devices] {
+            var navigation = SignumNavigation(section: origin)
+            navigation.openSettings(blocked: true)
+            XCTAssertEqual(navigation.section, origin)
+            navigation.openSettings(blocked: false)
+            XCTAssertEqual(navigation.section, .settings)
+            navigation.openSettings(blocked: false) // Repeated Command-comma must not lose origin.
+            navigation.back()
+            XCTAssertEqual(navigation.section, origin)
+        }
+    }
+
+    func testPublicDiscoveryDoesNotLockDocumentNavigationOrAllowPrematureConsent() async throws {
+        try await fixture { _, defaults, batch, _, _, _ in
+            var searching = DeviceSelection(); _ = searching.beginDiscovery()
+            let view = SignumWindow(batch: batch, initialDevices: searching, automaticallyDiscover: false, defaults: defaults)
+            XCTAssertFalse(view.interfaceLocked)
+            XCTAssertFalse(view.canApproveBatch)
+            XCTAssertNil(view.reviewContext)
+        }
+    }
+
+    func testAddingLaterDocumentsKeepsSelectedSnapshotAndPerDocumentConfiguration() async throws {
+        try await fixture { root, defaults, batch, _, _, _ in
+            let first = root.appendingPathComponent("first.txt"), second = root.appendingPathComponent("second.txt")
+            try Data("first synthetic file".utf8).write(to: first)
+            try Data("second synthetic file".utf8).write(to: second)
+            await batch.addDocuments([first], format: .cadesDetached)
+            let id = batch.documents[0].id, snapshot = batch.documents[0].snapshot
+            let workspace = SigningWorkspaceSelection(snapshot: snapshot, format: .cadesDetached)
+            let generation = workspace.generation
+            let view = SignumWindow(batch: batch, automaticallyDiscover: false, defaults: defaults, workspace: workspace)
+            view.addDocuments([second]) // Same path as toolbar and adjacent + button.
+            let deadline = Date().addingTimeInterval(5)
+            while batch.documents.count != 2 && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+            XCTAssertEqual(batch.documents.count, 2)
+            XCTAssertEqual(batch.documents[0].id, id)
+            XCTAssertTrue(batch.documents[0].snapshot === snapshot)
+            XCTAssertEqual(batch.documents[0].format, .cadesDetached)
+            XCTAssertEqual(batch.documents[1].format, .cades)
+            XCTAssertTrue(workspace.snapshot === snapshot); XCTAssertEqual(workspace.generation, generation)
+            XCTAssertFalse(batch.isApproved)
+        }
+    }
+
     func test07SectionsAndExpandedOptionsRenderAtMinimumSizeInBothAppearances() async throws {
         try await fixture { _, defaults, batch, devices, provider, _ in
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {

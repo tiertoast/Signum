@@ -26,8 +26,11 @@ class PackagingTests(unittest.TestCase):
         build3, name3 = package.preview_metadata("0.7.0", 3)
         self.assertNotIn(build3, (identity, build2, package.preview_metadata("0.6.0", 3)[0]))
         self.assertIn("Build 3", name3)
+        build4, name4 = package.preview_metadata("0.7.0", 4)
+        self.assertNotIn(build4, (identity, build2, build3, package.preview_metadata("0.6.0", 3)[0]))
+        self.assertIn("Build 4", name4)
         with self.assertRaises(ValueError):
-            package.preview_metadata("0.7.0", 4)
+            package.preview_metadata("0.7.0", 5)
 
     def test_layered_document_compiles_for_macos13_with_native_and_fallback_icons(self):
         with tempfile.TemporaryDirectory() as root:
@@ -57,7 +60,7 @@ class PackagingTests(unittest.TestCase):
                          ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))
         self.assertEqual(package.preview_metadata("0.5.0", 6)[0],
                          "io.github.tiertoast.Signum.DevelopmentPreview.B6")
-        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 4)]:
+        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 5)]:
             with self.assertRaises(ValueError):
                 package.preview_metadata(version, build)
 

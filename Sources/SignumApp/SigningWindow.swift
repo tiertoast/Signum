@@ -16,6 +16,7 @@ enum SignumFormat: String, Hashable {
     @StateObject var review = SigningReview()
     @StateObject var results: SigningSessionResults
     @State var refresh = DeviceRefreshLifecycle()
+    @State var discoveryOperation: SigningOperation?
     @AppStorage(SigningExperiencePreferences.Keys.batchAuthentication) var authenticationModeRaw = BatchAuthenticationMode.automatic.rawValue
     @AppStorage(SigningExperiencePreferences.Keys.includeSigningTime) var includeSigningTime = true
     @State var approvedAuthenticationMode: BatchAuthenticationMode = .perSignature
@@ -41,10 +42,12 @@ enum SignumFormat: String, Hashable {
     @State var work: SigningOperation?
     @State var workPhase: SigningOperationPhase = .idle
     @State var sidebarVisibility: NavigationSplitViewVisibility
-    @State var operation: SignumSection? = .sign
-    @State var showCertificates = false
+    @State var navigation = SignumNavigation()
+    var operation: SignumSection? {
+        get { navigation.section }
+        nonmutating set { navigation.select(newValue ?? .sign) }
+    }
     @State var showSigningOptions = false
-    @State var showConnections = false
     @State var format: SignumFormat = .cades
     @State var pdfPlacement: PAdESPlacement?
     @StateObject var workspace: SigningWorkspaceSelection
@@ -72,10 +75,8 @@ enum SignumFormat: String, Hashable {
          initialSidebarVisibility: NavigationSplitViewVisibility = .all) {
         _sidebarVisibility = State(initialValue: initialSidebarVisibility)
         _results = StateObject(wrappedValue: sessionResults ?? SigningSessionResults())
-        _operation = State(initialValue: initialSection)
-        _showCertificates = State(initialValue: initiallyExpandedDetails)
+        _navigation = State(initialValue: SignumNavigation(section: initialSection))
         _showSigningOptions = State(initialValue: initiallyExpandedDetails)
-        _showConnections = State(initialValue: initiallyExpandedDetails)
         self.trustedLists = trustedLists
         self.automaticallyDiscover = automaticallyDiscover
         preferences = SigningExperiencePreferences(defaults: defaults)
@@ -134,7 +135,7 @@ enum SignumFormat: String, Hashable {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            List(selection: $operation) {
+            List(selection: Binding(get: { operation }, set: { if !interfaceLocked && !batch.isFrozen { operation = $0 } })) {
                 Label("Firma", systemImage: SignumSection.sign.symbol)
                     .tag(SignumSection.sign)
                 Label("Verifica", systemImage: SignumSection.verify.symbol)
@@ -167,6 +168,13 @@ enum SignumFormat: String, Hashable {
         .navigationSplitViewStyle(.balanced)
         .navigationTitle("Signum")
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                if navigation.section == .settings {
+                    Button { navigation.back() } label: { Label("Indietro", systemImage: "chevron.backward") }
+                        .help("Torna a " + navigation.settingsOrigin.title)
+                        .accessibilityIdentifier("signum.settings-back")
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 if (operation ?? .sign) == .sign {
                     Button(action: chooseFile) {
@@ -187,13 +195,13 @@ enum SignumFormat: String, Hashable {
                 if devices.isSearching { ProgressView().controlSize(.small).accessibilityLabel("Ricerca dispositivi in corso") }
             }
             ToolbarItem(placement: .automatic) {
-                Button { operation = .settings } label: { Label("Impostazioni", systemImage: "gearshape") }
+                Button { navigation.openSettings(blocked: interfaceLocked || batch.isFrozen) } label: { Label("Impostazioni", systemImage: "gearshape") }
                     .disabled(interfaceLocked || batch.isFrozen)
             }
         }
         .tint(SignumAppearance.burgundy)
         .onReceive(NotificationCenter.default.publisher(for: .signumShowSettings)) { _ in
-            if !interfaceLocked && !batch.isFrozen { operation = .settings }
+            navigation.openSettings(blocked: interfaceLocked || batch.isFrozen)
         }
         .task(id: sessionCompletionKey) { releaseFinishedSession() }
         .onAppear {
@@ -204,8 +212,8 @@ enum SignumFormat: String, Hashable {
         .sheet(isPresented: $showDeviceConfiguration) {
             DeviceConfigurationView(providers: devices.providers, savedPaths: manualPaths,
                 routes: selectedCertificateRoutes, selectedRouteID: devices.selectedRouteID,
-                manualPath: $manualPath, locked: interfaceLocked || batch.isFrozen,
-                search: { discover() }, browse: chooseManualModule,
+                manualPath: $manualPath, locked: interfaceLocked || batch.isFrozen || devices.isSearching,
+                browse: chooseManualModule,
                 loadManual: { discover(manual: manualPath) }, remove: removeManualModule,
                 selectRoute: selectRoute)
         }
@@ -233,6 +241,7 @@ enum SignumFormat: String, Hashable {
             review.cancel()
             authenticationSession?.requestStop()
             work?.requestCancellation()
+            discoveryOperation?.requestCancellation()
             batch.cancelAll()
             selectionRequestID = UUID()
             devices.beginDiscovery(); provider.beginDiscovery()
@@ -250,41 +259,6 @@ enum SignumFormat: String, Hashable {
                     .foregroundStyle(.secondary)
                 tokenControls
                 certificateControls
-            }
-            .padding(22)
-            .frame(maxWidth: 760, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-    }
-
-    var settingsScreen: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Button("Configura dispositivo…") { showDeviceConfiguration = true }
-                Picker("Autenticazione nella firma multipla", selection: $authenticationModeRaw) {
-                    ForEach(BatchAuthenticationMode.allCases, id: \.rawValue) { mode in
-                        Text(mode.title).tag(mode.rawValue)
-                    }
-                }
-                Text(authenticationMode.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                GroupBox("Firma digitale") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Toggle("Includi data e ora della firma", isOn: $includeSigningTime)
-                            .disabled(batch.isFrozen || interfaceLocked)
-                        Text("La data e ora dichiarate della firma non costituiscono una marca temporale certificata.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Toggle("Richiedi conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
-                Text("Il pulsante Firma approva il riepilogo visibile. Questa opzione aggiunge una finestra di conferma.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                SignumGraphicSettingsPane()
-                if let trustedLists { TrustedListsPane(model: trustedLists) }
             }
             .padding(22)
             .frame(maxWidth: 760, alignment: .topLeading)
@@ -323,6 +297,9 @@ enum SignumFormat: String, Hashable {
                     Text("Origine: \(entry.snapshot.originalURL.path)\nDestinazione: \(destination?.path ?? "Da preparare")\n\(entry.snapshot.identity.byteCount) byte · SHA-256 \(entry.snapshot.identity.sha256)")
                     Text("Certificato: " + (batch.isApproved ? approvedHolder : selectedHolder))
                     if let job { Text("Certificato SHA-256: \(job.certificateSHA256)\nProvider: \(job.providerPath) · slot \(job.slot)\nJob: \(job.id) · snapshot: \(entry.id)") }
+                    if entry.format.isASiC {
+                        Text("Contenuti: " + entry.snapshot.containerPayloadNames.joined(separator: ", "))
+                    }
                     Text(entry.state == .completed ? "Verifica crittografica completata prima della pubblicazione." : "Esito: " + entry.state.message)
                     if !entry.result.isEmpty { Text(entry.result) }
                     HStack {
@@ -412,15 +389,21 @@ enum SignumFormat: String, Hashable {
     }
 
     var tokenControls: some View {
-        GroupBox("Dispositivi di firma") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(devices.message).font(.caption)
-                HStack {
-                    Button("Cerca nuovamente") { discover() }
-                    Button("Configura dispositivo…") { showDeviceConfiguration = true }
-                }.disabled(interfaceLocked || batch.isFrozen)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(5)
-        }
+        VStack(alignment: .leading, spacing: 12) {
+            Text(devices.message).font(.callout)
+            if (!devices.completenessIssues.isEmpty || status != devices.message) && !devices.isSearching {
+                DisclosureGroup("Dettagli") {
+                    if !status.isEmpty && status != devices.message {
+                        Text(status).font(.caption).textSelection(.enabled)
+                    }
+                    ForEach(Array(devices.completenessIssues.enumerated()), id: \.offset) { _, issue in
+                        Text(issue).font(.caption).textSelection(.enabled)
+                    }
+                }
+            }
+            Button("Configura dispositivo…") { showDeviceConfiguration = true }
+                .disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     var selectedCertificateRoutes: [DeviceCertificateRoute] {
@@ -460,15 +443,18 @@ enum SignumFormat: String, Hashable {
             .discoveryPaths(explicitPath: paths.first, authorizedPaths: authorizedManualPaths)
         authorizedManualPaths = configuredPaths
         let expectedPaths = Set(MiddlewareRegistry.known.flatMap(\.candidatePaths) + configuredPaths)
-        let operation = beginWork()
-        busy = true; status = "Ricerca dei dispositivi in corso…"
+        // Public discovery owns cancellation separately from document/signing work.
+        // It clears credentials/review, but does not lock sidebar or document input.
+        let operation = SigningOperation()
+        discoveryOperation = operation
+        status = "Ricerca dei dispositivi in corso…"
         DispatchQueue.global(qos: .userInitiated).async {
             let results = MiddlewareDiscovery().discover(registry: MiddlewareRegistry.known,
                 manualPaths: configuredPaths, isCancelled: { operation.isCancellationRequested })
             let prepared = DeviceDiscoveryResult(providers: operation.isCancellationRequested ? [] : results, expectedPaths:expectedPaths)
             DispatchQueue.main.async {
                 guard self.devices.requestID == request else { return }
-                self.busy = false; self.work = nil
+                self.discoveryOperation = nil
                 if operation.isCancellationRequested {
                     self.refresh.cancel(); self.devices.cancelDiscovery(); self.provider.beginDiscovery()
                     self.status = "Ricerca annullata. Cerca nuovamente."; return

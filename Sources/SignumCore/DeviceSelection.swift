@@ -8,17 +8,42 @@ public struct DeviceDiscoveryResult: Sendable {
     public let providers: [DiscoveredMiddleware]
     public let certificates: [DeviceCertificate]
     public let isComplete: Bool
+    public let completenessIssues: [String]
     /// expectedPaths describes the whole configured scan, before it starts.
     /// Missing coverage, unreadable tokens and errors cannot prove uniqueness.
     public init(providers: [DiscoveredMiddleware], at date: Date = Date(), expectedPaths: Set<String>? = nil) {
         self.providers = providers
         certificates = DeviceCertificate.collect(providers, at: date)
-        isComplete = expectedPaths.map { !$0.isEmpty && $0 == Set(providers.map(\.candidatePath)) } == true &&
-            providers.allSatisfy { provider in
-                [.ready,.missing,.noToken,.duplicate].contains(provider.status) && provider.unavailableSlots == 0 &&
-                (provider.status != .ready || provider.inspection != nil) &&
-                provider.tokens.allSatisfy { $0.certificateState == .readable && !$0.certificates.isEmpty }
+        var issues: [String] = []
+        if expectedPaths.map({ !$0.isEmpty && $0 == Set(providers.map(\.candidatePath)) }) != true {
+            issues.append("Copertura della ricerca non dichiarata o incompleta.")
+        }
+        for provider in providers {
+            let name = provider.definition.name
+            if ![.ready, .missing, .noToken, .duplicate].contains(provider.status) {
+                issues.append(name + ": " + provider.diagnostic)
             }
+            if provider.unavailableSlots > 0 {
+                issues.append(name + ": \(provider.unavailableSlots) slot non disponibili.")
+            }
+            if provider.status == .ready && provider.inspection == nil {
+                issues.append(name + ": identità del software non verificata.")
+            }
+            if provider.status == .duplicate {
+                // An alias is evidence only when the same inspected file has a
+                // successful public observation elsewhere in this exact result.
+                let observed = provider.inspection.map { alias in providers.contains { source in
+                    source.status == .ready || source.status == .noToken ?
+                        source.inspection?.identity == alias.identity && source.unavailableSlots == 0 : false
+                }} ?? false
+                if !observed { issues.append(name + ": alias senza una lettura pubblica verificata dello stesso software.") }
+            }
+            for token in provider.tokens where token.certificateState != .readable || token.certificates.isEmpty {
+                issues.append(name + ": " + token.message)
+            }
+        }
+        completenessIssues = issues
+        isComplete = issues.isEmpty
     }
 }
 
@@ -35,15 +60,17 @@ public struct DeviceSelection: Sendable {
     public enum SelectionOrigin: Sendable { case automatic, manual }
     public private(set) var selectionOrigin: SelectionOrigin?
     public private(set) var discoveryComplete = false
-    private var previousManualRouteID: String?
+    public private(set) var completenessIssues: [String] = []
+    public private(set) var selectionWasPreserved = false
+    private var priorSelection: (id: String, origin: SelectionOrigin)?
     private var wasCancelled = false
     public init() {}
     public var selectedRoute: DeviceCertificateRoute? {
         certificates.lazy.flatMap(\.routes).first { $0.id == selectedRouteID }
     }
     @discardableResult public mutating func beginDiscovery() -> UUID {
-        let previous = selectionOrigin == .manual ? selectedRouteID : previousManualRouteID
-        self = DeviceSelection(); previousManualRouteID = previous
+        let previous = selectedRouteID.flatMap { id in selectionOrigin.map { (id: id, origin: $0) } } ?? priorSelection
+        self = DeviceSelection(); priorSelection = previous
         isSearching = true; return requestID
     }
     public mutating func cancelDiscovery() { self = DeviceSelection(); wasCancelled = true }
@@ -57,20 +84,21 @@ public struct DeviceSelection: Sendable {
     @discardableResult public mutating func accept(_ result: DeviceDiscoveryResult, request: UUID) -> Bool {
         guard request == requestID, isSearching else { return false }
         providers = result.providers; certificates = result.certificates; selectedRouteID = nil; selectionOrigin = nil; isSearching = false
-        discoveryComplete = result.isComplete
+        discoveryComplete = result.isComplete; completenessIssues = result.completenessIssues
+        selectionWasPreserved = false
         let eligible = certificates.flatMap(\.routes).filter { $0.assessment.permitsSigning }
-        // Preserve an explicit, still observed complete binding. Auto selections
-        // require uniqueness anew; an arriving alternative requires manual choice.
-        if let prior=previousManualRouteID, eligible.contains(where: { $0.id == prior }) {
-            selectedRouteID=prior; selectionOrigin = .manual
+        // Preserve only the same currently observed, locally eligible binding.
+        // This is not a fallback to another provider/slot or a new auto selection.
+        if let prior = priorSelection, eligible.contains(where: { $0.id == prior.id }) {
+            selectedRouteID = prior.id; selectionOrigin = prior.origin; selectionWasPreserved = true
         } else if discoveryComplete, eligible.count == 1 {
             selectedRouteID=eligible[0].id; selectionOrigin = .automatic
         }
-        previousManualRouteID = nil
+        priorSelection = nil
         return true
     }
     @discardableResult public mutating func select(routeID: String?) -> Bool {
-        previousManualRouteID = nil
+        priorSelection = nil; selectionWasPreserved = false
         guard let routeID else { selectedRouteID = nil; selectionOrigin = nil; return true }
         guard !isSearching else { return false }
         guard certificates.contains(where: { $0.routes.contains(where: { $0.id == routeID }) }) else { selectedRouteID = nil; selectionOrigin = nil; return false }
@@ -84,6 +112,7 @@ public struct DeviceSelection: Sendable {
         if providers.contains(where: { $0.status == .communicationError || $0.status == .partial }) {
             return "Impossibile comunicare con alcuni dispositivi o leggere tutti i certificati. Consulta Configura dispositivo."
         }
+        if selectedRoute != nil, selectionWasPreserved { return "Selezione del certificato conservata. Nessuna firma avviata." }
         if let route=selectedRoute, selectionOrigin == .automatic {
             return "Certificato selezionato automaticamente: \(route.title). Idoneo ai controlli locali; nessun PIN richiesto."
         }

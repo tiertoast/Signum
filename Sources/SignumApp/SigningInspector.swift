@@ -12,12 +12,11 @@ extension SignumWindow {
                         Picker("Firmatario", selection: Binding(get: { devices.selectedRouteID ?? "" }, set: { selectRoute($0) })) {
                             Text("Seleziona certificato…").tag("")
                             ForEach(CertificateVisibility(devices.certificates).eligible) { group in
-                                ForEach(group.routes) { route in Text(route.title).tag(route.id) }
+                                ForEach(group.routes) { route in
+                                    Text(group.routes.count > 1 ? "\(route.title) · \(route.providerName) · slot \(route.token.slot)" : route.title).tag(route.id)
+                                }
                             }
-                        }.disabled(interfaceLocked || batch.isFrozen)
-                        if let route = devices.selectedRoute {
-                            Text(route.identity?.issuer ?? route.deviceDescription).font(.caption).foregroundStyle(.secondary)
-                        }
+                        }.disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
                         certificateSelectionFeedback
                         Picker("Formato", selection: formatBinding) {
                             Text("CAdES · .p7m").tag(SignumFormat.cades)
@@ -41,16 +40,19 @@ extension SignumWindow {
                             Button(customDirectory?.lastPathComponent ?? "Scegli cartella…") { chooseDestination() }
                                 .disabled(interfaceLocked || batch.isFrozen)
                         }
-                        if selectedDocument?.format == .cadesCounterSign {
-                            formatPicker
-                        }
+                        counterSignatureSelection
                         DisclosureGroup("Opzioni avanzate", isExpanded: $showSigningOptions) {
-                            formatPicker
-                            destinationControls
-                            Text(authenticationExplanation).font(.caption).foregroundStyle(.secondary)
-                            statusFooter
-                            Button("Dispositivi e certificati…") { operation = .devices }
-                                .disabled(interfaceLocked || batch.isFrozen)
+                            if selectedDocument != nil && !batch.isFrozen {
+                                Picker("Nuovi documenti", selection: $format) { newDocumentFormats }
+                                    .disabled(interfaceLocked)
+                            }
+                            DisclosureGroup("Dettagli") {
+                                Text(formatDetails).font(.caption).foregroundStyle(.secondary)
+                                Text(authenticationExplanation).font(.caption).foregroundStyle(.secondary)
+                                if let customDirectory, !saveAlongsideOriginal {
+                                    Text(customDirectory.path).font(.caption2).textSelection(.enabled)
+                                }
+                            }
                         }
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -78,97 +80,50 @@ extension SignumWindow {
     @ViewBuilder var certificateSelectionFeedback: some View {
         if !devices.isSearching && devices.selectedRoute == nil {
             VStack(alignment: .leading, spacing: 6) {
-                Text(review.credentialUnavailable ? status : (devices.message.isEmpty ? "Nessun certificato selezionato." : devices.message))
-                    .font(.caption).textSelection(.enabled)
-                Button("Ripeti ricerca") { discover() }
-                    .disabled(interfaceLocked || batch.isFrozen)
+                Text(review.credentialUnavailable ? "Certificato non più disponibile." :
+                    (devices.certificates.isEmpty ? "Nessun certificato disponibile." :
+                     (devices.discoveryComplete ? "Scegli un certificato." : "Ricerca incompleta. Seleziona un certificato o consulta Dispositivi.")))
+                    .font(.caption)
+                Button("Dispositivi…") { operation = .devices }
+                    .buttonStyle(.link).disabled(interfaceLocked || batch.isFrozen)
             }
         } else if let route = devices.selectedRoute, !route.assessment.permitsSigning {
-            Text(route.assessment.explanation).font(.caption).textSelection(.enabled)
+            Text(route.assessment.status.description).font(.caption)
         }
     }
 
-    var formatPicker: some View {
-        SignumInspectorSection(selectedDocument == nil ? "Formato nuovi documenti" : "Formato firma") {
-            VStack(alignment:.leading,spacing:6) {
-                Picker("Formato firma",selection:formatBinding) {
-                    Text("ASiC-S — un documento").tag(SignumFormat.asics)
-                        .disabled(selectedDocument.map { $0.format != .asics } ?? false)
-                    Text("ASiC-E — più documenti").tag(SignumFormat.asice)
-                        .disabled(selectedDocument.map { $0.format != .asice } ?? false)
-                    Text("CAdES — documento .p7m").tag(SignumFormat.cades)
-                    Text("CAdES detached — firma .p7s").tag(SignumFormat.cadesDetached)
-                    Text("Cofirma CAdES — stesso contenuto").tag(SignumFormat.cadesCoSign)
-                    Text("Controfirma CMS — firma selezionata").tag(SignumFormat.cadesCounterSign)
-                    Text("XAdES — XML firmato").tag(SignumFormat.xades)
-                        .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectXAdES(for:$0.snapshot) } ?? false)
-                    Text("PAdES — PDF firmato").tag(SignumFormat.pades)
-                        .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectPAdES(for:$0.snapshot) } ?? false)
-                }.pickerStyle(.menu).labelsHidden().accessibilityIdentifier("signum.current-format")
-                    .disabled(interfaceLocked || batch.isFrozen || selectedDocument?.format.isASiC == true)
-                if selectedDocument?.format.isASiC == true || (selectedDocument == nil && (format == .asics || format == .asice)) {
-                    Text("ASiC-S: un file per contenitore. ASiC-E: seleziona insieme da 2 a 4 file, fino a 8 MiB ciascuno e 16 MiB totali. Tutti i contenuti saranno firmati con XAdES-B e una data dichiarata, non certificata.").font(.caption).foregroundStyle(.secondary)
-                }
-                if selectedDocument?.format == .xades || (selectedDocument == nil && format == .xades) {
-                    Text("XML UTF-8 · una firma · massimo 8 MiB. XAdES include sempre una data dichiarata, non una marca temporale.").font(.caption).foregroundStyle(.secondary)
-                }
-                if let entry=selectedDocument {
-                    Text("Documento corrente: " + entry.snapshot.originalURL.lastPathComponent).font(.caption).lineLimit(2)
-                    Text(entry.format.title).font(.callout.bold())
-                    if entry.format == .cadesCounterSign {
-                        Picker("Firma da controfirmare",selection:Binding(get:{entry.configuration.counterSignatureKey ?? ""},set:{ key in
-                            do {try batch.selectCounterSignature(key,for:entry.id);provider.pin=""} catch {status=error.localizedDescription}
-                        })) {
-                            Text("Seleziona esplicitamente…").tag("")
-                            ForEach(entry.snapshot.cmsSignatureTargets) { target in Text(target.title).tag(target.signatureKey) }
-                        }.disabled(interfaceLocked || batch.isFrozen)
-                        Text("La controfirma riguarda la firma selezionata, non aggiunge un cofirmatario del contenuto.").font(.caption)
-                    }
-                    if entry.format == .cadesDetached { Text("Conserva anche l’originale: la verifica .p7s richiede la selezione separata del contenuto esatto.").font(.caption) }
-                    if entry.format.isASiC {
-                        Text("Contenuti: " + entry.snapshot.containerPayloadNames.joined(separator:", ")).font(.caption)
-                    }
-                    if !batch.isFrozen {
-                        Text("Puoi cambiare formato fino all’approvazione. Gli altri documenti mantengono la propria scelta.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Picker("Per i prossimi documenti",selection:$format) {
-                            Text("CAdES").tag(SignumFormat.cades)
-                            Text("CAdES detached").tag(SignumFormat.cadesDetached)
-                            Text("Cofirma CAdES").tag(SignumFormat.cadesCoSign)
-                            Text("Controfirma CMS").tag(SignumFormat.cadesCounterSign)
-                            Text("XAdES").tag(SignumFormat.xades)
-                            Text("ASiC-S").tag(SignumFormat.asics)
-                            Text("ASiC-E").tag(SignumFormat.asice)
-                            Text("PAdES").tag(SignumFormat.pades)
-                        }.pickerStyle(.menu).font(.caption).disabled(interfaceLocked)
-                    }
-                }
-            }.padding(5)
+    @ViewBuilder var counterSignatureSelection: some View {
+        if let entry = selectedDocument, entry.format == .cadesCounterSign {
+            Picker("Firma da controfirmare", selection: Binding(get: { entry.configuration.counterSignatureKey ?? "" }, set: { key in
+                do { try batch.selectCounterSignature(key, for: entry.id); provider.pin = "" }
+                catch { status = error.localizedDescription }
+            })) {
+                Text("Seleziona firma…").tag("")
+                ForEach(entry.snapshot.cmsSignatureTargets) { target in Text(target.title).tag(target.signatureKey) }
+            }.disabled(interfaceLocked || batch.isFrozen)
         }
     }
 
-    var destinationControls: some View {
-        SignumInspectorSection("Destinazione") {
-            VStack(alignment: .leading, spacing: 8) {
-                if batch.isFrozen {
-                    Text("Destinazioni fissate nel riepilogo. Per cambiarle prepara e conferma una nuova sessione.").font(.caption)
-                } else {
-                    Toggle("Salva nella cartella dell'originale", isOn: $saveAlongsideOriginal)
-                    if saveAlongsideOriginal {
-                        Text("Ogni copia firmata va accanto al proprio originale, anche per documenti in cartelle diverse.").font(.caption)
-                    } else {
-                        HStack {
-                            Text(customDirectory?.lastPathComponent ?? "Scegli una cartella comune").font(.caption)
-                            Spacer()
-                            Button("Sfoglia…") { chooseDestination() }
-                        }
-                        if let customDirectory {
-                            DisclosureGroup("Dettagli della cartella") { Text(customDirectory.path).font(.caption2).textSelection(.enabled) }
-                        }
-                    }
-                    Text("I nomi liberi saranno fissati nel riepilogo. Nessun file esistente verrà sovrascritto.").font(.caption2).foregroundStyle(.secondary)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(5).disabled(interfaceLocked)
+    @ViewBuilder var newDocumentFormats: some View {
+        Text("CAdES").tag(SignumFormat.cades)
+        Text("CAdES detached").tag(SignumFormat.cadesDetached)
+        Text("Cofirma CAdES").tag(SignumFormat.cadesCoSign)
+        Text("Controfirma CMS").tag(SignumFormat.cadesCounterSign)
+        Text("XAdES").tag(SignumFormat.xades)
+        Text("ASiC-S").tag(SignumFormat.asics)
+        Text("ASiC-E").tag(SignumFormat.asice)
+        Text("PAdES").tag(SignumFormat.pades)
+    }
+
+    var formatDetails: String {
+        switch selectedDocument?.format.rawValue ?? format.rawValue {
+        case "asics", "asice":
+            return "ASiC-S: un file per contenitore. ASiC-E: da 2 a 4 file, fino a 8 MiB ciascuno e 16 MiB totali. Data dichiarata, non certificata."
+        case "xades": return "XML UTF-8, una firma, massimo 8 MiB. Data dichiarata, non una marca temporale."
+        case "cadesDetached": return "Conserva l’originale: la verifica .p7s richiede il contenuto esatto."
+        case "cadesCounterSign": return "Firma la firma CMS selezionata, senza aggiungere un cofirmatario del contenuto."
+        case "pades": return "Ogni PDF richiede un’anteprima pronta e la conferma dell’aspetto prima dell’approvazione."
+        default: return "Le copie firmate non sovrascrivono file esistenti. Le destinazioni definitive sono fissate all’approvazione."
         }
     }
 
@@ -296,15 +251,6 @@ extension SignumWindow {
                 .accessibilityIdentifier("signum.approve-signing")
                 .disabled(batch.isApproved ? !canAuthorizeNext : !canApproveBatch)
         }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    var statusFooter: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Image(systemName: "info.circle").foregroundStyle(.secondary)
-            Text(status).font(.caption).textSelection(.enabled)
-            Spacer(minLength: 0)
-
-        }
     }
 
     @ViewBuilder

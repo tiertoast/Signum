@@ -9,8 +9,9 @@ extension SignumWindow {
     var documentWorkspace: some View {
         VStack(spacing: 0) {
             if !batch.documents.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
                         ForEach(batch.documents) { entry in
                             Button { showDocument(entry.id) } label: {
                                 Label(entry.snapshot.originalURL.lastPathComponent, systemImage: entry.id == documentSnapshot?.identity.id ? "doc.fill" : "doc")
@@ -22,8 +23,16 @@ extension SignumWindow {
                             .disabled(batch.isRunning || interaction.isSubmittingPIN)
                             .accessibilityAddTraits(entry.id == documentSnapshot?.identity.id ? .isSelected : [])
                         }
-                    }.padding(12)
-                }.frame(height: 64)
+                        }.padding(12)
+                    }
+                    Button(action: chooseFile) { Image(systemName: "plus") }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Aggiungi documenti")
+                        .accessibilityIdentifier("signum.add-more-documents")
+                        .help("Aggiungi altri documenti")
+                        .disabled(interfaceLocked || batch.isFrozen)
+                        .padding(.trailing, 14)
+                }.frame(height: 56)
                 Divider()
                 if let entry = selectedDocument {
                     HStack {

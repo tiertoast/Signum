@@ -32,7 +32,13 @@ public struct DeviceCertificateRoute: Identifiable, Sendable {
         assessment = CertificateEligibility.evaluate(certificateDER: der, at: date)
         identity = try? SignumCertificateIdentity(certificateDER: der)
         // Structured encoding prevents ambiguous concatenation of vendor strings.
-        let components = [provider.id, providerPath, moduleIdentity.moduleKey,
+        // Provider display IDs and path spellings are not independent routes.
+        // Deduplicate only an identical canonical module + full file identity +
+        // token locator/attributes + CKA_ID + DER. Different middleware or slots
+        // remain distinct, even for the same DER; no physical-device inference.
+        let components = [providerPath, moduleIdentity.moduleKey, String(moduleIdentity.size),
+                          String(moduleIdentity.modifiedSeconds), String(moduleIdentity.modifiedNanoseconds),
+                          String(moduleIdentity.changedSeconds), String(moduleIdentity.changedNanoseconds),
                           String(token.slot), token.serial, token.manufacturer, token.model,
                           token.reader, self.certificate.id, assessment.certificateSHA256]
         id = DocumentSnapshot.digest(Data(components.map { "\($0.utf8.count):\($0)" }.joined().utf8))
