@@ -52,7 +52,7 @@ extension SignumWindow {
                         VStack(spacing: 12) {
                             Image(systemName: "doc.text").font(.system(size: 44)).foregroundStyle(.secondary)
                             Text(entry.snapshot.originalURL.lastPathComponent).font(.headline).textSelection(.enabled)
-                            Text("\(entry.format.title) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.snapshot.identity.byteCount), countStyle: .file))")
+                            Text("\(SignumFormat(rawValue: entry.format.rawValue)?.displayTitle ?? entry.format.title) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.snapshot.identity.byteCount), countStyle: .file))")
                                 .foregroundStyle(.secondary)
                             Text("Il contenuto non dispone di un’anteprima PDF.").font(.callout).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity).padding()
@@ -63,11 +63,11 @@ extension SignumWindow {
                     ScrollView { VStack(alignment: .leading) { ForEach(batch.documents) { documentRow($0) } } }.frame(maxHeight: 170)
                 }.padding(12)
                 if !results.receipts.isEmpty {
-                    DisclosureGroup("Operazioni precedenti") { SigningReceiptsView(receipts: results.receipts).frame(height: 180) }.padding(12)
+                    DisclosureGroup("Attività recenti") { SigningReceiptsView(receipts: results.receipts, clear: results.clear).transition(.opacity).frame(height: 180) }.padding(12)
                 }
             } else {
                 if !results.receipts.isEmpty {
-                    SigningReceiptsView(receipts: results.receipts)
+                    SigningReceiptsView(receipts: results.receipts, clear: results.clear).transition(.opacity)
                 }
                 if results.receipts.isEmpty { Spacer(minLength: 0) }
                 SignumEmptyDocumentsView(choose: chooseFile).padding(22)
@@ -86,10 +86,19 @@ extension SignumWindow {
 
 struct SigningReceiptsView: View {
     let receipts: [SigningReceipt]
+    let clear: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Label("Operazioni concluse", systemImage: "checkmark.circle").font(.title2.weight(.semibold))
+                HStack {
+                    Label("Attività recenti", systemImage: "clock").font(.title2.weight(.semibold))
+                    Spacer()
+                    Button("Elimina tutto") {
+                        withAnimation(reduceMotion ? nil : .default) { clear() }
+                    }.help("Rimuove solo l’elenco in memoria. I file rimangono sul disco.")
+                        .accessibilityIdentifier("signum.clear-recent")
+                }
                 ForEach(receipts) { receipt in
                     VStack(alignment: .leading, spacing: 6) {
                         Label(receipt.name, systemImage: BatchWorkspaceSummary.symbol(receipt.state)).font(.headline)

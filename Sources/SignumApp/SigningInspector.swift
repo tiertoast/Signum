@@ -19,17 +19,17 @@ extension SignumWindow {
                         }.disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
                         certificateSelectionFeedback
                         Picker("Formato", selection: formatBinding) {
-                            Text("CAdES · .p7m").tag(SignumFormat.cades)
-                            Text("PAdES · PDF").tag(SignumFormat.pades)
+                            Text(SignumFormat.cades.displayTitle).tag(SignumFormat.cades)
+                            Text(SignumFormat.pades.displayTitle).tag(SignumFormat.pades)
                                 .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectPAdES(for: $0.snapshot) } ?? false)
                             Section("Altri formati") {
-                                Text("CAdES detached · .p7s").tag(SignumFormat.cadesDetached)
-                                Text("Cofirma CAdES").tag(SignumFormat.cadesCoSign)
-                                Text("Controfirma CMS").tag(SignumFormat.cadesCounterSign)
-                                Text("XAdES · XML").tag(SignumFormat.xades)
+                                Text(SignumFormat.cadesDetached.displayTitle).tag(SignumFormat.cadesDetached)
+                                Text(SignumFormat.cadesCoSign.displayTitle).tag(SignumFormat.cadesCoSign)
+                                Text(SignumFormat.cadesCounterSign.displayTitle).tag(SignumFormat.cadesCounterSign)
+                                Text(SignumFormat.xades.displayTitle).tag(SignumFormat.xades)
                                     .disabled(selectedDocument.map { !DocumentSigningConfiguration.canSelectXAdES(for: $0.snapshot) } ?? false)
-                                Text("ASiC-S").tag(SignumFormat.asics).disabled(selectedDocument != nil)
-                                Text("ASiC-E").tag(SignumFormat.asice).disabled(selectedDocument != nil)
+                                Text(SignumFormat.asics.displayTitle).tag(SignumFormat.asics).disabled(selectedDocument != nil)
+                                Text(SignumFormat.asice.displayTitle).tag(SignumFormat.asice).disabled(selectedDocument != nil)
                             }
                         }.disabled(interfaceLocked || batch.isFrozen || selectedDocument?.format.isASiC == true)
                         Picker("Destinazione", selection: $saveAlongsideOriginal) {
@@ -46,13 +46,7 @@ extension SignumWindow {
                                 Picker("Nuovi documenti", selection: $format) { newDocumentFormats }
                                     .disabled(interfaceLocked)
                             }
-                            DisclosureGroup("Dettagli") {
-                                Text(formatDetails).font(.caption).foregroundStyle(.secondary)
-                                Text(authenticationExplanation).font(.caption).foregroundStyle(.secondary)
-                                if let customDirectory, !saveAlongsideOriginal {
-                                    Text(customDirectory.path).font(.caption2).textSelection(.enabled)
-                                }
-                            }
+                            SignumContextHelp(title: "Informazioni sulla firma", text: formatDetails + "\n\n" + authenticationExplanation)
                         }
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -105,25 +99,26 @@ extension SignumWindow {
     }
 
     @ViewBuilder var newDocumentFormats: some View {
-        Text("CAdES").tag(SignumFormat.cades)
-        Text("CAdES detached").tag(SignumFormat.cadesDetached)
-        Text("Cofirma CAdES").tag(SignumFormat.cadesCoSign)
-        Text("Controfirma CMS").tag(SignumFormat.cadesCounterSign)
-        Text("XAdES").tag(SignumFormat.xades)
-        Text("ASiC-S").tag(SignumFormat.asics)
-        Text("ASiC-E").tag(SignumFormat.asice)
-        Text("PAdES").tag(SignumFormat.pades)
+        Text(SignumFormat.cades.displayTitle).tag(SignumFormat.cades)
+        Text(SignumFormat.cadesDetached.displayTitle).tag(SignumFormat.cadesDetached)
+        Text(SignumFormat.cadesCoSign.displayTitle).tag(SignumFormat.cadesCoSign)
+        Text(SignumFormat.cadesCounterSign.displayTitle).tag(SignumFormat.cadesCounterSign)
+        Text(SignumFormat.xades.displayTitle).tag(SignumFormat.xades)
+        Text(SignumFormat.asics.displayTitle).tag(SignumFormat.asics)
+        Text(SignumFormat.asice.displayTitle).tag(SignumFormat.asice)
+        Text(SignumFormat.pades.displayTitle).tag(SignumFormat.pades)
     }
 
     var formatDetails: String {
         switch selectedDocument?.format.rawValue ?? format.rawValue {
         case "asics", "asice":
             return "ASiC-S: un file per contenitore. ASiC-E: da 2 a 4 file, fino a 8 MiB ciascuno e 16 MiB totali. Data dichiarata, non certificata."
-        case "xades": return "XML UTF-8, una firma, massimo 8 MiB. Data dichiarata, non una marca temporale."
-        case "cadesDetached": return "Conserva l’originale: la verifica .p7s richiede il contenuto esatto."
-        case "cadesCounterSign": return "Firma la firma CMS selezionata, senza aggiungere un cofirmatario del contenuto."
-        case "pades": return "Ogni PDF richiede un’anteprima pronta e la conferma dell’aspetto prima dell’approvazione."
-        default: return "Le copie firmate non sovrascrivono file esistenti. Le destinazioni definitive sono fissate all’approvazione."
+        case "xades": return "XAdES: XML UTF-8, una firma, massimo 8 MiB. Data dichiarata, non una marca temporale."
+        case "cadesDetached": return "CAdES detached: conserva l’originale: la verifica .p7s richiede il contenuto esatto."
+        case "cadesCoSign": return "Cofirma CAdES: aggiunge una firma sullo stesso contenuto della busta P7M. Le firme esistenti vengono conservate."
+        case "cadesCounterSign": return "Controfirma CMS: firma la firma CMS selezionata, senza aggiungere un cofirmatario del contenuto."
+        case "pades": return "PAdES: ogni PDF richiede un’anteprima pronta e la conferma dell’aspetto prima dell’approvazione."
+        default: return "CAdES: incorpora il documento in una busta CMS/P7M. Le copie firmate non sovrascrivono file esistenti. Le destinazioni definitive sono fissate all’approvazione."
         }
     }
 

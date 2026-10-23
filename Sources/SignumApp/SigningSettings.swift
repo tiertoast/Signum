@@ -21,11 +21,10 @@ extension SignumWindow {
                                 Text(mode.title).tag(mode.rawValue)
                             }
                         }
-                        DisclosureGroup("Dettagli autenticazione") {
-                            Text(authenticationMode.explanation).font(.caption).foregroundStyle(.secondary)
-                        }
+                        SignumContextHelp(title: "Informazioni sull’autenticazione", text: authenticationMode.explanation)
                     }
-                }.formStyle(.grouped).padding(12)
+                }.formStyle(.columns).frame(maxWidth: 720).padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }.tabItem { Label("Generali", systemImage: "gearshape") }
             ScrollView { SignumGraphicSettingsPane().padding(20) }
                 .tabItem { Label("Firma grafica", systemImage: "signature") }

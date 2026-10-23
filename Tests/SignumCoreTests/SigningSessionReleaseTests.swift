@@ -41,8 +41,39 @@ import SwiftUI
             XCTAssertFalse(store.releaseIfFinished(batch, interactionBusy: false, hasAuthenticationContext: false))
             await batch.addDocuments([files[0]], format: .cades)
             XCTAssertEqual(batch.documents.count, 1); XCTAssertEqual(store.receipts.count, 3)
+            store.clear()
+            XCTAssertTrue(store.receipts.isEmpty)
+            XCTAssertEqual(batch.documents.count, 1)
+            for (i, job) in jobs.enumerated() {
+                XCTAssertEqual(try CAdESVerifier.verify(file: job.destination).originalDocument, try Data(contentsOf: files[i]))
+            }
+            store.clear() // Idempotent and independent from the next session.
+            let freshStore = SigningSessionResults()
+            XCTAssertTrue(freshStore.receipts.isEmpty)
         }
     }
+    func testClearPopulatedHistoryLeavesNewUncertainSessionUntouched() async throws {
+        try await fixture { batch, signer, mock, files in
+            let store = SigningSessionResults()
+            let der = signer.der
+            batch.cancelPending()
+            XCTAssertTrue(store.releaseIfFinished(batch, interactionBusy: false, hasAuthenticationContext: false))
+            XCTAssertEqual(store.receipts.count, 3)
+            await batch.addDocuments([files[0]], format: .cades)
+            let plan = try await batch.prepareApproval(provider: mock.path.path, slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
+            try batch.confirm(plan)
+            try await batch.authorizeNext(pin: "synthetic") { _, _, _ in }
+            XCTAssertTrue(batch.needsOutcomeReview)
+            store.clear()
+            XCTAssertTrue(store.receipts.isEmpty)
+            XCTAssertTrue(batch.needsOutcomeReview)
+            XCTAssertTrue(batch.isApproved)
+            XCTAssertEqual(batch.documents.count, 1)
+            XCTAssertEqual(try Data(contentsOf: files[0]), Data("File 0".utf8))
+        }
+    }
+
     func testWindowAutomaticallyReleasesTerminalSessionWithoutNewSessionButton() async throws {
         try await fixture { batch, _, _, _ in
             let store = SigningSessionResults()
@@ -77,6 +108,8 @@ import SwiftUI
             while !entered.withValue({ $0 }) && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
             XCTAssertTrue(entered.withValue { $0 }); XCTAssertTrue(batch.isRunning)
             batch.cancelPending()
+            store.clear()
+            XCTAssertTrue(batch.isRunning)
             XCTAssertFalse(store.releaseIfFinished(batch, interactionBusy: false, hasAuthenticationContext: false))
             XCTAssertNotNil(batch.approval); XCTAssertTrue(store.receipts.isEmpty)
             gate.signal(); try await task.value
@@ -98,6 +131,7 @@ import SwiftUI
         try await fixture { batch, _, _, _ in
             let store = SigningSessionResults()
             try await batch.authorizeNext(pin: "synthetic") { _, _, _ in }
+            store.clear()
             XCTAssertTrue(batch.needsOutcomeReview)
             batch.cancelPending()
             XCTAssertFalse(store.releaseIfFinished(batch, interactionBusy: false, hasAuthenticationContext: false))

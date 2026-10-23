@@ -38,6 +38,13 @@ def minimum(text):
     return max(tuple(int(x) for x in value.split(".")) for value in versions)
 
 
+def linked_sdk(text):
+    values = re.findall(r"\bsdk (\d+(?:\.\d+){0,2})", text)
+    if len(values) != 1:
+        raise ValueError("Missing or ambiguous linked SDK")
+    return version_key(values[0])
+
+
 def version_key(value):
     if not re.fullmatch(r"\d+(?:\.\d+){0,2}", value):
         raise ValueError("Invalid macOS version")
@@ -130,8 +137,8 @@ def compile_app_icon(destination, minimum_os):
 
 def preview_metadata(version, build):
     if version == "0.7.0":
-        if build not in (1, 2, 3, 4):
-            raise ValueError("Only 0.7 Development Preview Builds 1, 2, 3 and 4 are declared")
+        if build not in (1, 2, 3, 4, 5):
+            raise ValueError("Only 0.7 Development Preview Builds 1, 2, 3, 4 and 5 are declared")
         return (f"io.github.tiertoast.Signum.DevelopmentPreview.V07.B{build}",
                 f"Signum 0.7 Development Preview — Build {build}")
     if version == "0.6.0":
@@ -184,6 +191,13 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
              "-Xcc", "-ffile-prefix-map=" + mapping]
     if preview:
         swift += ["--triple", "arm64-apple-macosx13.0"]
+    if preview and preview_version == "0.7.0" and preview_build >= 5:
+        # swiftbuild currently links the explicit deployment triple with sdk=13.0.
+        # Record the actual SDK used to compile, so AppKit enables native modern
+        # chrome; keep the independently declared macOS 13 deployment minimum.
+        sdk_version = run(["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-version"], capture=True).strip()
+        swift += ["-Xlinker", "-platform_version", "-Xlinker", "macos",
+                  "-Xlinker", declared_target, "-Xlinker", sdk_version]
     run(swift, cwd=REPO, env=env)
     bins = Path(run(swift + ["--show-bin-path"], capture=True, cwd=REPO, env=env).strip())
     native_build = REPO / ((".build/preview-pades-" if preview else ".build/beta-pades-") + configuration)
@@ -255,6 +269,9 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
             run(["/usr/bin/strip", "-S", dest])
             load = run(["/usr/bin/otool", "-l", dest], capture=True)
             versions.append(minimum(load))
+            if preview and preview_version == "0.7.0" and preview_build >= 5 and source == bins / "SignumApp":
+                if linked_sdk(load) != version_key(sdk_version):
+                    raise ValueError("App linked SDK does not match the compiler SDK; native chrome would use compatibility mode")
             arch = run(["/usr/bin/lipo", "-archs", dest], capture=True).strip()
             if arch != "arm64":
                 raise ValueError("Unexpected architecture: " + arch)

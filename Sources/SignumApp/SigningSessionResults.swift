@@ -15,6 +15,9 @@ struct SigningReceipt: Identifiable {
 /// Retains only presentation values, never jobs, snapshots, approval or secrets.
 @MainActor final class SigningSessionResults: ObservableObject {
     @Published private(set) var receipts: [SigningReceipt] = []
+    /// Discards presentation history only. Active/uncertain work remains owned by the coordinator.
+    func clear() { receipts.removeAll() }
+
     @discardableResult
     func releaseIfFinished(_ batch: BatchSigningCoordinator, interactionBusy: Bool,
                            hasAuthenticationContext: Bool, otherWork: Bool = false) -> Bool {
@@ -24,7 +27,7 @@ struct SigningReceipt: Identifiable {
               !batch.needsOutcomeReview, !interactionBusy, !hasAuthenticationContext, !otherWork else { return false }
         let values = batch.documents.map {
             SigningReceipt(id: $0.id, name: $0.snapshot.originalURL.lastPathComponent,
-                format: $0.format.shortTitle, state: $0.state, detail: $0.result,
+                format: SignumFormat(rawValue: $0.format.rawValue)?.displayTitle ?? $0.format.shortTitle, state: $0.state, detail: $0.result,
                 output: $0.destination)
         }
         batch.reset()

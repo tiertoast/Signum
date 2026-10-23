@@ -102,4 +102,41 @@ struct SignumEmptyDocumentsView: View {
         .accessibilityElement(children: .contain)
     }
 }
+// NavigationSplitView owns the system sidebar material and toolbar integration.
+// Extend adjacent content only on the SDK-provided implementation; never emulate glass.
+struct SignumChromeExtension: ViewModifier {
+    let enabled: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26, *) { content.backgroundExtensionEffect(isEnabled: enabled) }
+        else { content }
+    }
+}
+
+struct SignumContextHelp: View {
+    let title: String
+    let text: String
+    @State private var showing = false
+    var body: some View {
+        Button { showing.toggle() } label: { Label(title, systemImage: "info.circle") }
+            .buttonStyle(.borderless)
+            .popover(isPresented: $showing) {
+                Text(text).textSelection(.enabled).padding(20).frame(width: 340, alignment: .leading)
+            }
+    }
+}
+
+extension SignumFormat {
+    var displayTitle: String {
+        switch self {
+        case .cades: return "CAdES — Firma P7M"
+        case .pades: return "PAdES — Firma PDF"
+        case .xades: return "XAdES — Firma XML"
+        case .cadesDetached: return "Firma separata — P7S"
+        case .cadesCoSign: return "Aggiungi una firma — P7M"
+        case .cadesCounterSign: return "Controfirma"
+        case .asics: return "Contenitore firmato — 1 file (ASiC-S)"
+        case .asice: return "Contenitore firmato — più file (ASiC-E)"
+        }
+    }
+}
 #endif

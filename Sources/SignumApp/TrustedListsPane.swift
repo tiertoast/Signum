@@ -5,7 +5,7 @@ struct TrustedListsPane: View {
     @ObservedObject var model: TrustedListsModel
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            GroupBox("Elenchi fiduciari") {
+            VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 10) {
                     let expired = model.expiresAt.map { $0 <= context.date } ?? false
                     HStack {
@@ -19,8 +19,9 @@ struct TrustedListsPane: View {
                     if let date = model.expiresAt { Text("Prossima scadenza: \(date.formatted(date: .abbreviated, time: .shortened))") }
                     Text("\(model.isEuropean ? "Catalogo acquisito" : "Italia"): \(model.providerCount) prestatori · \(model.serviceCount) servizi\(expired ? " (elenco obsoleto)" : "")")
                     if model.isEuropean {
-                        Text("Paesi disponibili: " + (model.availableCountries.isEmpty ? "non disponibili" : model.availableCountries.joined(separator: ", ")))
-                        Text("Cache nazionali presenti: " + (model.acquiredCountries.isEmpty ? "nessuna" : model.acquiredCountries.joined(separator: ", ")))
+                        SignumContextHelp(title: "Dettagli del catalogo", text:
+                            "Paesi disponibili: " + (model.availableCountries.isEmpty ? "non disponibili" : model.availableCountries.joined(separator: ", ")) +
+                            "\nCache nazionali presenti: " + (model.acquiredCountries.isEmpty ? "nessuna" : model.acquiredCountries.joined(separator: ", ")))
                         HStack {
                             Picker("Paese da aggiornare", selection: $model.selectedCountry) {
                                 ForEach(Array(Set(model.availableCountries + [model.selectedCountry])).sorted(), id: \.self) { Text($0).tag($0) }

@@ -15,6 +15,7 @@ enum SignumFormat: String, Hashable {
     @StateObject var interaction = SigningInteraction()
     @StateObject var review = SigningReview()
     @StateObject var results: SigningSessionResults
+    @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     @State var refresh = DeviceRefreshLifecycle()
     @State var discoveryOperation: SigningOperation?
     @AppStorage(SigningExperiencePreferences.Keys.batchAuthentication) var authenticationModeRaw = BatchAuthenticationMode.automatic.rawValue
@@ -145,6 +146,7 @@ enum SignumFormat: String, Hashable {
 
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
             .disabled(interfaceLocked || batch.isFrozen)
         } detail: {
@@ -164,8 +166,13 @@ enum SignumFormat: String, Hashable {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                Color(nsColor: .windowBackgroundColor)
+                    .modifier(SignumChromeExtension(enabled: !reduceTransparency))
+            }
         }
-        .navigationSplitViewStyle(.balanced)
+        .navigationSplitViewStyle(.automatic)
+        .toolbarBackground(.automatic, for: .windowToolbar)
         .navigationTitle("Signum")
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -324,14 +331,14 @@ enum SignumFormat: String, Hashable {
                         .buttonStyle(.plain).lineLimit(1).truncationMode(.middle)
                         .help(entry.snapshot.originalURL.lastPathComponent).disabled(batch.isRunning || interaction.isSubmittingPIN)
                     if !batch.isFrozen {
-                        Menu(entry.format.shortTitle) {
-                            Button("CAdES — documento .p7m") { setDocumentFormat(.cades,for:entry.id) }
+                        Menu(SignumFormat(rawValue: entry.format.rawValue)?.displayTitle ?? entry.format.shortTitle) {
+                            Button("CAdES — Firma P7M") { setDocumentFormat(.cades,for:entry.id) }
                             Button("XAdES — XML firmato") { setDocumentFormat(.xades,for:entry.id) }
                                 .disabled(!DocumentSigningConfiguration.canSelectXAdES(for:entry.snapshot))
-                            Button("PAdES — PDF firmato") { setDocumentFormat(.pades,for:entry.id) }
+                            Button("PAdES — Firma PDF") { setDocumentFormat(.pades,for:entry.id) }
                                 .disabled(!DocumentSigningConfiguration.canSelectPAdES(for:entry.snapshot))
                         }.font(.caption.bold()).disabled(interfaceLocked || entry.format.isASiC)
-                    } else { Text(entry.format.shortTitle).font(.caption.bold()) }
+                    } else { Text(SignumFormat(rawValue: entry.format.rawValue)?.displayTitle ?? entry.format.shortTitle).font(.caption.bold()) }
                     Spacer(minLength: 8)
                     Text(rowStatus).font(.caption).lineLimit(1)
                 }.padding(.vertical, 3)
