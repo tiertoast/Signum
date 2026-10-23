@@ -319,7 +319,7 @@ private enum SignumFormat: String, Hashable {
             .disabled(interfaceLocked || batch.isFrozen)
         }
         .padding(16)
-        .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var devicesScreen: some View {
