@@ -9,6 +9,9 @@ extension SignumWindow {
         TabView {
             ScrollView {
                 Form {
+                    Section("Apertura documenti") {
+                        Button("Imposta Signum come app predefinita…") { showDefaultApplications = true }
+                    }
                     Section("Firma") {
                         Toggle("Includi data e ora della firma", isOn: $includeSigningTime)
                             .help("Data dichiarata, non una marca temporale certificata")

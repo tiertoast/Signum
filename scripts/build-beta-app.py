@@ -137,8 +137,8 @@ def compile_app_icon(destination, minimum_os):
 
 def preview_metadata(version, build):
     if version == "0.7.0":
-        if build not in (1, 2, 3, 4, 5, 6, 7):
-            raise ValueError("Only 0.7 Development Preview Builds 1, 2, 3, 4, 5, 6 and 7 are declared")
+        if build not in (1, 2, 3, 4, 5, 6, 7, 8):
+            raise ValueError("Only 0.7 Development Preview Builds 1, 2, 3, 4, 5, 6, 7 and 8 are declared")
         return (f"io.github.tiertoast.Signum.DevelopmentPreview.V07.B{build}",
                 f"Signum 0.7 Development Preview — Build {build}")
     if version == "0.6.0":

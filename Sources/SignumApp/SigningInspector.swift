@@ -15,11 +15,13 @@ extension SignumWindow {
                                 Text("Seleziona certificato…").tag("")
                                 ForEach(CertificateVisibility(devices.certificates).eligible) { group in
                                     ForEach(group.routes) { route in
-                                        Text(group.routes.count > 1 ? "\(route.title) · \(route.providerName) · slot \(route.token.slot)" : route.title).tag(route.id)
+                                        Text(SigningRouteLabel.title(route)).lineLimit(1).truncationMode(.tail)
+                                            .help(SigningRouteLabel.tooltip(route)).tag(route.id)
                                     }
                                 }
                             }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
                                 .modifier(SignumFlexibleControl())
+                                .help(devices.selectedRoute.map(SigningRouteLabel.tooltip) ?? "Scegli un certificato e il relativo dispositivo")
                                 .disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
                             certificateSelectionFeedback
                         }

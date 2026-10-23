@@ -53,6 +53,32 @@ import CoreGraphics
         let folder = try FixtureFiles.directory("signing-workspace",evidence:true)
         try bytes.write(to: folder.appendingPathComponent(name + ".png"))
     }
+    func testBuild8SignerWithObservedDeviceRendersInBothAppearances() async throws {
+        try await fixture { _, defaults, batch, _, _, der in
+            let original = DeviceSelectionTests().provider(der: der)
+            let token = SignumToken(slot: 7, label: "Synthetic DigitalDNA", manufacturer: "Synthetic", model: "DigitalDNA", reader: "Synthetic reader")
+            let observed = DiscoveredMiddleware(id: original.id, definition: original.definition, origin: original.origin,
+                candidatePath: original.candidatePath, inspection: original.inspection, status: .ready,
+                tokens: [.init(token: token, certificates: original.tokens[0].certificates, certificateState: .readable)], version: nil, unavailableSlots: 0)
+            var devices = DeviceSelection(); let request = devices.beginDiscovery()
+            devices.acceptCompleteFixture([observed], request: request)
+            let route = try XCTUnwrap(devices.selectedRoute)
+            var provider = ProviderSelection(); provider.select(route: route)
+            let previous = NSApp.appearance
+            defer { NSApp.appearance = previous }
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                NSApp.appearance = NSAppearance(named: appearance)
+                let view = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                    automaticallyDiscover: false, defaults: defaults)
+                try await render(view, name: "build8-signer-" + (appearance == .aqua ? "Light" : "Dark")) { _ in
+                    XCTAssertEqual(SigningRouteLabel.title(route), route.title + " — DigitalDNA")
+                    XCTAssertEqual(view.devices.selectedRouteID, route.id)
+                    XCTAssertFalse(batch.isApproved)
+                }
+            }
+        }
+    }
+
     func testAvailabilityExplainsMissingInputCertificateAndPDFConsentWithoutApproving() async throws {
         try await fixture { root, defaults, batch, devices, provider, _ in
             let empty = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,

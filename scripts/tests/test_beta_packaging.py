@@ -36,8 +36,10 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn(build6, (identity, build2, build3, build4, build5))
         self.assertIn("Build 6", name6)
         self.assertIn("Build 7", package.preview_metadata("0.7.0", 7)[1])
+        self.assertIn("Build 8", package.preview_metadata("0.7.0", 8)[1])
+        self.assertNotEqual(package.preview_metadata("0.7.0", 8)[0], package.preview_metadata("0.7.0", 7)[0])
         with self.assertRaises(ValueError):
-            package.preview_metadata("0.7.0", 8)
+            package.preview_metadata("0.7.0", 9)
 
     def test_finder_types_and_services_are_alternate_handlers(self):
         info = plistlib.loads((SCRIPT.parents[1] / "Resources/Info.plist").read_bytes())
@@ -85,7 +87,7 @@ class PackagingTests(unittest.TestCase):
                          ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))
         self.assertEqual(package.preview_metadata("0.5.0", 6)[0],
                          "io.github.tiertoast.Signum.DevelopmentPreview.B6")
-        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 8)]:
+        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 9)]:
             with self.assertRaises(ValueError):
                 package.preview_metadata(version, build)
 

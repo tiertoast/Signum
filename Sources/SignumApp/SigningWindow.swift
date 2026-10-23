@@ -41,6 +41,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @State var devices: DeviceSelection
     @State var discoveryStarted = false
     @State var showDeviceConfiguration = false
+    @State var showDefaultApplications = false
     @State var manualPath = ""
     @State var manualPaths: [String]
     @State var authorizedManualPaths: [String] = []
@@ -152,6 +153,13 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
             }
             .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Text("Digital signatures. Simply native.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .accessibilityIdentifier("signum.motto")
+            }
             .scrollContentBackground(.hidden)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
             .disabled(interfaceLocked || batch.isFrozen)
@@ -179,8 +187,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
         }
         .navigationSplitViewStyle(.automatic)
         .toolbarBackground(.automatic, for: .windowToolbar)
-        .navigationTitle("Signum")
+        .modifier(SignumStableWindowTitle())
         .toolbar {
+            SignumWindowTitleItem()
             ToolbarItem(placement: .navigation) {
                 if navigation.section == .settings {
                     Button { navigation.back() } label: { Label("Indietro", systemImage: "chevron.backward") }
@@ -225,6 +234,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             discoveryStarted = true
             discover()
         }
+        .sheet(isPresented: $showDefaultApplications) { DefaultApplicationsSheet() }
         .sheet(isPresented: $showDeviceConfiguration) {
             DeviceConfigurationView(providers: devices.providers, savedPaths: manualPaths,
                 routes: selectedCertificateRoutes, selectedRouteID: devices.selectedRouteID,

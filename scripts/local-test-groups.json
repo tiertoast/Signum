@@ -11,7 +11,8 @@
       "PAdESInputContractTests",
       "SigningWorkspaceSelectionTests",
       "SignumCoreTests",
-      "DeviceRefreshLifecycleTests"
+      "DeviceRefreshLifecycleTests",
+      "DefaultApplicationsTests"
     ],
     "native-helper": [
       "BatchDestinationTests",
@@ -71,7 +72,8 @@
       "VerificationDropLifecycleTests",
       "SnapshotRetirementTests",
       "PDFPreviewPreparationTests",
-      "ConcurrencyOwnershipTests"
+      "ConcurrencyOwnershipTests",
+      "SigningRouteLabelTests"
     ],
     "ui": [
       "DynamicFormatWorkspaceTests",
