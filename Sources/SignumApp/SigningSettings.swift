@@ -35,16 +35,23 @@ extension SignumWindow {
                 if let trustedLists { TrustedListsPane(model: trustedLists).padding(20) }
                 else { Text("Trusted Lists non disponibili in questa finestra.").foregroundStyle(.secondary).padding(24) }
             }.tabItem { Label("Trusted Lists", systemImage: "checkmark.shield") }
-            VStack(alignment: .leading, spacing: 14) {
-                Button("Configura dispositivo…") { showDeviceConfiguration = true }
-                    .disabled(devices.isSearching)
-                Text("Software e certificati sono consultabili in Dispositivi.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-            }.padding(24).tabItem { Label("Dispositivi", systemImage: "externaldrive") }
+            deviceSettingsPane.tabItem { Label("Dispositivi", systemImage: "externaldrive") }
         }
         .padding(16)
         .disabled(interfaceLocked || batch.isFrozen)
     }
+
+    var deviceSettingsPane: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ManualModulePicker(manualPath: $manualPath, locked: interfaceLocked || batch.isFrozen,
+                browse: chooseManualModule, loadManual: { discover(manual: manualPath) })
+            Button("Configura dispositivo…") { showDeviceConfiguration = true }
+                .accessibilityIdentifier("signum.configure-device")
+            Text("Moduli configurati, software e certificati sono consultabili in Configura dispositivo e Dispositivi.")
+                .font(.callout).foregroundStyle(.secondary)
+            Spacer()
+        }.padding(24)
+    }
+
 }
 #endif

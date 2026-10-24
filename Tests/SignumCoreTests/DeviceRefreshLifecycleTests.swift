@@ -4,6 +4,27 @@ import XCTest
 @testable import SignumCore
 
 final class DeviceRefreshLifecycleTests: XCTestCase {
+    func testExplicitManualRequestSupersedesEmptyScanAndRejectsStaleResults() throws {
+        var selection = DeviceSelection(), refresh = DeviceRefreshLifecycle()
+        let automatic = try XCTUnwrap(refresh.begin(selection: &selection, blocked: false))
+        XCTAssertTrue(selection.providers.isEmpty)
+        let manual = try XCTUnwrap(refresh.begin(selection: &selection, blocked: false, replacingCurrent: true))
+        XCTAssertNotEqual(automatic, manual)
+        XCTAssertFalse(refresh.accept(DeviceDiscoveryResult(providers: []), request: automatic, selection: &selection))
+        XCTAssertTrue(selection.isSearching)
+        XCTAssertTrue(refresh.accept(DeviceDiscoveryResult(providers: []), request: manual, selection: &selection))
+        XCTAssertFalse(selection.isSearching)
+        // No detected provider is a valid starting point for another explicit load.
+        XCTAssertNotNil(refresh.begin(selection: &selection, blocked: false, replacingCurrent: true))
+    }
+    func testSigningLockDoesNotSupersedePublicDiscovery() throws {
+        var selection = DeviceSelection(), refresh = DeviceRefreshLifecycle()
+        let current = try XCTUnwrap(refresh.begin(selection: &selection, blocked: false))
+        XCTAssertNil(refresh.begin(selection: &selection, blocked: true, replacingCurrent: true))
+        XCTAssertEqual(refresh.requestID, current)
+        XCTAssertEqual(selection.requestID, current)
+        XCTAssertTrue(selection.isSearching)
+    }
     func testRefreshKeepsAutomaticOriginForAnUnchangedEligibleRoute() throws {
         let fixture = DeviceSelectionTests(), der = try CertificateEligibilityTests.fixtures.get().der("valid")
         let provider = fixture.provider(der: der)

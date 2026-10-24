@@ -239,6 +239,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             DeviceConfigurationView(providers: devices.providers, savedPaths: manualPaths,
                 routes: selectedCertificateRoutes, selectedRouteID: devices.selectedRouteID,
                 manualPath: $manualPath, locked: interfaceLocked || batch.isFrozen || devices.isSearching,
+                manualLocked: interfaceLocked || batch.isFrozen,
                 browse: chooseManualModule,
                 loadManual: { discover(manual: manualPath) }, remove: removeManualModule,
                 selectRoute: selectRoute)
@@ -487,7 +488,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 }
             }
             Button("Configura dispositivo…") { showDeviceConfiguration = true }
-                .disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
+                .disabled(interfaceLocked || batch.isFrozen)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -521,7 +522,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
             guard MiddlewarePreferences.valid(path) else { status = "Scegli un percorso assoluto valido."; return }
             MiddlewarePreferences(defaults: preferences.defaults).remember(path); manualPaths = MiddlewarePreferences(defaults: preferences.defaults).paths
         }
-        guard let request = refresh.begin(selection: &devices, blocked: interfaceLocked || batch.isFrozen) else { return }
+        guard let request = refresh.begin(selection: &devices, blocked: interfaceLocked || batch.isFrozen,
+                                          replacingCurrent: !paths.isEmpty) else { return }
+        if !paths.isEmpty { discoveryOperation?.requestCancellation() }
         provider.beginDiscovery()
         batch.invalidateReview()
         let configuredPaths = MiddlewarePreferences(defaults: preferences.defaults)
