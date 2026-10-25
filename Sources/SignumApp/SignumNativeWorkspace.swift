@@ -16,6 +16,7 @@ struct SignumNativeWorkspace: NSViewControllerRepresentable {
         var refresh: () -> Void
         var settings: () -> Void
         var back: () -> Void
+        var close: () -> Void = {}
     }
     let sidebar: AnyView
     let detail: AnyView
@@ -24,15 +25,26 @@ struct SignumNativeWorkspace: NSViewControllerRepresentable {
         .init(sidebar: sidebar, detail: detail, controls: controls)
     }
     func updateNSViewController(_ controller: SignumNativeWorkspaceController, context: Context) {
-        controller.sidebarHost.rootView = sidebar
-        controller.detailHost.rootView = detail
+        controller.sidebarContent.content = sidebar
+        controller.detailContent.content = detail
         controller.update(controls)
     }
 }
 
+@MainActor final class SignumHostedContentStore: ObservableObject {
+    @Published var content: AnyView
+    init(_ content: AnyView) { self.content = content }
+}
+struct SignumHostedContent: View {
+    @ObservedObject var store: SignumHostedContentStore
+    var body: some View { store.content }
+}
 final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDelegate {
-    let sidebarHost: NSHostingController<AnyView>
-    let detailHost: NSHostingController<AnyView>
+    let sidebarContent: SignumHostedContentStore
+    let detailContent: SignumHostedContentStore
+    let sidebarHost: NSHostingController<SignumHostedContent>
+    let detailHost: NSHostingController<SignumHostedContent>
+    private var closeObserver: NSObjectProtocol?
     private var controls: SignumNativeWorkspace.Controls
     private let nativeToolbar = NSToolbar(identifier: "signum.window.toolbar")
     private var items: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
@@ -45,8 +57,10 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
     private static let settingsID = NSToolbarItem.Identifier("signum.settings")
 
     init(sidebar: AnyView, detail: AnyView, controls: SignumNativeWorkspace.Controls) {
-        sidebarHost = .init(rootView: sidebar)
-        detailHost = .init(rootView: detail)
+        sidebarContent = .init(sidebar)
+        detailContent = .init(detail)
+        sidebarHost = .init(rootView: .init(store: sidebarContent))
+        detailHost = .init(rootView: .init(store: detailContent))
         self.controls = controls
         super.init(nibName: nil, bundle: nil)
         sidebarHost.sizingOptions = []
@@ -81,6 +95,9 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         guard let window = view.window else { return }
         if !installed {
             installed = true
+            closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.controls.close() }
+            }
             window.toolbar = nativeToolbar
             window.toolbarStyle = .unified
             window.title = "Signum"
@@ -89,6 +106,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         }
         update(controls)
     }
+    deinit { if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) } }
     func update(_ controls: SignumNativeWorkspace.Controls) {
         self.controls = controls
         for item in items.values { item.isEnabled = !controls.locked }

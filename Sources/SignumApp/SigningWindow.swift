@@ -185,10 +185,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
                           initiallyCollapsed: sidebarVisibility == .detailOnly,
                           add: chooseFile, refresh: { discover() },
                           settings: { navigation.openSettings(blocked: interfaceLocked || batch.isFrozen) },
-                          back: { navigation.back() }))
+                          back: { navigation.back() }, close: { verificationWorkspace.cancel() }))
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: batch.isFrozen) { frozen in if !frozen { Task { await routeSystemDocuments() } } }
-        .onDisappear { verificationWorkspace.cancel() }
+        .onChange(of: navigation.section) { section in
+            if section != .verify { verificationWorkspace.cancel() }
+        }
         .onReceive(systemDocuments.$revision) { _ in Task { await routeSystemDocuments() } }
         .onChange(of: interfaceLocked) { locked in if !locked { Task { await routeSystemDocuments() } } }
         .onReceive(NotificationCenter.default.publisher(for: .signumShowSettings)) { _ in

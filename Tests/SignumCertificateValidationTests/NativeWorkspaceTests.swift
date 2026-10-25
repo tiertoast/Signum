@@ -56,4 +56,21 @@ import AppKit
         XCTAssertEqual(controller.splitViewItems[0].isCollapsed, before)
         XCTAssertTrue(toolbar.items.filter { $0.action != nil }.allSatisfy { !$0.isEnabled })
     }
+    func testContentRefreshRetainsHostingRootAndOnlyOwnedWindowCloseCancels() {
+        let (window, controller) = host()
+        defer { window.contentViewController = nil }
+        let store = controller.detailHost.rootView.store
+        var cancellations = 0
+        var configuration = controls()
+        configuration.close = { cancellations += 1 }
+        controller.update(configuration)
+        for index in 0..<6 {
+            controller.detailContent.content = AnyView(Text("Result \(index)"))
+            XCTAssertTrue(controller.detailHost.rootView.store === store)
+        }
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: NSObject())
+        XCTAssertEqual(cancellations, 0)
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        XCTAssertEqual(cancellations, 1)
+    }
 }

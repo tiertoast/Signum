@@ -189,7 +189,6 @@ struct UnifiedVerificationPane: View {
             if !ids.contains(where: { $0 == selectedDocument }) { selectedDocument = ids.first; selectedSignature = nil; detailsExpanded = false }
         }
         .onChange(of: selectedDocument) { _ in selectedSignature = nil; detailsExpanded = false }
-        .onDisappear { workspace.cancel() }
     }
     private var emptyState: some View {
         VStack(spacing: 16) {
