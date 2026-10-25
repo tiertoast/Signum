@@ -16,6 +16,7 @@ public extension SignatureQualificationService {
                   countries: Set<String> = [], mode: RevocationMode = .offline, observedAt: Date = Date(),
                   evaluationMode: SignatureEvaluationMode = .historical,
                   isCancelled: @escaping @Sendable () -> Bool = { false }) async -> EuropeanValidationResult {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let certificates = report.signatures.flatMap { s in
             (s.signerDER.map { [$0] } ?? []) + s.embeddedCertificateDERs +
             (s.evidence?.timestampTokens.prefix(8).flatMap { TimestampMaterial.inspect(token:$0,value:s.evidence!.signatureValue).certificates } ?? [])
@@ -43,7 +44,8 @@ public extension SignatureQualificationService {
         } catch { warning = String(describing:error) }
         if isCancelled() || Task.isCancelled { return .init(catalog:nil,requestedCountries:requested,signatures:[],warning:"Annullato") }
         let lists = view.map { $0.catalogs.sorted { $0.key < $1.key }.map(\.value) } ?? []
-        let values = await validate(report,authenticatedLists:lists,mode:mode,observedAt:observedAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
+        let assessmentAt = mode == .online ? observedAt.addingTimeInterval(ProcessInfo.processInfo.systemUptime - startedAt) : observedAt
+        let values = await validate(report,authenticatedLists:lists,mode:mode,observedAt:assessmentAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
         return .init(catalog:view,requestedCountries:requested,signatures:values,warning:warning)
     }
     private static func issuerCountryHints(_ der: Data) -> [String] {

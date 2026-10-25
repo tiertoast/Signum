@@ -119,6 +119,7 @@ enum VerificationDropLoader {
                 }
                 let values = await withTaskCancellationHandler(operation: { await assessment.value }, onCancel: { assessment.cancel() })
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+                rows[index].verificationDate = values.first?.qualification.verificationDate ?? observedAt
                 rows[index].paths = Dictionary(values.map { ($0.signatureID,$0.path) },uniquingKeysWith:{ a,_ in a })
                 rows[index].validations = Dictionary(values.map { ($0.signatureID,$0) },uniquingKeysWith:{ a,_ in a })
             case .failure(let error): rows[index].issue = error.localizedDescription

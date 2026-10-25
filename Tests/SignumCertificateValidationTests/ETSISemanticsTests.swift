@@ -35,6 +35,24 @@ final class ETSISemanticsTests: XCTestCase {
     }
     let dn = "<s:otherCriteriaList><a:CertSubjectDNAttribute><a:AttributeOID><x:Identifier>1.3.6.1.4.1.18838.1.1</x:Identifier></a:AttributeOID></a:CertSubjectDNAttribute></s:otherCriteriaList>"
     let eku = "<s:otherCriteriaList><a:ExtendedKeyUsage><a:KeyPurposeId><x:Identifier Qualifier=\"OIDAsURI\">urn:oid:1.3.6.1.5.5.7.3.8</x:Identifier></a:KeyPurposeId></a:ExtendedKeyUsage></s:otherCriteriaList>"
+    func testCombinedSignatureAndSealServiceScopeDoesNotDiscardESignatures() {
+        func scopes(_ names: [String], namespace: String = TLQualificationRules.tl) -> [TLServiceExtension] {
+            names.map { name in
+                .init(name: "Extension", namespace: TLQualificationRules.tl, text: "", attributes: ["Critical":"true"], children: [
+                    .init(name: "AdditionalServiceInformation", namespace: namespace, text: "", attributes: [:], children: [
+                        .init(name: "URI", namespace: TLQualificationRules.tl, text: prefix + name, attributes: [:], children: [])
+                    ])
+                ])
+            }
+        }
+        for names in [["ForeSignatures"], ["ForeSignatures", "ForeSeals"], ["ForeSeals", "ForeSignatures"]] {
+            XCTAssertEqual(TLQualificationRules.evaluate(scopes(names), material: Facts()), [], "Service purposes are not automatic QC/QSCD qualifiers")
+        }
+        XCTAssertNil(TLQualificationRules.evaluate(scopes(["ForeSeals"]), material: Facts()))
+        XCTAssertNil(TLQualificationRules.evaluate(scopes(["ForeSignatures", "UnknownPurpose"]), material: Facts()))
+        XCTAssertNil(TLQualificationRules.evaluate(scopes(["ForeSignatures", "ForeSeals"], namespace: "urn:foreign"), material: Facts()))
+    }
+
     func testGeneralOIDCriteriaThreeStatesAndActualCertificateFacts() throws {
         let node = try criterion(dn+eku)
         XCTAssertEqual(TLQualificationRules.criteriaResult(node,material:Facts()),.matches)

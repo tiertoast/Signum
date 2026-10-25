@@ -39,8 +39,13 @@ public struct SignatureEvidenceValidationService: Sendable {
     init(cache: RevocationEvidenceCache? = nil,transport: any RevocationTransport) { self.cache = cache;self.transport = transport }
     public func validate(_ report: VerificationReport, authenticatedLists: [InterpretedTrustCatalog],mode: RevocationMode = .offline,
                          observedAt: Date = Date(),evaluationMode: SignatureEvaluationMode = .historical,isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [SignatureEvidenceValidationResult] {
+        await validate(report, authenticatedLists: authenticatedLists, mode: mode, observedAt: observedAt,
+            evaluationMode: evaluationMode, isCancelled: isCancelled, session: RevocationSession(cache: cache, transport: transport, advancesClock: mode == .online))
+    }
+    func validate(_ report: VerificationReport, authenticatedLists: [InterpretedTrustCatalog], mode: RevocationMode,
+                  observedAt: Date, evaluationMode: SignatureEvaluationMode,
+                  isCancelled: @escaping @Sendable () -> Bool, session: RevocationSession) async -> [SignatureEvidenceValidationResult] {
         let startedAt = ProcessInfo.processInfo.systemUptime
-        let session = RevocationSession(cache: cache,transport: transport)
         let listsCurrent = !authenticatedLists.isEmpty && authenticatedLists.count <= 32 && authenticatedLists.allSatisfy {
             $0.document.territory != "EU" && $0.document.issuedAt <= observedAt && $0.document.nextUpdate > observedAt
         }
@@ -158,14 +163,20 @@ public struct SignatureEvidenceValidationService: Sendable {
             guard !isCancelled(), !Task.isCancelled, let cert = map[item.sha256],
                   let issuer = pool.first(where: { CertificatePathValidator.hash($0) != item.sha256 && CertificateEvidenceMaterial.issued(cert,by: $0) }) else { missing = true;continue }
             let result = await session.check(certificate: cert,issuer: issuer,evidence: bound,mode: mode,now: now,isCancelled: isCancelled)
-            all += result.results;reasons.append(result.reason)
+            reasons.append(result.reason)
             let current = result.results.filter(\.authenticated)
             if current.contains(where: { $0.state == .revoked }) {
-                return .init(state: .revoked,reason: "Revoca autenticata per un certificato del percorso.",certificates: all)
+                return .init(state: .revoked,reason: "Revoca autenticata per un certificato del percorso.",certificates: all + result.results)
             }
-            if !current.contains(where: { evidence in
+            let acceptable = current.filter { evidence in
                 evidence.state == .good && (time.map { t in (evidence.thisUpdate ?? .distantFuture) <= t.earliest && (evidence.nextUpdate ?? .distantPast) >= max(now,t.latest) && t.latest <= now } ?? true)
-            }) { missing = true }
+            }
+            if let selected = acceptable.max(by: { ($0.thisUpdate ?? .distantPast) < ($1.thisUpdate ?? .distantPast) }) {
+                all.append(selected)
+            } else {
+                all += result.results; missing = true
+                reasons += result.results.map(\.reason)
+            }
         }
         if isCancelled() || Task.isCancelled { missing = true }
         return .init(state: missing ? .indeterminate : .good,reason: missing ? "Evidenze correnti insufficienti per tutto il percorso o per il tempo del token. " + reasons.joined(separator: " ") : "Stato non revocato verificato per tutti i certificati pertinenti del percorso; ancora TL distinta.",certificates: all)

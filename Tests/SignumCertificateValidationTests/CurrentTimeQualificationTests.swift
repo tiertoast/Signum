@@ -64,6 +64,90 @@ final class CurrentTimeQualificationTests: XCTestCase {
         return .init(id:report.id,documentName:report.documentName,sha256:report.sha256,format:report.format,signatures:signatures,
                      documentState:report.documentState,issue:report.issue,previewPDF:nil,originalContent:nil)
     }
+    final class ReplayClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seconds: TimeInterval = 0
+        func read() -> TimeInterval { lock.lock(); defer { lock.unlock() }; return seconds }
+        func advance() { lock.lock(); seconds += 2; lock.unlock() }
+    }
+    actor ReplayTransport: RevocationTransport {
+        let clock: ReplayClock, ocsp: Data
+        let crl: Data?
+        private(set) var calls = 0
+        init(clock: ReplayClock, ocsp: Data, crl: Data? = nil) { self.clock = clock; self.ocsp = ocsp; self.crl = crl }
+        func fetch(_ location: RevocationLocation, body: Data?, isCancelled: @escaping @Sendable () -> Bool) async throws -> Data {
+            calls += 1
+            if location.kind == .ocsp { clock.advance(); return ocsp }
+            if let crl { return crl }
+            throw ClientError.response
+        }
+    }
+    func singleSignerWithoutValidationData() throws -> VerificationReport {
+        let report = try withoutTimestamp()
+        var s = try XCTUnwrap(report.signatures.first { $0.signerDER == (try? data("leaf", "der")) })
+        let e = try XCTUnwrap(s.evidence)
+        s.evidence = .init(signatureValue:e.signatureValue,signatureKey:e.signatureKey,signerIndex:e.signerIndex,
+            signedAttributes:e.signedAttributes,unsignedAttributes:[],timestampTokens:[],embedded:[],issue:"")
+        return .init(id:report.id,documentName:report.documentName,sha256:report.sha256,format:report.format,
+            signatures:[s],documentState:report.documentState,issue:report.issue,previewPDF:nil,originalContent:nil)
+    }
+    func testOnlineAcquisitionIsReauthenticatedAtCompletionWithoutCacheOrExtraRequests() async throws {
+        // Frozen fixture producedAt is clock-120. The acquisition advances a fake
+        // monotonic clock; no sleep or network is needed to cross that boundary.
+        let start = try now().addingTimeInterval(-121), report = try singleSignerWithoutValidationData()
+        let clock = ReplayClock(), transport = ReplayTransport(clock:clock,ocsp:try data("good","ocsp"))
+        let service = SignatureQualificationService(transport:transport,monotonicClock:{clock.read()})
+        let values = await service.validate(report,authenticatedLists:[try list()],mode:.online,
+            observedAt:start,evaluationMode:.bestAvailable)
+        let value = try XCTUnwrap(values.first)
+        XCTAssertEqual(value.qualification.state,.qualified,value.qualification.reason)
+        XCTAssertEqual(value.evidence.revocation.state,.good,value.evidence.revocation.reason)
+        XCTAssertEqual(value.evidence.time.state,.notProven); XCTAssertNil(value.evidence.time.provenTime)
+        XCTAssertEqual(value.qualification.verificationDate,start.addingTimeInterval(2))
+        XCTAssertEqual(value.path.evaluatedAt,value.qualification.evaluatedAt)
+        XCTAssertEqual(value.evidence.revocationPath?.evaluatedAt,value.qualification.evaluatedAt)
+        let calls = await transport.calls; XCTAssertEqual(calls,2,"One OCSP + one CRL attempt; offline reassessment must not fetch")
+    }
+    func testEvidenceExpiringDuringAcquisitionCannotProduceCurrentQES() async throws {
+        let response = RevocationEvidence(kind:.ocsp,der:try data("good","ocsp"))
+        let checked = RevocationEvidenceVerifier.verify(response,certificate:try data("leaf","der"),issuer:try data("issuer","der"),now:try now())
+        let end = try XCTUnwrap(checked.nextUpdate), start = end.addingTimeInterval(-1)
+        let clock = ReplayClock(), transport = ReplayTransport(clock:clock,ocsp:response.der)
+        let values = await SignatureQualificationService(transport:transport,monotonicClock:{clock.read()})
+            .validate(try singleSignerWithoutValidationData(),authenticatedLists:[try list()],mode:.online,observedAt:start,evaluationMode:.currentTime)
+        let value = try XCTUnwrap(values.first)
+        XCTAssertEqual(value.qualification.state,.indeterminate)
+        XCTAssertEqual(value.evidence.revocation.state,.indeterminate)
+        XCTAssertEqual(value.qualification.verificationDate,end.addingTimeInterval(1))
+    }
+
+    func testUnusableAlternateEvidenceDoesNotMaskGoodButAuthenticatedRevocationWins() async throws {
+        let report = try singleSignerWithoutValidationData(), start = try now()
+        for (crl, expected) in [("restricted",SignatureRevocationState.good),("revoked",.revoked)] {
+            let clock = ReplayClock(), transport = ReplayTransport(clock:clock,ocsp:try data("good","ocsp"),crl:try data(crl,"crl"))
+            let values = await SignatureQualificationService(transport:transport,monotonicClock:{clock.read()})
+                .validate(report,authenticatedLists:[try list()],mode:.online,observedAt:start,evaluationMode:.currentTime)
+            let value = try XCTUnwrap(values.first)
+            XCTAssertEqual(value.evidence.revocation.state,expected,value.evidence.revocation.reason)
+            XCTAssertEqual(value.qualification.state,expected == .good ? .qualified : .indeterminate,value.qualification.reason)
+            if expected == .good { XCTAssertEqual(value.evidence.revocation.certificates.count,1,"One selected authenticated witness per certificate") }
+        }
+    }
+    func testReassessmentCannotPromoteFutureExpiredAlteredOrRevokedEvidence() async throws {
+        let report = try singleSignerWithoutValidationData()
+        for (name, offset) in [("good",-130.0),("good",172800.0),("altered",0.0),("revoked",0.0)] {
+            let clock = ReplayClock(), transport = ReplayTransport(clock:clock,ocsp:try data(name,"ocsp"))
+            let values = await SignatureQualificationService(transport:transport,monotonicClock:{clock.read()})
+                .validate(report,authenticatedLists:[try list()],mode:.online,observedAt:try now().addingTimeInterval(offset),evaluationMode:.currentTime)
+            XCTAssertTrue(values.allSatisfy { $0.qualification.state != .qualified },name)
+        }
+        let clock = ReplayClock(), transport = ReplayTransport(clock:clock,ocsp:try data("good","ocsp"))
+        let cancelled = await SignatureQualificationService(transport:transport,monotonicClock:{clock.read()})
+            .validate(report,authenticatedLists:[try list()],mode:.online,observedAt:try now(),evaluationMode:.currentTime,isCancelled:{true})
+        XCTAssertTrue(cancelled.isEmpty)
+        let calls = await transport.calls; XCTAssertEqual(calls,0)
+    }
+
     func testUntimestampedCMSCurrentAndAutomaticPositiveButHistoricalIndeterminate() async throws {
         let report = try withoutTimestamp(), at = try now(), tl = try list()
         for mode in [SignatureEvaluationMode.currentTime,.bestAvailable,.historical] {
