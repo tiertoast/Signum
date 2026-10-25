@@ -11,7 +11,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--native-prefix', type=Path, required=True)
     parser.add_argument('--cmake', type=Path, required=True)
-    parser.add_argument('--build-number', type=int, choices=(1,2,3,4,5,6,7,8,9), default=4)
+    parser.add_argument('--build-number', type=int, choices=(1,2,3,4,5,6,7,8,9,10), default=4)
     parser.add_argument('--version', choices=('0.5.0','0.6.0','0.7.0'), default='0.5.0')
     parser.add_argument('--configuration', choices=('debug', 'release'), default='release')
     args = parser.parse_args()

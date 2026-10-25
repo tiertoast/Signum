@@ -125,6 +125,15 @@ public struct VerificationReportDocument: Sendable {
                 field("Subject del certificato",signature.certificate?.subject ?? "Certificato non disponibile"),
                 field("Emittente",signature.certificate?.issuer ?? "Non disponibile"),
                 field("Certificato SHA-256",signature.certificate?.sha256 ?? "Non disponibile"),field("Algoritmo",signature.algorithm)]
+            let policy = CertificatePolicyPresentation(certificate: signature.signerDER)
+            identityFields.append(field("Raccomandazioni AgID", policy.summary))
+            identityFields.append(field("Riferimento AgID", CertificatePolicyPresentation.reference))
+            if !policy.available { identityFields.append(field("CertificatePolicies", "Non disponibili o non interpretabili")) }
+            for p in policy.policies {
+                identityFields.append(field("CertificatePolicies OID", p.oid))
+                for notice in p.notices { identityFields.append(field("userNotice / explicitText — OID " + p.oid, notice)) }
+                for cps in p.cps { identityFields.append(field("CPS — OID " + p.oid, cps)) }
+            }
             if let parent=signature.counterSignatureOf {
                 let matches=report.signatures.filter{$0.evidence?.signatureKey==parent && $0.cmsLayer==signature.cmsLayer && $0.signedRevisionEnd==signature.signedRevisionEnd}
                 let index=matches.count==1 ? report.signatures.firstIndex{$0.id==matches[0].id}.map{String($0+1)}:nil
@@ -147,6 +156,10 @@ public struct VerificationReportDocument: Sendable {
                 let pathState: String
                 switch path.state {case .verified:pathState="Percorso verificato";case .invalid:pathState="Percorso non valido";case .notVerifiable:pathState="Percorso non verificabile"}
                 outcomes.append(outcome("Attendibilità X.509",pathState,path.reason))
+                if let qc = value.qualification.statements {
+                    details.append(field("QCStatements", "QCCompliance: \(qc.compliance); QCSSCD: \(qc.sscd); QCTypes: " + qc.types.joined(separator: ", ")))
+                    details.append(field("QCStatements — altri dati", String(describing: qc)))
+                }
                 let revocation=value.evidence.revocation
                 let revocationState: String
                 switch revocation.state {case .good:revocationState="Non revocato - evidenza verificata";case .revoked:revocationState="Revocato";case .indeterminate:revocationState="Indeterminata"}

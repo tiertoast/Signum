@@ -116,15 +116,16 @@ struct SignumChromeExtension: ViewModifier {
     }
 }
 
-// A split view's automatic title is reassigned between toolbar columns on
-// sidebar visibility changes. A stable principal item owns the visible title;
-// the NSWindow title remains available to Window menus and accessibility.
+// The title belongs to the stable detail column, at the native leading navigation
+// placement. A principal item is centered by AppKit and changes its available
+// centering area as the sidebar/overflow layout changes near minimum width.
+// Do not reconstruct this item or reposition it from sidebar visibility state.
 struct SignumWindowTitleItem: ToolbarContent {
     @ToolbarContentBuilder var body: some ToolbarContent {
         if #available(macOS 26, *) {
-            ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .navigation) { title }.sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .principal) { title }
+            ToolbarItem(placement: .navigation) { title }
         }
     }
     private var title: some View { Text("Signum").font(.headline).accessibilityIdentifier("signum.window-title") }

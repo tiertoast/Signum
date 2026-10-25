@@ -169,16 +169,14 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 case .sign:
                     signingScreen
                 case .verify:
-                    ScrollView {
-                        UnifiedVerificationPane(catalog: trustedLists?.catalogProvider, workspace: verificationWorkspace)
-                            .padding(20)
-                    }
+                    UnifiedVerificationPane(catalog: trustedLists?.catalogProvider, workspace: verificationWorkspace)
                 case .devices:
                     devicesScreen
                 case .settings:
                     settingsScreen
                 }
             }
+            .toolbar { SignumWindowTitleItem() }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 Color(nsColor: .windowBackgroundColor)
@@ -189,7 +187,6 @@ enum SignumFormat: String, Hashable, CaseIterable {
         .toolbarBackground(.automatic, for: .windowToolbar)
         .modifier(SignumStableWindowTitle())
         .toolbar {
-            SignumWindowTitleItem()
             ToolbarItem(placement: .navigation) {
                 if navigation.section == .settings {
                     Button { navigation.back() } label: { Label("Indietro", systemImage: "chevron.backward") }
