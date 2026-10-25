@@ -116,34 +116,6 @@ struct SignumChromeExtension: ViewModifier {
     }
 }
 
-// The title belongs to the stable detail column, at the native leading navigation
-// placement. A principal item is centered by AppKit and changes its available
-// centering area as the sidebar/overflow layout changes near minimum width.
-// Do not reconstruct this item or reposition it from sidebar visibility state.
-struct SignumWindowTitleItem: ToolbarContent {
-    @ToolbarContentBuilder var body: some ToolbarContent {
-        if #available(macOS 26, *) {
-            ToolbarItem(placement: .navigation) { title }.sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .navigation) { title }
-        }
-    }
-    private var title: some View { Text("Signum").font(.headline).accessibilityIdentifier("signum.window-title") }
-}
-struct SignumStableWindowTitle: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 15, *) { content.toolbar(removing: .title) }
-        else { content.background(SignumLegacyTitleVisibility()) }
-    }
-}
-private struct SignumLegacyTitleVisibility: NSViewRepresentable {
-    final class TitleView: NSView {
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); window?.titleVisibility = .hidden }
-    }
-    func makeNSView(context: Context) -> NSView { TitleView() }
-    func updateNSView(_ nsView: NSView, context: Context) { nsView.window?.titleVisibility = .hidden }
-}
-
 struct SignumContextHelp: View {
     let title: String
     let text: String

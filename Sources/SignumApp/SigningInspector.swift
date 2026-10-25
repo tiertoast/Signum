@@ -75,8 +75,8 @@ extension SignumWindow {
                 Divider()
                 signingControls.padding(16)
             }
-            .frame(minWidth: 300, idealWidth: 320, maxWidth: 440)
-            .background(Color(nsColor: .controlBackgroundColor))
+            .frame(minWidth: 300, idealWidth: 320, maxWidth: 360)
+            .background(.regularMaterial)
         }
     }
     var signingAvailability: String {

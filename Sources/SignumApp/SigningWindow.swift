@@ -141,7 +141,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
+        SignumNativeWorkspace(sidebar: AnyView(
             List(selection: Binding(get: { operation }, set: { if !interfaceLocked && !batch.isFrozen { operation = $0 } })) {
                 sidebarLabel(.sign).tag(SignumSection.sign)
                     .listRowSeparator(.visible, edges: .bottom)
@@ -161,9 +161,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     .accessibilityIdentifier("signum.motto")
             }
             .scrollContentBackground(.hidden)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
             .disabled(interfaceLocked || batch.isFrozen)
-        } detail: {
+        ), detail: AnyView(
             VStack(spacing: 0) {
                 switch operation ?? .sign {
                 case .sign:
@@ -176,48 +175,18 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     settingsScreen
                 }
             }
-            .toolbar { SignumWindowTitleItem() }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 Color(nsColor: .windowBackgroundColor)
                     .modifier(SignumChromeExtension(enabled: !reduceTransparency))
             }
-        }
-        .navigationSplitViewStyle(.automatic)
-        .toolbarBackground(.automatic, for: .windowToolbar)
-        .modifier(SignumStableWindowTitle())
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                if navigation.section == .settings {
-                    Button { navigation.back() } label: { Label("Indietro", systemImage: "chevron.backward") }
-                        .help("Torna a " + navigation.settingsOrigin.title)
-                        .accessibilityIdentifier("signum.settings-back")
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                if (operation ?? .sign) == .sign {
-                    Button(action: chooseFile) {
-                        Label("Aggiungi documenti", systemImage: "plus")
-                    }
-                    .disabled(interfaceLocked || batch.isFrozen)
-                    .help("Aggiungi documenti alla sessione di firma")
-                }
-            }
-            ToolbarItem(placement: .automatic) {
-                Button(action: { discover() }) {
-                    Label("Aggiorna dispositivi", systemImage: "arrow.clockwise")
-                }
-                .disabled(interfaceLocked || batch.isFrozen || devices.isSearching)
-                .help(batch.isFrozen ? "Disponibile dopo la conclusione della sessione approvata" : "Aggiorna dispositivi, token e certificati senza PIN")
-            }
-            ToolbarItem(placement: .automatic) {
-                if devices.isSearching { ProgressView().controlSize(.small).accessibilityLabel("Ricerca dispositivi in corso") }
-            }
-            ToolbarItem(placement: .automatic) {
-                Button { navigation.openSettings(blocked: interfaceLocked || batch.isFrozen) } label: { Label("Impostazioni", systemImage: "gearshape") }
-                    .disabled(interfaceLocked || batch.isFrozen)
-            }
-        }
+        ), controls: .init(showAdd: (operation ?? .sign) == .sign, showBack: navigation.section == .settings,
+                          locked: interfaceLocked || batch.isFrozen, searching: devices.isSearching,
+                          initiallyCollapsed: sidebarVisibility == .detailOnly,
+                          add: chooseFile, refresh: { discover() },
+                          settings: { navigation.openSettings(blocked: interfaceLocked || batch.isFrozen) },
+                          back: { navigation.back() }))
+        .ignoresSafeArea(.container, edges: .top)
         .onChange(of: batch.isFrozen) { frozen in if !frozen { Task { await routeSystemDocuments() } } }
         .onDisappear { verificationWorkspace.cancel() }
         .onReceive(systemDocuments.$revision) { _ in Task { await routeSystemDocuments() } }

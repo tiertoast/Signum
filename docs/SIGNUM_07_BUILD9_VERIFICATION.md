@@ -10,9 +10,13 @@ Dettagli richiudibili con tutte le informazioni del rapporto, OID/policy, QCStat
 
 ## Sidebar e titlebar
 
-La Build 8 collocava Signum come elemento `.principal`: AppKit lo centra e ne ricalcola il centro disponibile durante la contrazione della toolbar. La Build 9 mantiene un solo titolo nella posizione `.navigation` della colonna principale stabile. Il titolo non dipende dallo stato di visibilità della sidebar o dalla sezione selezionata. Nessun offset, animazione simulata o disabilitazione delle animazioni. La sidebar resta gestita da NavigationSplitView e dai materiali del sistema.
+Il contenitore della finestra usa NSSplitViewController, con item `.sidebar` e hosting controller SwiftUI persistenti per sidebar e contenuto. La toolbar è un solo NSToolbar per finestra con NSTrackingSeparatorToolbarItem collegato al divisore. Il titolo è quello nativo di NSWindow, i comandi sono a destra, separati da uno spazio flessibile AppKit. La chiusura usa `toggleSidebar` di NSSplitViewController e `.preferResizingSiblingsWithFixedSplitView`: nessun offset, animazione simulata o disabilitazione globale delle animazioni.
 
-Riferimento Apple: https://developer.apple.com/documentation/swiftui/toolbaritemplacement/navigation
+Gli hosting controller non richiedono modifiche alla dimensione preferita della finestra a ogni layout. Toolbar, item e pannelli non vengono ricreati durante apertura/chiusura. Test locali verificano identità degli oggetti, assenza di comandi duplicati, finestra stabile e blocco della sidebar durante una sessione approvata. Sidebar estesa sotto la titlebar, larghezza iniziale 200 pt; inspector Firma 300–360 pt con materiale regolare di sistema. Il sistema fornisce materiali, Light/Dark e impostazioni di accessibilità; nessuna imitazione Glass.
+
+Riferimenti Apple:
+- https://developer.apple.com/documentation/appkit/nssplitviewcontroller
+- https://developer.apple.com/documentation/appkit/nstrackingseparatortoolbaritem
 
 ## Dichiarazione AgID: campo informativo, non verdetto
 

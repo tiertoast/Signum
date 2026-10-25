@@ -30,6 +30,7 @@ struct SignumApp: App {
                 .onOpenURL { url in SystemDocuments.shared.receive([url]) }
                 .frame(minWidth: 980, minHeight: 650)
         }
+        .windowToolbarStyle(.unified(showsTitle: true))
         .defaultSize(width: 1320, height: 830)
         .commands {
             CommandGroup(after: .appSettings) {

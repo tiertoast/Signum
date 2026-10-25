@@ -334,9 +334,9 @@ struct UnifiedVerificationPane: View {
         switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML / XAdES"; case .asic: return "ASiC / XAdES"; case .unknown: return "Sconosciuto" }
     }
     private func chooseDetached() {
-        let signature=NSOpenPanel();signature.title="Seleziona la firma detached .p7s";signature.allowsMultipleSelection=false;signature.canChooseDirectories=false
+        let signature=NSOpenPanel();signature.title="Seleziona la firma detached .p7s";signature.allowsMultipleSelection=false;signature.canChooseDirectories=false;signature.canChooseFiles=true;signature.allowedContentTypes=[];signature.allowsOtherFileTypes=true
         guard signature.runModal() == .OK,let cms=signature.url else {return}
-        let original=NSOpenPanel();original.title="Seleziona il documento originale della firma";original.allowsMultipleSelection=false;original.canChooseDirectories=false
+        let original=NSOpenPanel();original.title="Seleziona il documento originale della firma";original.allowsMultipleSelection=false;original.canChooseDirectories=false;original.canChooseFiles=true;original.allowedContentTypes=[];original.allowsOtherFileTypes=true
         guard original.runModal() == .OK,let content=original.url else {return}
         workspace.start([cms],using:{ signature,control in
             try SignumVerificationService.verifyDetached(signature:signature,content:content,isCancelled:{control.isCancellationRequested})
@@ -344,7 +344,7 @@ struct UnifiedVerificationPane: View {
     }
     private func choose() {
         workspace.cancel()
-        let chooser = NSOpenPanel(); chooser.allowsMultipleSelection = true; chooser.canChooseDirectories = false
+        let chooser = NSOpenPanel(); chooser.allowsMultipleSelection = true; chooser.canChooseDirectories = false; chooser.canChooseFiles = true; chooser.allowedContentTypes = []; chooser.allowsOtherFileTypes = true
         if chooser.runModal() == .OK { start(chooser.urls) }
     }
     private func exportReport(_ row: VerificationWorkspace.Row,format: VerificationReportExporter.Format) {
