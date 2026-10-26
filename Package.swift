@@ -20,7 +20,7 @@ let package = Package(
         .target(name: "COutputPermissions", publicHeadersPath: "include"),
         .target(name: "CProcessCoordination", dependencies: ["COutputPermissions"], publicHeadersPath: "include"),
         .target(name: "CSecurePIN", publicHeadersPath: "include"),
-        .target(name: "CPINManagement", dependencies: ["CSecurePIN"], publicHeadersPath: "include"),
+        .target(name: "CPINManagement", dependencies: ["CSecurePIN", "COutputPermissions"], publicHeadersPath: "include"),
         .target(name: "CPKCS11", dependencies: ["CCertificatePolicy"], publicHeadersPath: "include"),
         .target(name: "SignumTrustCore"),
         .target(name: "CCertificatePath", dependencies: ["CXMLSec"], publicHeadersPath: "include"),

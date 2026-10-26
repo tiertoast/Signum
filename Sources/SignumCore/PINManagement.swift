@@ -12,7 +12,7 @@ public struct PINManagementProfile: Codable, Hashable, Sendable {
     public let changeEvidence: Evidence
     public let unblockEvidence: Evidence
     public static let unqualified = Self(id: "unqualified-12A", changeEvidence: .unknown, unblockEvidence: .unknown)
-    /// Build 12A has no real administrative backend, irrespective of metadata.
+    /// Build 12A/12B have no enabled real backend, irrespective of metadata.
     public var permitsRealMutation: Bool { false }
 }
 

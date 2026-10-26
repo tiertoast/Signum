@@ -207,7 +207,11 @@ static CK_RV close_session(CK_SESSION_HANDLE h) {
 static CK_RV session_info(CK_SESSION_HANDLE h, CK_SESSION_INFO_PTR out) {
     BEGIN(M_SESSION_INFO); VALID(h); memset(out, 0, sizeof(*out));
     out->slotID = 7; out->state = stats.logged_in ? CKS_RO_USER_FUNCTIONS : CKS_RO_PUBLIC_SESSION;
-    out->flags = CKF_SERIAL_SESSION; return end(CKR_OK);
+    out->flags = CKF_SERIAL_SESSION;
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+    if(session_rw[h]){out->flags|=CKF_RW_SESSION;out->state=stats.logged_in?CKS_RW_USER_FUNCTIONS:CKS_RW_PUBLIC_SESSION;}
+#endif
+    return end(CKR_OK);
 }
 static CK_RV login(CK_SESSION_HANDLE h, CK_USER_TYPE user, CK_UTF8CHAR_PTR value, CK_ULONG length) {
     (void)value; (void)length; // deliberately never inspect, store or log credentials
@@ -317,10 +321,26 @@ static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PT
     memset(signature, 0x53, 32); *length = sign_length_override ? sign_returned_length : 32; return end(CKR_OK);
 }
 #ifdef SIGNUM_MOCK_PIN_ADMIN
+static unsigned char pin_model[64];
+static size_t pin_model_length;
+void mock_pin_model(const unsigned char *bytes,size_t length) {
+    pthread_mutex_lock(&mutex);memset(pin_model,0,sizeof(pin_model));
+    pin_model_length=bytes&&length&&length<=64?length:0;
+    if(pin_model_length)memcpy(pin_model,bytes,length);pthread_mutex_unlock(&mutex);
+}
+int mock_pin_matches(const unsigned char *bytes,size_t length) {
+    pthread_mutex_lock(&mutex);int result=bytes&&length==pin_model_length&&!memcmp(bytes,pin_model,length);
+    pthread_mutex_unlock(&mutex);return result;
+}
 static CK_RV set_pin(CK_SESSION_HANDLE h, CK_UTF8CHAR_PTR old, CK_ULONG old_length, CK_UTF8CHAR_PTR next, CK_ULONG next_length) {
     (void)old; (void)old_length; (void)next; (void)next_length;
     BEGIN(M_SET_PIN); VALID(h);
     if (!session_rw[h]) return end(CKR_SESSION_READ_ONLY);
+    if(pin_model_length){
+        if(!old||old_length!=pin_model_length||memcmp(old,pin_model,pin_model_length))return end(CKR_PIN_INCORRECT);
+        if(!next||next_length<4||next_length>64)return end(CKR_PIN_LEN_RANGE);
+        memset(pin_model,0,sizeof(pin_model));memcpy(pin_model,next,next_length);pin_model_length=next_length;
+    }
     return end(CKR_OK);
 }
 CK_RV mock_unblock_pin(CK_SESSION_HANDLE h, CK_UTF8CHAR_PTR puk, CK_ULONG puk_length, CK_UTF8CHAR_PTR next, CK_ULONG next_length) {

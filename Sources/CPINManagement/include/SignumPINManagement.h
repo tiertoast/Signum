@@ -34,6 +34,18 @@ int sg_pin_secrets_validate_local(SGPINSecrets *, size_t minimum, size_t maximum
  * secret frames (1..64 bytes each). Entire receive <=5 seconds. No Data/JSON.
  * Used only by the test harness in 12A. Real worker never requests/reads secrets. */
 int sg_pin_secrets_receive(SGPINSecrets *, int fd, const uint8_t request[16], const uint8_t binding[32], int action);
+/* 12B: one-shot local consent, single owner, bounded monotonic expiry.
+ * Wrong binding/operation also consumes it. Not Codable or a persisted grant. */
+typedef struct SGPINConsent SGPINConsent;
+SGPINConsent *sg_pin_consent_create(const uint8_t request[16], const uint8_t binding[32], double lifetime_seconds);
+int sg_pin_consent_consume(SGPINConsent *, const uint8_t request[16], const uint8_t binding[32], int action);
+void sg_pin_consent_destroy(SGPINConsent *);
+/* Direct anonymous-pipe transport, no String/Data/JSON. Sender consumes/clears
+ * all three source buffers even on failure, closes neither caller-owned fd.
+ * Caller closes its write fd immediately; receiver requires EOF, rejects tails.
+ * Confirmation remains local. Product's real facade never invokes this path. */
+int sg_pin_secrets_send_change(SGPINSecrets *, int fd, const uint8_t request[16], const uint8_t binding[32], size_t minimum, size_t maximum);
+int sg_pin_secrets_receive_change(SGPINSecrets *, int fd, const uint8_t request[16], const uint8_t binding[32], size_t minimum, size_t maximum);
 /* No module path, function table or callback accepted. No real backend linked. */
 int sg_pin_real_dispatch(SGPINAttempt *, SGPINSecrets *);
 #ifdef SIGNUM_PIN_ADMIN_TESTING

@@ -11,6 +11,8 @@ enum { M_INIT, M_FINALIZE, M_SLOT_LIST, M_TOKEN_INFO, M_SLOT_INFO, M_OPEN, M_CLO
 #endif
        M_COUNT };
 #ifdef SIGNUM_MOCK_PIN_ADMIN
+void mock_pin_model(const unsigned char *, size_t);
+int mock_pin_matches(const unsigned char *, size_t);
 void mock_pin_status(CK_FLAGS flags, CK_ULONG minimum, CK_ULONG maximum);
 /* Explicit synthetic PUK backend. Does not claim PKCS#11 SO/PUK equivalence. */
 CK_RV mock_unblock_pin(CK_SESSION_HANDLE, CK_UTF8CHAR_PTR, CK_ULONG, CK_UTF8CHAR_PTR, CK_ULONG);
