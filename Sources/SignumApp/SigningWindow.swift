@@ -245,20 +245,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
 
     var devicesScreen: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Dispositivi e certificati")
-                    .font(.headline)
-                Text("Visualizza i dispositivi collegati e scegli il certificato da usare per la firma.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                tokenControls
-                certificateControls
-            }
-            .padding(22)
-            .frame(maxWidth: 760, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
+        DevicesExperiencePane(selection: devices, locked: interfaceLocked || batch.isFrozen,
+            status: status, configure: { showDeviceConfiguration = true }, selectRoute: selectRoute)
     }
 
     func routeSystemDocuments() async {

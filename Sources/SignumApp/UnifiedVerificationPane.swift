@@ -19,12 +19,15 @@ enum VerificationDropLoader {
 @MainActor final class VerificationWorkspace: ObservableObject {
     struct Row: Identifiable {
         let id = UUID()
-        let name: String
+        let sourceURL: URL
+        var name: String { sourceURL.lastPathComponent }
         var report: VerificationReport?
         var verificationDate: Date?
         var paths: [Int: CertificatePathResult] = [:]
         var validations: [Int: CompleteSignatureValidationResult] = [:]
         var issue = ""
+        var started = false
+        var finished = false
     }
     private let catalog: (any TrustedListCatalogProviding)?
     private let validationClock: @Sendable () -> Date
@@ -36,21 +39,29 @@ enum VerificationDropLoader {
     @Published private(set) var issue = ""
     private var request = UUID()
     private var operation: SigningOperation?
-    private var acquisition: Task<Void,Never>?
-    private var verification: Task<Void,Never>?
+    private var tasks: [UUID: Task<Void,Never>] = [:]
+    private var acquisitionCount = 0
+    private var tail: Task<Void,Never>?
+    private var tailID: UUID?
     typealias Verifier = @Sendable (URL, SigningOperation) throws -> VerificationReport
     private static let defaultVerifier: Verifier = { url, control in
         try SignumVerificationService.verify(file: url, isCancelled: { control.isCancellationRequested })
     }
+    private func updateActivity() { busy = !tasks.isEmpty; acquiring = acquisitionCount > 0 }
+    /// Explicit cancellation stops this generation, preserving completed results.
+    /// Late acquisitions/verifiers cannot append or mutate a newer generation.
     func cancel() {
-        request = UUID(); acquisition?.cancel(); acquisition = nil
-        verification?.cancel(); verification = nil; operation?.requestCancellation(); operation = nil
-        busy = false; acquiring = false
-        for index in rows.indices where rows[index].report == nil { rows[index].issue = "Verifica annullata." }
+        request = UUID()
+        tasks.values.forEach { $0.cancel() }; tasks = [:]; tail = nil; tailID = nil
+        operation?.requestCancellation(); operation = nil; acquisitionCount = 0
+        updateActivity()
+        for index in rows.indices where !rows[index].finished {
+            rows[index].issue = "Verifica annullata."
+            rows[index].verificationDate = nil
+            rows[index].finished = true
+        }
     }
     func reset() { cancel(); rows = []; selectedDocument = nil; issue = "" }
-    /// Presentation-only removal. A detached report retains its verified original
-    /// bytes as one row; no source, extracted file or exported report is touched.
     @discardableResult func remove(_ id: UUID) -> Bool {
         guard !busy, !acquiring, let index = rows.firstIndex(where: { $0.id == id }) else { return false }
         rows.remove(at: index)
@@ -60,57 +71,94 @@ enum VerificationDropLoader {
         return true
     }
     @discardableResult func acquire(using load: @escaping @MainActor () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
-        cancel(); let id = request
-        busy = true; acquiring = true; issue = ""; rows = []
-        let task = Task { @MainActor in
-            let files = await load()
-            guard request == id, !Task.isCancelled else { return }
-            acquiring = false
-            await perform(files, request: id, using: verifier ?? Self.defaultVerifier)
-            if request == id { acquisition = nil }
+        guard acquisitionCount < 32 else {
+            issue = "Troppe acquisizioni in attesa. Attendi il completamento o annulla."
+            return Task {}
         }
-        acquisition = task
+        let generation = request, id = UUID()
+        acquisitionCount += 1
+        let task = Task { @MainActor in
+            var loading = true
+            defer {
+                if request == generation {
+                    if loading { acquisitionCount -= 1 }
+                    tasks[id] = nil; updateActivity()
+                }
+            }
+            let files = await load()
+            guard request == generation, !Task.isCancelled else { return }
+            acquisitionCount -= 1; loading = false
+            let work = start(files, using: verifier)
+            updateActivity()
+            await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+        }
+        tasks[id] = task; updateActivity()
         return task
     }
+    /// Every entry has its own UUID and verifier closure (including detached
+    /// original). Serial tasks append; only cancel/reset invalidate a generation.
     @discardableResult func start(_ files: [URL], using verifier: Verifier? = nil) -> Task<Void,Never> {
-        cancel(); let id = request; busy = true
-        let task = Task { @MainActor in
-            await perform(files, request: id, using: verifier ?? Self.defaultVerifier)
-            if request == id { verification = nil }
+        var seen = Set<String>()
+        let urls = files.filter { $0.isFileURL && seen.insert($0.standardizedFileURL.path).inserted }
+        guard !urls.isEmpty, urls.count <= 32, rows.count + urls.count <= 32 else {
+            issue = "Massimo 32 documenti nella sessione. Seleziona file locali disponibili; rimuovi documenti o riprova l’acquisizione."
+            return Task {}
         }
-        verification = task
+        issue = ""
+        let entries = urls.map { Row(sourceURL: $0) }
+        rows.append(contentsOf: entries)
+        if !rows.contains(where: { $0.id == selectedDocument }) { selectedDocument = entries.first?.id }
+        let generation = request, id = UUID(), previous = tail
+        let task = Task { @MainActor in
+            defer {
+                if request == generation {
+                    if Task.isCancelled {
+                        for entry in entries {
+                            if let index = rows.firstIndex(where: { $0.id == entry.id }), !rows[index].finished {
+                                rows[index].issue = "Verifica annullata."; rows[index].verificationDate = nil; rows[index].finished = true
+                            }
+                        }
+                    }
+                    tasks[id] = nil
+                    if tailID == id { tail = nil; tailID = nil }
+                    updateActivity()
+                }
+            }
+            await previous?.value
+            guard request == generation, !Task.isCancelled else { return }
+            await perform(entries, request: generation, using: verifier ?? Self.defaultVerifier)
+        }
+        tasks[id] = task; tail = task; tailID = id; updateActivity()
         return task
     }
     func verify(_ files: [URL], using verifier: Verifier? = nil) async {
-        cancel(); let id = request; busy = true
-        await perform(files, request: id, using: verifier ?? Self.defaultVerifier)
+        let task = start(files, using: verifier)
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
     }
-    private func perform(_ files: [URL], request id: UUID, using verifier: @escaping Verifier) async {
+    private func perform(_ entries: [Row], request id: UUID, using verifier: @escaping Verifier) async {
         guard request == id, !Task.isCancelled else { return }
-        defer { if request == id { busy = false; operation = nil } }
-        var seen = Set<String>()
-        let urls = files.filter { $0.isFileURL && seen.insert($0.standardizedFileURL.path).inserted }
-        guard !urls.isEmpty, urls.count <= 32 else { issue = "Seleziona da 1 a 32 documenti locali. Acquisizione scaduta o non disponibile: riprova."; return }
-        let control = SigningOperation(); operation = control; issue = ""
-        rows = urls.map { Row(name: $0.lastPathComponent) }
-        selectedDocument = rows.first?.id
-        var retainedPreviewBytes = 0
+        let control = SigningOperation(); operation = control
+        defer { if request == id { operation = nil } }
         let european = catalog as? any EuropeanCatalogProviding
         let list = european == nil ? try? await catalog?.currentCatalog() : nil
         guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
-        for (index, url) in urls.enumerated() {
+        for entry in entries {
             guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
-            let work = Task.detached(priority: .userInitiated) { Result { try verifier(url, control) } }
+            guard let pendingIndex = rows.firstIndex(where: { $0.id == entry.id }) else { continue }
+            rows[pendingIndex].started = true
+            let work = Task.detached(priority: .userInitiated) { Result { try verifier(entry.sourceURL, control) } }
             let result = await withTaskCancellationHandler(operation: { await work.value },
                 onCancel: { control.requestCancellation(); work.cancel() })
-            guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+            guard request == id, !Task.isCancelled, !control.isCancellationRequested,
+                  let index = rows.firstIndex(where: { $0.id == entry.id }) else { return }
             switch result {
             case .success(var report):
                 let count = report.originalContent?.count ?? report.previewPDF?.count ?? 0
-                if count > SigningResourceLimits.maximumSessionBytes - retainedPreviewBytes {
+                let retained = rows.reduce(0) { $0 + ($1.report?.originalContent?.count ?? $1.report?.previewPDF?.count ?? 0) }
+                if count > SigningResourceLimits.maximumSessionBytes - retained {
                     report = report.withoutPreview()
                     rows[index].issue = "Contenuto non conservato: limite memoria della sessione. Il risultato di verifica è disponibile."
-                } else { retainedPreviewBytes += count }
+                }
                 rows[index].report = report
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
                 let assessmentReport = report
@@ -136,6 +184,7 @@ enum VerificationDropLoader {
                 rows[index].validations = Dictionary(values.map { ($0.signatureID,$0) },uniquingKeysWith:{ a,_ in a })
             case .failure(let error): rows[index].issue = error.localizedDescription
             }
+            rows[index].finished = true
         }
     }
 }
@@ -221,16 +270,21 @@ struct UnifiedVerificationPane: View {
                 Spacer()
                 if workspace.busy { ProgressView().controlSize(.small); Button("Annulla") { workspace.cancel() } }
                 Button(action: choose) { Image(systemName: "plus").accessibilityLabel("Apri documenti da verificare") }
-                    .buttonStyle(.borderless).disabled(workspace.busy && !workspace.acquiring)
-                Button("P7S e originale…", action: chooseDetached).disabled(workspace.busy)
+                    .buttonStyle(.borderless)
+                Button("P7S e originale…", action: chooseDetached)
             }.padding(.horizontal, 20).padding(.vertical, 10)
             List(selection: $workspace.selectedDocument) {
                 ForEach(workspace.rows) { row in
                     HStack(spacing: 10) {
                         Image(systemName: "doc.text")
-                        Text(row.name).lineLimit(1).truncationMode(.middle).help(row.name)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.name).lineLimit(1).truncationMode(.middle)
+                            if workspace.rows.filter({ $0.name == row.name }).count > 1 {
+                                Text(row.sourceURL.deletingLastPathComponent().path).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            }
+                        }.help(row.sourceURL.path)
                         Spacer()
-                        Text(row.report.map { $0.integrity == .verified ? "Integrità verificata" : $0.summary } ?? (workspace.busy ? "In verifica…" : "Non disponibile"))
+                        Text(row.report.map { $0.integrity == .verified ? "Integrità verificata" : $0.summary } ?? (workspace.busy && !row.finished ? (row.started ? "In verifica…" : "In coda…") : "Non disponibile"))
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         SessionRemovalButton(name: row.name, disabled: workspace.busy || exporting) {
                             if workspace.remove(row.id) { extractionIssue = "" }
@@ -362,7 +416,6 @@ struct UnifiedVerificationPane: View {
         })
     }
     private func choose() {
-        workspace.cancel()
         let chooser = NSOpenPanel(); chooser.allowsMultipleSelection = true; chooser.canChooseDirectories = false; chooser.canChooseFiles = true; chooser.allowedContentTypes = []; chooser.allowsOtherFileTypes = true
         if chooser.runModal() == .OK { start(chooser.urls) }
     }
