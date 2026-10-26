@@ -31,7 +31,7 @@ extension SignumWindow {
                             Text(BatchWorkspaceSummary.status(entry.state)).font(.caption).foregroundStyle(.secondary)
                             SessionRemovalButton(name: entry.snapshot.originalURL.lastPathComponent,
                                 disabled: !canRemoveSessionDocuments) { removeSessionDocument(entry.id) }
-                        }.padding(.horizontal, 12).tag(entry.id).help(entry.snapshot.originalURL.lastPathComponent + (entry.result.isEmpty ? "" : "\n" + entry.result))
+                        }.accessibilityElement(children: .contain).padding(.horizontal, 12).tag(entry.id).help(entry.snapshot.originalURL.lastPathComponent + (entry.result.isEmpty ? "" : "\n" + entry.result))
                     }
                 }.listStyle(.plain)
                     .frame(height: CGFloat(min(batch.documents.count, 3) * 30 + 8))

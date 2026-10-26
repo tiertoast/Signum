@@ -235,7 +235,7 @@ struct UnifiedVerificationPane: View {
                         SessionRemovalButton(name: row.name, disabled: workspace.busy || exporting) {
                             if workspace.remove(row.id) { extractionIssue = "" }
                         }
-                    }.tag(row.id).padding(.vertical, 3)
+                    }.accessibilityElement(children: .contain).tag(row.id).padding(.vertical, 3)
                 }
             }.listStyle(.plain).frame(height: min(144, CGFloat(workspace.rows.count * 36 + 8)))
         }
