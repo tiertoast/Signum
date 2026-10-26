@@ -65,6 +65,13 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         super.init(nibName: nil, bundle: nil)
         sidebarHost.sizingOptions = []
         detailHost.sizingOptions = []
+        // AppKit is the sole owner of the containing window's title and toolbar.
+        // Nested SwiftUI controls (notably TabView) must not create a competing
+        // scene bridge/BarAppearanceBridge for that same NSToolbar.
+        if #available(macOS 14, *) {
+            sidebarHost.sceneBridgingOptions = []
+            detailHost.sceneBridgingOptions = []
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
     override func viewDidLoad() {
@@ -112,18 +119,17 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         for item in items.values { item.isEnabled = !controls.locked }
         items[Self.refreshID]?.isEnabled = !controls.locked && !controls.searching
         items[Self.refreshID]?.toolTip = controls.searching ? "Ricerca dispositivi in corso…" : "Aggiorna dispositivi, token e certificati senza PIN"
-        // Section changes may add/remove commands. Sidebar toggles never do.
-        setVisible(Self.addID, controls.showAdd, at: max(0, nativeToolbar.items.count - 2))
-        setVisible(Self.backID, controls.showBack, at: min(2, nativeToolbar.items.count))
-    }
-    private func setVisible(_ id: NSToolbarItem.Identifier, _ visible: Bool, at index: Int) {
-        guard installed else { return }
-        let current = nativeToolbar.items.firstIndex { $0.itemIdentifier == id }
-        if visible, current == nil { nativeToolbar.insertItem(withItemIdentifier: id, at: index) }
-        else if !visible, let current { nativeToolbar.removeItem(at: current) }
+        // The item set is immutable after installation. Updating a hosted view
+        // must never insert/remove toolbar items during AppKit constraint layout.
+        if #available(macOS 15, *) {
+            items[Self.addID]?.isHidden = !controls.showAdd
+            items[Self.backID]?.isHidden = !controls.showBack
+        }
+        items[Self.addID]?.isEnabled = !controls.locked && controls.showAdd
+        items[Self.backID]?.isEnabled = !controls.locked && controls.showBack
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.toggle, Self.separator, .flexibleSpace] + (controls.showAdd ? [Self.addID] : []) + [Self.refreshID, Self.settingsID]
+        [Self.toggle, Self.separator, Self.backID, .flexibleSpace, Self.addID, Self.refreshID, Self.settingsID]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [Self.toggle, Self.separator, Self.backID, .flexibleSpace, Self.addID, Self.refreshID, Self.settingsID]
@@ -174,9 +180,9 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         guard !controls.locked else { return }
         super.toggleSidebar(sender)
     }
-    @objc private func addDocuments() { if !controls.locked { controls.add() } }
+    @objc private func addDocuments() { if !controls.locked && controls.showAdd { controls.add() } }
     @objc private func refreshDevices() { if !controls.locked && !controls.searching { controls.refresh() } }
     @objc private func openSettings() { if !controls.locked { controls.settings() } }
-    @objc private func goBack() { if !controls.locked { controls.back() } }
+    @objc private func goBack() { if !controls.locked && controls.showBack { controls.back() } }
 }
 #endif

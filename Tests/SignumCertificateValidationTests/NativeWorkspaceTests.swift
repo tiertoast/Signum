@@ -43,11 +43,18 @@ import AppKit
         let (window, controller) = host()
         defer { window.contentViewController = nil }
         let toolbar = try XCTUnwrap(window.toolbar)
+        let originalItems = toolbar.items.map(ObjectIdentifier.init)
         for _ in 0..<4 {
             controller.update(controls(add: false, back: true))
+            XCTAssertEqual(toolbar.items.map(ObjectIdentifier.init), originalItems)
+            if #available(macOS 15, *) {
+                XCTAssertTrue(toolbar.items.first { $0.itemIdentifier.rawValue == "signum.add" }!.isHidden)
+                XCTAssertFalse(toolbar.items.first { $0.itemIdentifier.rawValue == "signum.back" }!.isHidden)
+            }
             XCTAssertEqual(toolbar.items.filter { $0.itemIdentifier.rawValue == "signum.settings" }.count, 1)
             XCTAssertEqual(toolbar.items.filter { $0.itemIdentifier.rawValue == "signum.back" }.count, 1)
             controller.update(controls())
+            XCTAssertEqual(toolbar.items.map(ObjectIdentifier.init), originalItems)
             XCTAssertEqual(toolbar.items.filter { $0.itemIdentifier.rawValue == "signum.add" }.count, 1)
         }
         controller.update(controls(locked: true))
@@ -55,6 +62,33 @@ import AppKit
         controller.toggleSidebar(nil)
         XCTAssertEqual(controller.splitViewItems[0].isCollapsed, before)
         XCTAssertTrue(toolbar.items.filter { $0.action != nil }.allSatisfy { !$0.isEnabled })
+    }
+    func testHostingControllersCannotTakeOwnershipOfSceneToolbars() {
+        let (window, controller) = host()
+        defer { window.contentViewController = nil }
+        if #available(macOS 14, *) {
+            XCTAssertTrue(controller.sidebarHost.sceneBridgingOptions.isEmpty)
+            XCTAssertTrue(controller.detailHost.sceneBridgingOptions.isEmpty)
+        }
+        let main = SignumMainWindowController(content: AnyView(Text("Content")))
+        defer { main.window?.contentViewController = nil }
+        XCTAssertTrue(main.window?.windowController === main)
+        XCTAssertTrue(main.window?.contentViewController === main.contentHost)
+        if #available(macOS 14, *) { XCTAssertTrue(main.contentHost.sceneBridgingOptions.isEmpty) }
+    }
+    func testRepeatedSettingsTransitionsKeepExactlyTheSameItems() throws {
+        let (window, controller) = host()
+        defer { window.contentViewController = nil }
+        let toolbar = try XCTUnwrap(window.toolbar)
+        let original = toolbar.items.map(ObjectIdentifier.init)
+        for _ in 0..<40 {
+            controller.update(controls(add: false, back: true))
+            window.contentView?.layoutSubtreeIfNeeded()
+            controller.update(controls(add: true, back: false))
+            window.contentView?.layoutSubtreeIfNeeded()
+            XCTAssertTrue(window.toolbar === toolbar)
+            XCTAssertEqual(toolbar.items.map(ObjectIdentifier.init), original)
+        }
     }
     func testContentRefreshRetainsHostingRootAndOnlyOwnedWindowCloseCancels() {
         let (window, controller) = host()
