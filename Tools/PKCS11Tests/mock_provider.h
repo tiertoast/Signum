@@ -5,7 +5,16 @@ extern "C" {
 #endif
 enum { M_INIT, M_FINALIZE, M_SLOT_LIST, M_TOKEN_INFO, M_SLOT_INFO, M_OPEN, M_CLOSE,
        M_SESSION_INFO, M_LOGIN_USER, M_LOGIN_CONTEXT, M_LOGOUT, M_FIND_INIT,
-       M_FIND, M_FIND_FINAL, M_ATTRIBUTE, M_SIGN_INIT, M_SIGN, M_COUNT };
+       M_FIND, M_FIND_FINAL, M_ATTRIBUTE, M_SIGN_INIT, M_SIGN,
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+       M_SET_PIN, M_UNBLOCK_PIN,
+#endif
+       M_COUNT };
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+void mock_pin_status(CK_FLAGS flags, CK_ULONG minimum, CK_ULONG maximum);
+/* Explicit synthetic PUK backend. Does not claim PKCS#11 SO/PUK equivalence. */
+CK_RV mock_unblock_pin(CK_SESSION_HANDLE, CK_UTF8CHAR_PTR, CK_ULONG, CK_UTF8CHAR_PTR, CK_ULONG);
+#endif
 typedef struct {
     unsigned calls[M_COUNT];
     unsigned active_calls, maximum_calls, sessions, maximum_sessions;

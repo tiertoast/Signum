@@ -10,6 +10,10 @@ typedef struct SGTokenLease SGTokenLease;
  * Only cooperating Signum processes are protected. Stable provider slot IDs
  * across processes are required; this is not a third-party/token daemon lock. */
 SGTokenLease *sg_token_lease_acquire(const char *provider, uint64_t slot, int discovery, unsigned wait_ms);
+/* Build 12A: global exclusive administrative barrier, then provider/slot.
+ * Ordinary leases hold its shared side for their entire lifetime. No upgrade.
+ * Older Signum builds and third-party applications do not cooperate. */
+SGTokenLease *sg_admin_lease_acquire(const char *provider, uint64_t slot, unsigned wait_ms);
 void sg_token_lease_release(SGTokenLease *lease);
 /* Worker-only: terminate on parent death, never Finalize an active vendor call. */
 int sg_worker_watch_parent(void);

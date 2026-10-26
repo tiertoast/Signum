@@ -8,6 +8,16 @@ extern "C" {
 typedef struct SGContext SGContext;
 typedef struct SGBatchSession SGBatchSession;
 typedef struct { unsigned long slot; char label[33]; char manufacturer[33]; char model[17]; char reader[65]; char serial[17]; } SGToken;
+/* Public observation only. No session, login, capability probe or mutation.
+ * Unknown CK_UNAVAILABLE_INFORMATION bounds remain unknown. No retry counter.
+ * Raw flags describe the provider's user-PIN view, not a proven PIN domain. */
+typedef struct {
+    uint32_t version;
+    SGToken token;
+    uint64_t flags, minimum_bytes, maximum_bytes;
+    int minimum_known, maximum_known;
+} SGPINPublicInfo;
+int sg_pin_public_info(SGContext *, unsigned long slot, SGPINPublicInfo *);
 typedef struct { char label[129]; uint8_t id[64]; size_t id_length; } SGCertificate;
 int sg_open(const char *path, SGContext **out, char *error, size_t error_size);
 // Distinct contexts may be used concurrently. A caller must keep its context

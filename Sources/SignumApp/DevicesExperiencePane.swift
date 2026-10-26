@@ -47,6 +47,10 @@ struct DevicesExperiencePane: View {
                         Divider()
                     }
                     if let group = current {
+                        PINDeviceSecurityPane(group: group, discoveryID: selection.requestID,
+                                              locked: locked || selection.isSearching)
+                            .id(selection.requestID.uuidString + ":" + group.id)
+                        Divider()
                         Text("Certificati · " + group.name).font(.headline)
                         if group.certificateGroups.isEmpty {
                             Text("Nessun certificato pubblico leggibile. La disponibilità per la firma non è determinabile senza una nuova ricerca.").foregroundStyle(.secondary)

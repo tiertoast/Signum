@@ -19,6 +19,16 @@ static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static MockStats stats;
 static CK_RV faults[M_COUNT];
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+static CK_FLAGS public_pin_flags = CKF_USER_PIN_INITIALIZED;
+static CK_ULONG public_pin_minimum = 4, public_pin_maximum = 12;
+void mock_pin_status(CK_FLAGS flags, CK_ULONG minimum, CK_ULONG maximum) {
+    pthread_mutex_lock(&mutex);
+    public_pin_flags = flags; public_pin_minimum = minimum; public_pin_maximum = maximum;
+    pthread_mutex_unlock(&mutex);
+}
+static int session_rw[512];
+#endif
 static unsigned delay_us;
 static int sign_length_override, der_length_override, der_query_override;
 static CK_ULONG sign_returned_length, der_returned_length, der_query_length;
@@ -162,7 +172,11 @@ static CK_RV slots(CK_BBOOL present, CK_SLOT_ID_PTR out, CK_ULONG_PTR n) {
 static CK_RV token(CK_SLOT_ID slot, CK_TOKEN_INFO_PTR out) {
     (void)slot; BEGIN(M_TOKEN_INFO); memset(out, ' ', sizeof(*out));
     memcpy(out->label, "Signum Mock", 11); memcpy(out->model, "Synthetic", 9);
-    memcpy(out->manufacturerID, "Offline fixture", 15); memcpy(out->serialNumber, "SYNTHETIC-0001", 14); return end(CKR_OK);
+    memcpy(out->manufacturerID, "Offline fixture", 15); memcpy(out->serialNumber, "SYNTHETIC-0001", 14);
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+    out->flags = public_pin_flags; out->ulMinPinLen = public_pin_minimum; out->ulMaxPinLen = public_pin_maximum;
+#endif
+    return end(CKR_OK);
 }
 #ifdef SIGNUM_MOCK_REPORT_VERSION
 static CK_RV reported_info(CK_INFO_PTR out) {
@@ -179,6 +193,9 @@ static CK_RV open_session(CK_SLOT_ID slot, CK_FLAGS flags, void *app, CK_NOTIFY 
     if (!stats.initialized) return end(CKR_CRYPTOKI_NOT_INITIALIZED);
     if (next_session >= 512) return end(CKR_SESSION_COUNT);
     *out = next_session++; sessions[*out].active = 1;
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+    session_rw[*out] = (flags & CKF_RW_SESSION) != 0;
+#endif
     ++stats.sessions; if (stats.sessions > stats.maximum_sessions) stats.maximum_sessions = stats.sessions;
     return end(CKR_OK);
 }
@@ -299,6 +316,20 @@ static CK_RV sign(CK_SESSION_HANDLE h, CK_BYTE_PTR bytes, CK_ULONG n, CK_BYTE_PT
     if (*length < 32) return end(CKR_BUFFER_TOO_SMALL);
     memset(signature, 0x53, 32); *length = sign_length_override ? sign_returned_length : 32; return end(CKR_OK);
 }
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+static CK_RV set_pin(CK_SESSION_HANDLE h, CK_UTF8CHAR_PTR old, CK_ULONG old_length, CK_UTF8CHAR_PTR next, CK_ULONG next_length) {
+    (void)old; (void)old_length; (void)next; (void)next_length;
+    BEGIN(M_SET_PIN); VALID(h);
+    if (!session_rw[h]) return end(CKR_SESSION_READ_ONLY);
+    return end(CKR_OK);
+}
+CK_RV mock_unblock_pin(CK_SESSION_HANDLE h, CK_UTF8CHAR_PTR puk, CK_ULONG puk_length, CK_UTF8CHAR_PTR next, CK_ULONG next_length) {
+    (void)puk; (void)puk_length; (void)next; (void)next_length;
+    BEGIN(M_UNBLOCK_PIN); VALID(h);
+    if (!session_rw[h]) return end(CKR_SESSION_READ_ONLY);
+    return end(CKR_OK);
+}
+#endif
 static CK_FUNCTION_LIST functions = {
     .version = {2,40}, .C_Initialize = initialize, .C_Finalize = finalize,
     .C_GetSlotList = slots, .C_GetTokenInfo = token, .C_GetSlotInfo = slot_info,
@@ -306,6 +337,9 @@ static CK_FUNCTION_LIST functions = {
     .C_GetInfo = reported_info,
 #endif
     .C_OpenSession = open_session, .C_CloseSession = close_session, .C_GetSessionInfo = session_info,
+#ifdef SIGNUM_MOCK_PIN_ADMIN
+    .C_SetPIN = set_pin,
+#endif
     .C_Login = login, .C_Logout = logout, .C_FindObjectsInit = find_init,
     .C_FindObjects = find_objects, .C_FindObjectsFinal = find_final,
     .C_GetAttributeValue = attribute, .C_SignInit = sign_init, .C_Sign = sign

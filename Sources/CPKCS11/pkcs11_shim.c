@@ -573,6 +573,31 @@ int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity, size_t *count, size
     return status;
 }
 
+int sg_pin_public_info(SGContext *ctx, unsigned long slot, SGPINPublicInfo *out) {
+    if (!out) return -1;
+    memset(out, 0, sizeof(*out));
+    if (enter(ctx, NULL, 0)) return -1;
+    CK_TOKEN_INFO info = {0};
+    CK_SLOT_INFO reader = {0};
+    CK_RV rv = ctx->api->C_GetTokenInfo(slot, &info);
+    if (rv == CKR_OK) rv = ctx->api->C_GetSlotInfo(slot, &reader);
+    if (rv == CKR_OK) {
+        out->version = 1; out->token.slot = slot;
+        copy_padded(out->token.label, sizeof(out->token.label), info.label, sizeof(info.label));
+        copy_padded(out->token.manufacturer, sizeof(out->token.manufacturer), info.manufacturerID, sizeof(info.manufacturerID));
+        copy_padded(out->token.model, sizeof(out->token.model), info.model, sizeof(info.model));
+        copy_padded(out->token.serial, sizeof(out->token.serial), info.serialNumber, sizeof(info.serialNumber));
+        copy_padded(out->token.reader, sizeof(out->token.reader), reader.slotDescription, sizeof(reader.slotDescription));
+        out->flags = (uint64_t)info.flags;
+        out->minimum_known = info.ulMinPinLen != CK_UNAVAILABLE_INFORMATION;
+        out->maximum_known = info.ulMaxPinLen != CK_UNAVAILABLE_INFORMATION;
+        if (out->minimum_known) out->minimum_bytes = (uint64_t)info.ulMinPinLen;
+        if (out->maximum_known) out->maximum_bytes = (uint64_t)info.ulMaxPinLen;
+    }
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return rv == CKR_OK ? 0 : -1;
+}
+
 int sg_certificates(SGContext *ctx, unsigned long slot, SGCertificate *out, size_t capacity, size_t *count, char *error, size_t error_size) {
     if (count) *count = 0;
     if (enter(ctx, error, error_size)) return -1;
