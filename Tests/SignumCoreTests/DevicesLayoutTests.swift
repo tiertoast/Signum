@@ -27,6 +27,8 @@ import AppKit
             let frame = NSRect(x:0,y:0,width:1000,height:1000)
             let window = NSWindow(contentRect:frame,styleMask:[.titled],backing:.buffered,defer:false)
             window.isReleasedWhenClosed=false;window.contentView=host;host.frame=frame
+            host.wantsLayer = true
+            host.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
             window.orderFront(nil);host.layoutSubtreeIfNeeded()
             await Task.yield();host.layoutSubtreeIfNeeded();window.displayIfNeeded()
             let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in:host.bounds))

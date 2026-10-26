@@ -62,6 +62,7 @@ struct DevicesExperiencePane: View {
                 DisclosureGroup("Dettagli tecnici") { technicalDetails.padding(.top, 12) }
             }.frame(maxWidth: 900, alignment: .leading).padding(28).frame(maxWidth: .infinity, alignment: .center)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .onChange(of: selection.selectedRouteID) { id in
             if let group = groups.first(where: { $0.routes.contains { $0.id == id } }) { viewedDevice = group.id; inspectedRoute = id }
         }
