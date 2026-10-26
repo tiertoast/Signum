@@ -29,7 +29,11 @@ struct DevicePresentation: Identifiable {
     var name: String { accesses.first.map { SigningRouteLabel.device(token: $0.observed.token) } ?? "Dispositivo PKCS#11" }
     var symbol: String { name.contains("card") || name.contains("CNS") ? "creditcard" : name.contains("USB") || name == "DigitalDNA" ? "externaldrive" : "externaldrive.badge.questionmark" }
     var readable: Bool { accesses.allSatisfy { $0.observed.certificateState == .readable && $0.provider.inspection != nil } }
-    var countLabel: String { readable ? "\(certificateGroups.count) certificati individuati" : "Numero di certificati non determinabile" }
+    var countLabel: String {
+        guard readable else { return "Numero di certificati non determinabile" }
+        let count = certificateGroups.count
+        return count == 1 ? "1 certificato individuato" : "\(count) certificati individuati"
+    }
     var availability: String {
         readable ? "Disponibile · lettura pubblica completata" : "Rilevato · disponibilità dei certificati non determinata"
     }
@@ -68,7 +72,7 @@ struct DevicePresentation: Identifiable {
         return route.assessment.status.description
     }
     static func purpose(_ route: DeviceCertificateRoute) -> String {
-        if route.assessment.contentCommitment || route.assessment.documentSigning { return "Firma digitale" }
+        if route.assessment.permitsSigning || route.assessment.contentCommitment || route.assessment.documentSigning { return "Firma digitale" }
         if route.assessment.clientAuthentication { return "Autenticazione" }
         return "Altra funzione / non determinata"
     }
