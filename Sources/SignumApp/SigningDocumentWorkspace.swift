@@ -29,6 +29,8 @@ extension SignumWindow {
                             Text(entry.snapshot.originalURL.lastPathComponent).lineLimit(1).truncationMode(.middle)
                             Spacer(minLength: 4)
                             Text(BatchWorkspaceSummary.status(entry.state)).font(.caption).foregroundStyle(.secondary)
+                            SessionRemovalButton(name: entry.snapshot.originalURL.lastPathComponent,
+                                disabled: !canRemoveSessionDocuments) { removeSessionDocument(entry.id) }
                         }.padding(.horizontal, 12).tag(entry.id).help(entry.snapshot.originalURL.lastPathComponent + (entry.result.isEmpty ? "" : "\n" + entry.result))
                     }
                 }.listStyle(.plain)

@@ -358,11 +358,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     if !entry.result.isEmpty { Text(entry.result) }
                     HStack {
                         if !batch.isFrozen {
-                            Button("Rimuovi") {
-                                let selected = documentSnapshot?.identity.id == entry.id
-                                batch.remove(entry.id); placements[entry.id] = nil; readyPreviews.remove(entry.id)
-                                if selected { showDocument(batch.documents.first?.id) }
-                            }.disabled(interfaceLocked)
+                            Button("Rimuovi") { removeSessionDocument(entry.id) }
+                                .disabled(!canRemoveSessionDocuments)
                         } else if batch.isApproved && !entry.state.isTerminal {
                             Button("Annulla documento") { batch.cancelDocument(entry.id); provider.pin = "" }
                                 .disabled((batch.isRunning || interaction.isSubmittingPIN) && batch.nextDocument?.id == entry.id)
@@ -582,6 +579,22 @@ enum SignumFormat: String, Hashable, CaseIterable {
             await acquisition.value
             if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
             status = "\(batch.documents.count) documenti nella selezione. Controlla il riepilogo prima di firmare."
+        }
+    }
+
+    var canRemoveSessionDocuments: Bool {
+        !interfaceLocked && !batch.isFrozen && !batch.isApproved && !batch.needsOutcomeReview
+    }
+    func removeSessionDocument(_ id: UUID) {
+        guard canRemoveSessionDocuments, let index = batch.documents.firstIndex(where: { $0.id == id }) else { return }
+        let selected = documentSnapshot?.identity.id == id
+        review.cancel()
+        batch.remove(id)
+        guard !batch.documents.contains(where: { $0.id == id }) else { return }
+        placements[id] = nil; readyPreviews.remove(id); provider.pin = ""
+        showingDocumentDetails = false
+        if selected {
+            showDocument(batch.documents.isEmpty ? nil : batch.documents[min(index, batch.documents.count - 1)].id)
         }
     }
 

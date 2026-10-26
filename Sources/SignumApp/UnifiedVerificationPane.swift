@@ -30,6 +30,7 @@ enum VerificationDropLoader {
     private let validationClock: @Sendable () -> Date
     init(catalog: (any TrustedListCatalogProviding)? = nil, validationClock: @escaping @Sendable () -> Date = { Date() }) { self.catalog = catalog; self.validationClock = validationClock }
     @Published private(set) var rows: [Row] = []
+    @Published var selectedDocument: UUID?
     @Published private(set) var busy = false
     @Published private(set) var acquiring = false
     @Published private(set) var issue = ""
@@ -47,7 +48,17 @@ enum VerificationDropLoader {
         busy = false; acquiring = false
         for index in rows.indices where rows[index].report == nil { rows[index].issue = "Verifica annullata." }
     }
-    func reset() { cancel(); rows = []; issue = "" }
+    func reset() { cancel(); rows = []; selectedDocument = nil; issue = "" }
+    /// Presentation-only removal. A detached report retains its verified original
+    /// bytes as one row; no source, extracted file or exported report is touched.
+    @discardableResult func remove(_ id: UUID) -> Bool {
+        guard !busy, !acquiring, let index = rows.firstIndex(where: { $0.id == id }) else { return false }
+        rows.remove(at: index)
+        if selectedDocument == id || !rows.contains(where: { $0.id == selectedDocument }) {
+            selectedDocument = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
+        }
+        return true
+    }
     @discardableResult func acquire(using load: @escaping @MainActor () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
         cancel(); let id = request
         busy = true; acquiring = true; issue = ""; rows = []
@@ -82,6 +93,7 @@ enum VerificationDropLoader {
         guard !urls.isEmpty, urls.count <= 32 else { issue = "Seleziona da 1 a 32 documenti locali. Acquisizione scaduta o non disponibile: riprova."; return }
         let control = SigningOperation(); operation = control; issue = ""
         rows = urls.map { Row(name: $0.lastPathComponent) }
+        selectedDocument = rows.first?.id
         var retainedPreviewBytes = 0
         let european = catalog as? any EuropeanCatalogProviding
         let list = european == nil ? try? await catalog?.currentCatalog() : nil
@@ -135,11 +147,10 @@ struct UnifiedVerificationPane: View {
     @State private var preview: VerificationReport?
     @State private var extractionIssue = ""
     @State private var exporting = false
-    @State private var selectedDocument: UUID?
     @State private var selectedSignature: Int?
     @State private var detailsExpanded = false
     private var selectedRow: VerificationWorkspace.Row? {
-        workspace.rows.first { $0.id == selectedDocument } ?? workspace.rows.first
+        workspace.rows.first { $0.id == workspace.selectedDocument } ?? workspace.rows.first
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -186,9 +197,9 @@ struct UnifiedVerificationPane: View {
         .background(targeted ? Color.accentColor.opacity(0.06) : Color.clear)
         .sheet(item: $preview) { report in VerificationPDFPreview(report: report) }
         .onChange(of: workspace.rows.map(\.id)) { ids in
-            if !ids.contains(where: { $0 == selectedDocument }) { selectedDocument = ids.first; selectedSignature = nil; detailsExpanded = false }
+            if !ids.contains(where: { $0 == workspace.selectedDocument }) { workspace.selectedDocument = ids.first; selectedSignature = nil; detailsExpanded = false }
         }
-        .onChange(of: selectedDocument) { _ in selectedSignature = nil; detailsExpanded = false }
+        .onChange(of: workspace.selectedDocument) { _ in selectedSignature = nil; detailsExpanded = false }
     }
     private var emptyState: some View {
         VStack(spacing: 16) {
@@ -213,7 +224,7 @@ struct UnifiedVerificationPane: View {
                     .buttonStyle(.borderless).disabled(workspace.busy && !workspace.acquiring)
                 Button("P7S e originale…", action: chooseDetached).disabled(workspace.busy)
             }.padding(.horizontal, 20).padding(.vertical, 10)
-            List(selection: $selectedDocument) {
+            List(selection: $workspace.selectedDocument) {
                 ForEach(workspace.rows) { row in
                     HStack(spacing: 10) {
                         Image(systemName: "doc.text")
@@ -221,6 +232,9 @@ struct UnifiedVerificationPane: View {
                         Spacer()
                         Text(row.report.map { $0.integrity == .verified ? "Integrità verificata" : $0.summary } ?? (workspace.busy ? "In verifica…" : "Non disponibile"))
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        SessionRemovalButton(name: row.name, disabled: workspace.busy || exporting) {
+                            if workspace.remove(row.id) { extractionIssue = "" }
+                        }
                     }.tag(row.id).padding(.vertical, 3)
                 }
             }.listStyle(.plain).frame(height: min(144, CGFloat(workspace.rows.count * 36 + 8)))
