@@ -74,6 +74,8 @@ import AppKit
         defer { main.window?.contentViewController = nil }
         XCTAssertTrue(main.window?.windowController === main)
         XCTAssertTrue(main.window?.contentViewController === main.contentHost)
+        XCTAssertGreaterThanOrEqual(main.contentHost.view.fittingSize.width, 980)
+        XCTAssertGreaterThanOrEqual(main.contentHost.view.fittingSize.height, 650)
         if #available(macOS 14, *) { XCTAssertTrue(main.contentHost.sceneBridgingOptions.isEmpty) }
     }
     func testRepeatedSettingsTransitionsKeepExactlyTheSameItems() throws {

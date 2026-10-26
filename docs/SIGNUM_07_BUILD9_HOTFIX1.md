@@ -1,6 +1,6 @@
 # Signum 0.7 Build 9 Verification — Hotfix 1
 
-Base: `b00b6b6`. Versione 0.7.0, build interna 11, ID `io.github.tiertoast.Signum.DevelopmentPreview.V07.B11`. L'installazione non sostituisce la Build 9 originale.
+Base: `b00b6b6`. Versione 0.7.0, build interna 11, ID `io.github.tiertoast.Signum.DevelopmentPreview.V07.B11`. L'installazione non sostituisce la Build 9 originale. I minimi 980×650 pt del contenuto sono espressi anche come vincoli Auto Layout, richiesti da AppKit per mantenere il limite della finestra nativa.
 
 ## Diagnosi
 

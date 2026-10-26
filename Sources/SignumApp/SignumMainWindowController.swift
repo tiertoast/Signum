@@ -16,6 +16,12 @@ import SwiftUI
         window.identifier = NSUserInterfaceItemIdentifier("signum-main")
         window.title = "Signum"
         window.contentViewController = contentHost
+        // AppKit ignores contentMinSize when Auto Layout is in use. Export the
+        // same minimum as real root-view constraints, including native tiling.
+        NSLayoutConstraint.activate([
+            contentHost.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 980),
+            contentHost.view.heightAnchor.constraint(greaterThanOrEqualToConstant: 650)
+        ])
         window.contentMinSize = NSSize(width: 980, height: 650)
         window.setContentSize(NSSize(width: 1320, height: 830))
         window.isReleasedWhenClosed = false
