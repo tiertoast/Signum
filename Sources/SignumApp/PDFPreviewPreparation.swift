@@ -16,9 +16,10 @@ enum PDFPreviewPreparation {
     static func document(_ snapshot: DocumentSnapshot,
                          preparing: @escaping @Sendable (Data, @Sendable () -> Bool) throws -> Document = { try inspect($0, isCancelled: $1) }) async throws -> Document {
         let control = SigningOperation()
+        let cancelled: @Sendable () -> Bool = { control.isCancellationRequested || snapshot.isRetired }
         let work = Task.detached(priority: .userInitiated) {
-            let bytes = try snapshot.verifiedBytes(isCancelled: { control.isCancellationRequested })
-            let value = try preparing(bytes, { control.isCancellationRequested })
+            let bytes = try snapshot.verifiedBytes(isCancelled: cancelled)
+            let value = try preparing(bytes, cancelled)
             guard !snapshot.isRetired else { throw CancellationError() }
             return value
         }

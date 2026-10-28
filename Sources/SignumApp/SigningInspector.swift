@@ -293,7 +293,7 @@ extension SignumWindow {
             PAdESPlacementPane(
                 snapshot: snapshot,
                 previewReady: { id, ready in
-                    guard workspace.accepts(id, generation: generation) else { return }
+                    guard session.isActive, workspace.accepts(id, generation: generation) else { return }
                     if ready { previewSnapshotID = id; readyPreviews.insert(id) }
                     if !ready {
                         readyPreviews.remove(id); provider.pin = ""
@@ -304,7 +304,7 @@ extension SignumWindow {
                 placement: Binding(get: { pdfPlacement }, set: { value in
                     guard !interfaceLocked, !batch.isFrozen, workspace.accepts(snapshot.identity.id, generation: generation) else { return }
                     pdfPlacement = value; placements[snapshot.identity.id] = value
-                })
+                }), renderCoordinator: appearanceRenderer
             )
             .id(generation)
             .disabled(interfaceLocked || batch.isFrozen)

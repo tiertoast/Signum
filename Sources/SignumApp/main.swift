@@ -18,7 +18,23 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
 /// without a second SwiftUI Window scene controller observing/replacing the bar.
 @MainActor final class SignumLifecycle: NSObject, NSApplicationDelegate {
     let services = SignumServices()
-    let trustedLists = try? TrustedListsModel.developmentPreview()
+    let trustedLists: TrustedListsModel?
+    private let reply: (Bool) -> Void
+    private let scheduleTerminationDeadline: (@escaping @MainActor () -> Void) -> Void
+    private var terminationPending = false
+    static let terminationGrace: TimeInterval = 2
+
+    override init() {
+        trustedLists = try? TrustedListsModel.developmentPreview()
+        reply = { NSApp.reply(toApplicationShouldTerminate: $0) }
+        scheduleTerminationDeadline = { action in DispatchQueue.main.asyncAfter(deadline: .now() + Self.terminationGrace, execute: action) }
+        super.init()
+    }
+    init(controller: SignumMainWindowController, reply: @escaping (Bool) -> Void,
+         scheduleDeadline: @escaping (@escaping @MainActor () -> Void) -> Void) {
+        trustedLists = nil; mainWindowController = controller; self.reply = reply
+        scheduleTerminationDeadline = scheduleDeadline; super.init()
+    }
     private(set) var mainWindowController: SignumMainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -28,7 +44,26 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         NSUpdateDynamicServices()
         showMainWindow()
     }
-    func applicationWillTerminate(_ notification: Notification) { trustedLists?.stop() }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let session = mainWindowController?.signingSession else { return .terminateNow }
+        session.revoke()
+        guard !session.isDrained else { return .terminateNow }
+        guard !terminationPending else { return .terminateLater }
+        terminationPending = true
+        let finish = { [weak self] in
+            guard let self, self.terminationPending else { return }
+            self.terminationPending = false; self.reply(true)
+        }
+        session.whenDrained(finish)
+        scheduleTerminationDeadline(finish)
+        return .terminateLater
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        mainWindowController?.signingSession?.revoke(); return false
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        mainWindowController?.signingSession?.revoke(); trustedLists?.stop()
+    }
     func application(_ application: NSApplication, open urls: [URL]) {
         SystemDocuments.shared.receive(urls)
         showMainWindow()
@@ -38,9 +73,10 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
     }
     func showMainWindow() {
         if mainWindowController == nil {
-            let content = SignumWindow(trustedLists: trustedLists)
+            let session = SigningWindowSession()
+            let content = SignumWindow(trustedLists: trustedLists, session: session)
                 .frame(minWidth: 980, minHeight: 650)
-            mainWindowController = SignumMainWindowController(content: AnyView(content))
+            mainWindowController = SignumMainWindowController(content: AnyView(content), session: session)
         }
         mainWindowController?.showWindow(nil)
         mainWindowController?.window?.makeKeyAndOrderFront(nil)

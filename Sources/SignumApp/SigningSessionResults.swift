@@ -20,8 +20,8 @@ struct SigningReceipt: Identifiable {
 
     @discardableResult
     func releaseIfFinished(_ batch: BatchSigningCoordinator, interactionBusy: Bool,
-                           hasAuthenticationContext: Bool, otherWork: Bool = false) -> Bool {
-        guard batch.isApproved, !batch.documents.isEmpty,
+                           hasAuthenticationContext: Bool, otherWork: Bool = false, allowRevokedSelection: Bool = false) -> Bool {
+        guard (batch.isApproved || (allowRevokedSelection && batch.documents.allSatisfy { $0.state == .cancelled })), !batch.documents.isEmpty,
               batch.documents.allSatisfy({ $0.state.isTerminal }),
               !batch.isRunning, !batch.isPreparing, !batch.isContinuingAuthenticated,
               !batch.needsOutcomeReview, !interactionBusy, !hasAuthenticationContext, !otherWork else { return false }

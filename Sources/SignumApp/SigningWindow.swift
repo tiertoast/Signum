@@ -14,9 +14,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @State var routingSystemDocuments = false
     @StateObject var verificationWorkspace: VerificationWorkspace
     let trustedLists: TrustedListsModel?
+    let signingWorker: IsolatedPKCS11Client
     @StateObject var batch: BatchSigningCoordinator
     @StateObject var interaction = SigningInteraction()
     @StateObject var review = SigningReview()
+    @StateObject var session: SigningWindowSession
+    @StateObject var appearanceRenderer = PAdESRenderCoordinator()
     @StateObject var results: SigningSessionResults
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
@@ -70,6 +73,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     let automaticallyDiscover: Bool
     let preferences: SigningExperiencePreferences
+    var sessionReady: ((SignumWindow) -> Void)?
+    let discoveryLoader: @Sendable ([String], @Sendable () -> Bool) -> DeviceDiscoveryResult
 
     // Internal dependency injection for native layout tests; no production flag,
     // environment override or automatic loading of user-owned test modules.
@@ -79,7 +84,18 @@ enum SignumFormat: String, Hashable, CaseIterable {
          workspace: SigningWorkspaceSelection? = nil, trustedLists: TrustedListsModel? = nil,
          initialSection: SignumSection = .sign,
          sessionResults: SigningSessionResults? = nil,
-         initialSidebarVisibility: NavigationSplitViewVisibility = .all) {
+         initialSidebarVisibility: NavigationSplitViewVisibility = .all,
+         session: SigningWindowSession? = nil, sessionReady: ((SignumWindow) -> Void)? = nil,
+         discoveryLoader: (@Sendable ([String], @Sendable () -> Bool) -> DeviceDiscoveryResult)? = nil,
+         appearanceRenderer: PAdESRenderCoordinator? = nil, worker: IsolatedPKCS11Client? = nil) {
+        signingWorker = worker ?? IsolatedPKCS11Client()
+        _appearanceRenderer = StateObject(wrappedValue: appearanceRenderer ?? PAdESRenderCoordinator())
+        _session = StateObject(wrappedValue: session ?? SigningWindowSession())
+        self.sessionReady = sessionReady
+        self.discoveryLoader = discoveryLoader ?? { paths, cancelled in
+            let expected = Set(MiddlewareRegistry.known.flatMap(\.candidatePaths) + paths)
+            return DeviceDiscoveryResult(providers: MiddlewareDiscovery().discover(registry: MiddlewareRegistry.known, manualPaths: paths, isCancelled: cancelled), expectedPaths: expected)
+        }
         _sidebarVisibility = State(initialValue: initialSidebarVisibility)
         _results = StateObject(wrappedValue: sessionResults ?? SigningSessionResults())
         _navigation = State(initialValue: SignumNavigation(section: initialSection))
@@ -101,7 +117,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         _status = State(initialValue: initialDevices.providers.isEmpty ? "Ricerca dei dispositivi di firma…" : initialDevices.message)
     }
 
-    var interfaceLocked: Bool { busy || batch.isPreparing || batch.isRunning || batch.isContinuingAuthenticated || (authenticationSession?.canContinue ?? false) || interaction.isRequestingApproval || interaction.isSubmittingPIN }
+    var interfaceLocked: Bool { !session.isActive || busy || batch.isPreparing || batch.isRunning || batch.isContinuingAuthenticated || (authenticationSession?.canContinue ?? false) || interaction.isRequestingApproval || interaction.isSubmittingPIN }
     var authenticationMode: BatchAuthenticationMode { BatchAuthenticationMode(rawValue: authenticationModeRaw) ?? .perSignature }
     var authenticationExplanation: String {
         BatchAuthenticationPolicy.explanation(formats: batch.documents.map(\.format),
@@ -111,7 +127,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         SigningDestinationSelection(alongsideOriginal: saveAlongsideOriginal, customDirectory: customDirectory).policy
     }
     var reviewContext: SigningReviewContext? {
-        guard !batch.isPreparing, !batch.documents.isEmpty, let destination = destinationPolicy,
+        guard session.isActive, !batch.isPreparing, !batch.documents.isEmpty, let destination = destinationPolicy,
               let path = provider.signingProvider, let slot = provider.selectedSlot,
               let id = provider.selectedCertificateID, let route = devices.selectedRoute,
               let certificate = provider.certificates.first(where: { $0.id == id }),
@@ -185,19 +201,20 @@ enum SignumFormat: String, Hashable, CaseIterable {
                           initiallyCollapsed: sidebarVisibility == .detailOnly,
                           add: chooseFile, refresh: { discover() },
                           settings: { navigation.openSettings(blocked: interfaceLocked || batch.isFrozen) },
-                          back: { navigation.back() }, close: { verificationWorkspace.cancel() }))
+                          back: { navigation.back() }, close: { session.revoke() }, opened: activateSession))
         .ignoresSafeArea(.container, edges: .top)
-        .onChange(of: batch.isFrozen) { frozen in if !frozen { Task { await routeSystemDocuments() } } }
+        .onChange(of: batch.isFrozen) { frozen in if !frozen { scheduleSystemDocuments() } }
         .onChange(of: navigation.section) { section in
             if section != .verify { verificationWorkspace.cancel() }
         }
-        .onReceive(systemDocuments.$revision) { _ in Task { await routeSystemDocuments() } }
-        .onChange(of: interfaceLocked) { locked in if !locked { Task { await routeSystemDocuments() } } }
+        .onReceive(systemDocuments.$revision) { _ in scheduleSystemDocuments() }
+        .onChange(of: interfaceLocked) { locked in if !locked { scheduleSystemDocuments() } }
         .onReceive(NotificationCenter.default.publisher(for: .signumShowSettings)) { _ in
             navigation.openSettings(blocked: interfaceLocked || batch.isFrozen)
         }
         .task(id: sessionCompletionKey) { releaseFinishedSession() }
         .onAppear {
+            activateSession()
             guard automaticallyDiscover, !discoveryStarted else { return }
             discoveryStarted = true
             discover()
@@ -213,8 +230,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 selectRoute: selectRoute)
         }
         .task(id: batch.isFrozen ? nil : reviewContext) {
-            let context = reviewContext, route = devices.selectedRoute
-            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validateCancellable: { control in try route?.requireCurrentCredential(isCancelled: { control.isCancellationRequested }) })
+            guard session.isActive else { return }
+            let activity = session.beginActivity(); defer { session.endActivity(activity) }
+            let generation = session.generation
+            let context = reviewContext, route = devices.selectedRoute, worker = signingWorker
+            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validateCancellable: { control in try route?.requireCurrentCredential(client: worker, isCancelled: { control.isCancellationRequested }) })
+            guard session.accepts(generation) else { return }
             if review.credentialUnavailable, review.context == context, !batch.isFrozen {
                 devices.select(routeID:nil); provider.beginDiscovery(); batch.invalidateReview()
                 status = DeviceCertificateRoute.AvailabilityFailure.unavailable.localizedDescription
@@ -232,16 +253,50 @@ enum SignumFormat: String, Hashable, CaseIterable {
             else if documentSnapshot != nil { showDocument(batch.documents.first?.id) }
         }
         .onChange(of: saveAlongsideOriginal) { _ in if !batch.isFrozen { provider.pin = "" } }
-        .onDisappear {
-            review.cancel()
-            authenticationSession?.requestStop()
-            work?.requestCancellation()
-            discoveryOperation?.requestCancellation()
-            batch.cancelAll()
-            selectionRequestID = UUID()
-            devices.beginDiscovery(); provider.beginDiscovery()
-            workspace.select(nil)
+        .onDisappear { session.revoke() }
+    }
+
+    func activateSession() {
+        if !session.isActive && !session.isDrained {
+            session.reopen { activateSession() }; return
         }
+        if !session.isActive {
+            _ = results.releaseIfFinished(batch, interactionBusy: interaction.isSubmittingPIN || interaction.isRequestingApproval,
+                hasAuthenticationContext: authenticationSession != nil, allowRevokedSelection: true)
+        }
+        appearanceRenderer.resume()
+        guard session.activate(batch: batch, cleanup: revokeSessionState) else { return }
+        if let sessionReady { var value = self; value.sessionReady = nil; sessionReady(value) }
+    }
+    private func revokeSessionState() {
+        review.cancel(); verificationWorkspace.cancel(); appearanceRenderer.suspend()
+        if !appearanceRenderer.isIdle {
+            let activity = session.beginActivity()
+            appearanceRenderer.whenIdle { session.endActivity(activity) }
+        }
+        batch.activeOperation?.requestCancellation(preservingPrivateOutcome: true)
+        work?.requestCancellation(preservingPrivateOutcome: true); work = nil
+        discoveryOperation?.requestCancellation(); discoveryOperation = nil
+        batch.cancelAll(); refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
+        selectionRequestID = UUID(); workspace.select(nil); inputFile = nil
+        placements = [:]; readyPreviews = []; pdfPlacement = nil; previewSnapshotID = nil
+        approvedRoute = nil; approvedHolder = ""; authorizedManualPaths = []; manualPath = ""
+        authenticationAttempted = false; authenticationStatus = ""; busy = false; pinFocused = false
+        showDeviceConfiguration = false; showDefaultApplications = false
+        if let context = authenticationSession {
+            context.requestStop()
+            if !batch.isContinuingAuthenticated {
+                let retirement = batch.retireAuthenticatedSession(using: context)
+                session.own(Task { @MainActor in
+                    await retirement.value
+                    if authenticationSession === context { authenticationSession = nil }
+                })
+            }
+        }
+    }
+    func scheduleSystemDocuments() {
+        guard session.isActive else { return }
+        session.own(Task { await routeSystemDocuments() })
     }
 
     var devicesScreen: some View {
@@ -250,17 +305,18 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
 
     func routeSystemDocuments() async {
-        guard !routingSystemDocuments, !interfaceLocked, !batch.isFrozen else { return }
+        let generation = session.generation
+        guard session.isActive, !routingSystemDocuments, !interfaceLocked, !batch.isFrozen else { return }
         routingSystemDocuments = true
         await Task.yield() // Coalesce URLs delivered by one Finder selection.
         defer { routingSystemDocuments = false }
-        while !interfaceLocked, !batch.isFrozen, let request = systemDocuments.next() {
+        while session.accepts(generation), !Task.isCancelled, !interfaceLocked, !batch.isFrozen, let request = systemDocuments.next() {
             let scoped = request.urls.filter { $0.startAccessingSecurityScopedResource() }
             defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
             if request.action == .sign {
                 operation = .sign
                 addDocuments(request.urls) // Acquisition only: approval/PIN remain mandatory.
-                while batch.isPreparing { try? await Task.sleep(nanoseconds: 10_000_000) }
+                while batch.isPreparing && session.accepts(generation) && !Task.isCancelled { try? await Task.sleep(nanoseconds: 10_000_000) }
             } else {
                 operation = .verify
                 var originals: [URL: URL] = [:]
@@ -276,6 +332,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 let extraScopes = originals.values.filter { $0.startAccessingSecurityScopedResource() }
                 defer { extraScopes.forEach { $0.stopAccessingSecurityScopedResource() } }
                 let detached = originals
+                guard session.accepts(generation), !Task.isCancelled else { return }
                 if !files.isEmpty {
                     await verificationWorkspace.verify(files, using: { file, control in
                         if let original = detached[file] {
@@ -394,6 +451,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
          String(authenticationSession != nil), batch.documents.map { $0.id.uuidString + $0.state.rawValue }.joined()].joined(separator: "|")
     }
     func releaseFinishedSession() {
+        guard session.isActive else { return }
         if results.releaseIfFinished(batch, interactionBusy: interaction.isSubmittingPIN || interaction.isRequestingApproval,
             hasAuthenticationContext: authenticationSession != nil, otherWork: busy) {
             review.cancel(); provider.pin = ""; approvedRoute = nil; approvedHolder = ""
@@ -416,12 +474,15 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     func chooseDestination() {
         guard !interfaceLocked, !batch.isFrozen else { return }
+        let generation = session.generation
         let picker = NSOpenPanel()
         picker.title = "Cartella comune delle copie firmate"
         picker.canChooseFiles = false; picker.canChooseDirectories = true
         picker.allowsMultipleSelection = false; picker.canCreateDirectories = false
         picker.directoryURL = customDirectory
-        if picker.runModal() == .OK, let directory = picker.url {
+        let response = picker.runModal()
+        guard session.accepts(generation) else { return }
+        if response == .OK, let directory = picker.url {
             customDirectory = directory; preferences.customDirectory = directory
             provider.pin = ""
         }
@@ -470,6 +531,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     func discover(manual: String? = nil) {
         guard !interfaceLocked, !batch.isFrozen else { return }
+        let generation = session.generation
         let paths = manual.map { [$0.trimmingCharacters(in: .whitespacesAndNewlines)] } ?? []
         if let path = paths.first {
             guard MiddlewarePreferences.valid(path) else { status = "Scegli un percorso assoluto valido."; return }
@@ -483,28 +545,23 @@ enum SignumFormat: String, Hashable, CaseIterable {
         let configuredPaths = MiddlewarePreferences(defaults: preferences.defaults)
             .discoveryPaths(explicitPath: paths.first, authorizedPaths: authorizedManualPaths)
         authorizedManualPaths = configuredPaths
-        let expectedPaths = Set(MiddlewareRegistry.known.flatMap(\.candidatePaths) + configuredPaths)
-        // Public discovery owns cancellation separately from document/signing work.
-        // It clears credentials/review, but does not lock sidebar or document input.
         let operation = SigningOperation()
         discoveryOperation = operation
         status = "Ricerca dei dispositivi in corso…"
-        DispatchQueue.global(qos: .userInitiated).async {
-            let results = MiddlewareDiscovery().discover(registry: MiddlewareRegistry.known,
-                manualPaths: configuredPaths, isCancelled: { operation.isCancellationRequested })
-            let prepared = DeviceDiscoveryResult(providers: operation.isCancellationRequested ? [] : results, expectedPaths:expectedPaths)
-            DispatchQueue.main.async {
-                guard self.devices.requestID == request else { return }
-                self.discoveryOperation = nil
-                if operation.isCancellationRequested {
-                    self.refresh.cancel(); self.devices.cancelDiscovery(); self.provider.beginDiscovery()
-                    self.status = "Ricerca annullata. Cerca nuovamente."; return
-                }
-                guard self.refresh.accept(prepared, request: request, selection: &self.devices) else { return }
-                if let route=self.devices.selectedRoute { self.provider.select(route:route) }
-                self.status = self.devices.message
+        let loader = discoveryLoader
+        session.own(Task { @MainActor in
+            let worker = Task.detached(priority: .userInitiated) { loader(configuredPaths, { operation.isCancellationRequested }) }
+            let prepared = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { operation.requestCancellation(); worker.cancel() })
+            guard self.session.accepts(generation), self.devices.requestID == request else { return }
+            self.discoveryOperation = nil
+            if operation.isCancellationRequested {
+                self.refresh.cancel(); self.devices.cancelDiscovery(); self.provider.beginDiscovery()
+                self.status = "Ricerca annullata. Cerca nuovamente."; return
             }
-        }
+            guard self.refresh.accept(prepared, request: request, selection: &self.devices) else { return }
+            if let route = self.devices.selectedRoute { self.provider.select(route: route) }
+            self.status = self.devices.message
+        })
     }
 
     func selectRoute(_ id: String) {
@@ -518,10 +575,13 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     func chooseManualModule() {
         guard !interfaceLocked, !batch.isFrozen else { return }
+        let generation = session.generation
         let picker = NSOpenPanel()
         picker.title = "Seleziona il software del dispositivo"
         picker.canChooseFiles = true; picker.canChooseDirectories = false; picker.allowsMultipleSelection = false
-        if picker.runModal() == .OK, let path = picker.url?.path { manualPath = path }
+        let response = picker.runModal()
+        guard session.accepts(generation) else { return }
+        if response == .OK, let path = picker.url?.path { manualPath = path }
     }
 
     func removeManualModule(_ path: String) {
@@ -535,13 +595,16 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     func chooseFile() {
         guard !interfaceLocked, !batch.isFrozen else { return }
+        let generation = session.generation
         let picker = NSOpenPanel()
         picker.title = "Seleziona i documenti da firmare"
         picker.canChooseFiles = true; picker.canChooseDirectories = false
         picker.allowsMultipleSelection = true
         if incomingFormat == .pades { picker.allowedContentTypes = [.pdf] }
         else if incomingFormat == .xades { picker.allowedContentTypes = [.xml] }
-        if picker.runModal() == .OK { addDocuments(picker.urls) }
+        let response = picker.runModal()
+        guard session.accepts(generation) else { return }
+        if response == .OK { addDocuments(picker.urls) }
     }
 
     func receiveDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -550,12 +613,13 @@ enum SignumFormat: String, Hashable, CaseIterable {
         guard !items.isEmpty else { return false }
         busy = true
         let request = UUID(); selectionRequestID = request
-        Task { @MainActor in
+        let generation = session.generation
+        session.own(Task { @MainActor in
             let urls = await FileDropResolution.resolve(items)
-            guard selectionRequestID == request else { return }
+            guard session.accepts(generation), selectionRequestID == request else { return }
             busy = false
             addDocuments(urls)
-        }
+        })
         return true
     }
 
@@ -563,11 +627,13 @@ enum SignumFormat: String, Hashable, CaseIterable {
         guard !interfaceLocked, !batch.isFrozen, let kind = SigningFormat(rawValue: incomingFormat.rawValue) else { return }
         provider.pin = ""
         guard let acquisition = batch.enqueueDocuments(urls, format: kind) else { return }
-        Task { @MainActor in
+        let generation = session.generation
+        session.own(Task { @MainActor in
             await acquisition.value
+            guard session.accepts(generation) else { return }
             if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
             status = "\(batch.documents.count) documenti nella selezione. Controlla il riepilogo prima di firmare."
-        }
+        })
     }
 
     var canRemoveSessionDocuments: Bool {
@@ -626,7 +692,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     func authorizeNextDocument() {
         guard canAuthorizeNext, let route = approvedRoute else { return }
-        let holder = approvedHolder
+        let holder = approvedHolder, worker = signingWorker
         if !authenticationAttempted, let plan = batch.approval,
            BatchAuthenticationPolicy.canAttempt(jobs: plan.jobs, serial: route.token.serial, mode: approvedAuthenticationMode) {
             authenticationAttempted = true
@@ -634,46 +700,50 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 authenticationSession = try BatchCAdESSession(approval: plan, serial: route.token.serial,
                     moduleIdentity: route.moduleIdentity, automaticModule: route.origin == .known,
                     temporaryPIN: approvedAuthenticationMode == .temporaryPIN,
-                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)))
+                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)), executable: worker.executable)
             } catch { provider.pin = ""; status = error.localizedDescription; return }
         }
         let session = authenticationSession
+        let generation = self.session.generation
         workspace.showingPDFPreview = false
-        interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
+        let submission = interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
             guard job.providerContext != nil else { throw SignumError.module("Contesto dispositivo approvato mancante.") }
             try route.requireCurrentModule()
             if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
-            else if job.format == .cades { try job.signCAdES(using: IsolatedPKCS11Client(), pin: pin, operation: operation) }
-            else if job.format.isAdvancedCAdES { try job.signAdvancedCAdES(using:IsolatedPKCS11Client(),pin:pin,operation:operation) }
-            else if job.format == .xades || job.format.isASiC { try job.signXAdES(using:IsolatedPKCS11Client(),pin:pin,operation:operation) }
+            else if job.format == .cades { try job.signCAdES(using: worker, pin: pin, operation: operation) }
+            else if job.format.isAdvancedCAdES { try job.signAdvancedCAdES(using:worker,pin:pin,operation:operation) }
+            else if job.format == .xades || job.format.isASiC { try job.signXAdES(using:worker,pin:pin,operation:operation) }
             else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
                 field: nil, operation: operation, appearance: job.padesAppearance) }
         }, completion: { result in
+            guard self.session.accepts(generation) else { return }
             lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
             if let session {
                 if session.canContinue {
                     authenticationStatus = approvedAuthenticationMode == .temporaryPIN
                         ? "PIN temporaneo attivo soltanto per questo batch approvato."
                         : "Sessione autenticata per questo batch. Nessun PIN riutilizzato."
-                    Task { @MainActor in
+                    self.session.own(Task { @MainActor in
                         await batch.continueAuthenticatedBatch(using: session)
+                        if authenticationSession === session { authenticationSession = nil }
+                        guard self.session.accepts(generation) else { return }
                         lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
-                        authenticationSession = nil
                         authenticationStatus = batch.authenticationNotice.isEmpty ? "Sessione autenticata conclusa." : batch.authenticationNotice
                         status = presentation.resultSummary
-                    }
+                    })
                 } else {
                     let retirement = batch.retireAuthenticatedSession(using: session)
-                    Task { @MainActor in
+                    self.session.own(Task { @MainActor in
                         await retirement.value
-                        authenticationSession = nil
+                        if authenticationSession === session { authenticationSession = nil }
+                        guard self.session.accepts(generation) else { return }
                         authenticationStatus = batch.authenticationNotice.isEmpty
                             ? (batch.documents.contains(where: { $0.state == .failed || $0.state == .uncertain })
                                 ? "Batch interrotto. Consulta i dettagli; nessun tentativo viene ripetuto."
                                 : "Riuso non verificabile per questa chiave o sessione: PIN esplicito per le firme restanti.")
                             : batch.authenticationNotice
                         status = presentation.resultSummary
-                    }
+                    })
                 }
             } else {
                 switch result {
@@ -682,6 +752,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 }
             }
         })
+        self.session.own(submission)
     }
 
 }

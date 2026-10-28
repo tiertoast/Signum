@@ -17,6 +17,7 @@ struct SignumNativeWorkspace: NSViewControllerRepresentable {
         var settings: () -> Void
         var back: () -> Void
         var close: () -> Void = {}
+        var opened: () -> Void = {}
     }
     let sidebar: AnyView
     let detail: AnyView
@@ -78,6 +79,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
     let sidebarHost: NSHostingController<SignumHostedContent>
     let detailHost: NSHostingController<SignumHostedContent>
     private var closeObserver: SignumNotificationObservation?
+    private var openObserver: SignumNotificationObservation?
     private var controls: SignumNativeWorkspace.Controls
     private let nativeToolbar = NSToolbar(identifier: "signum.window.toolbar")
     private var items: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
@@ -140,6 +142,10 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
             closeObserver = SignumNotificationObservation(name: NSWindow.willCloseNotification, object: window) { [weak self] _ in
                 MainActor.assumeIsolated { self?.controls.close() }
             }
+            openObserver = SignumNotificationObservation(name: .signumWindowOpened, object: window) { [weak self] _ in
+                MainActor.assumeIsolated { self?.controls.opened() }
+            }
+            controls.opened()
             window.toolbar = nativeToolbar
             window.toolbarStyle = .unified
             window.title = "Signum"
@@ -152,7 +158,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         guard !invalidated else { return }
         invalidated = true
         sidebarContent.invalidate(); detailContent.invalidate()
-        closeObserver = nil
+        closeObserver = nil; openObserver = nil
         controls.close()
     }
     func update(_ controls: SignumNativeWorkspace.Controls) {
