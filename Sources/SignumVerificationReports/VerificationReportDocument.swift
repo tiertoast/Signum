@@ -111,7 +111,10 @@ public struct VerificationReportDocument: Sendable {
         }
         var overview=[field("Documento",self.documentName),field("Formato",format),field("Impronta SHA-256",sha256),
                       field("Data della verifica",Self.date(verificationDate)),field("Firme rilevate",String(report.signatures.count)),
-                      field("Esito crittografico",report.summary)]
+                      field(report.format == .pades ? "Esito crittografico delle firme" : "Esito crittografico",report.format == .pades ? report.integrity.description : report.summary)]
+        let documentOutcome = report.documentOutcome
+        overview.append(field(documentOutcome.title, documentOutcome.value))
+        if report.format == .pades { overview.append(field("Copertura della revisione corrente", report.revisionCoverageDescription)) }
         if let digest=report.detachedContentSHA256 {overview.append(field("Contenuto separato SHA-256",digest))}
         if !report.issue.isEmpty {overview.append(field("Motivazione del documento",report.issue))}
         fields=overview
@@ -146,7 +149,8 @@ public struct VerificationReportDocument: Sendable {
             if report.format == .cades {identityFields.append(field("Livello CMS",String(signature.cmsLayer)))}
             if let path=signature.cmsSignerPath,!path.isEmpty {identityFields.append(field("Percorso SignerInfo",path))}
             if let revision=signature.signedRevisionEnd {identityFields.append(field("Revisione firmata","Byte 0..."+String(revision)))}
-            if signature.laterChanges {identityFields.append(field("Modifiche successive","Presenti; accettabilità non valutata"))}
+            if report.format == .pades { identityFields.append(field("Copertura della firma", report.signatureCoverageDescription(signature))) }
+            if signature.laterChanges {identityFields.append(field("Modifiche successive","Presenti; accettabilità DocMDP/FieldMDP non valutata"))}
             identityFields.append(field("Data dichiarata (signingTime)",Self.declaredDate(signature.declaredTime)))
             let missing="Risultato non presente nello snapshot della sessione; valutazione non completata o non disponibile."
             var outcomes=[outcome("Integrità crittografica",signature.integrity.description,signature.reason.isEmpty ? "Esito crittografico restituito dal motore Signum; attendibilità del certificato valutata separatamente.":signature.reason)]

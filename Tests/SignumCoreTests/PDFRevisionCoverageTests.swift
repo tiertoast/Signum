@@ -76,16 +76,37 @@ final class PDFRevisionCoverageTests: XCTestCase {
         try run(poppler, ["-layout", name+".pdf", name+".txt"], in: root)
         return try String(contentsOf: root.appendingPathComponent(name+".txt"), encoding: .utf8)
     }
-    // Before S01 this is the production summary's exact mapping. After the fix,
-    // route this adapter through the new document-aware production mapping.
+    // Same behavioral assertions as the red run; now use the document-aware
+    // production mapper that replaces the old enum-only mapping in the screen.
     private func documentCheck(_ report: VerificationReport) -> VerificationCheck {
-        VerificationPresentation.integrity(report.integrity)
+        VerificationPresentation.document(report)
     }
     @discardableResult private func assess(_ pdf: Data, root: URL, name: String, expected: VerificationTone) throws -> VerificationReport {
         let helper = URL(fileURLWithPath: try FixtureRequirements.helper())
         let report = try SignumVerificationService.verify(data: pdf, name: name+".pdf", helper: helper)
         let check = documentCheck(report)
         XCTAssertEqual(check.tone, expected, name)
+        XCTAssertEqual(VerificationPresentation.documentList(report), check, name)
+        XCTAssertEqual(check.accessibilityLabel, check.title + ": " + check.value)
+        XCTAssertEqual(report.documentOutcome.value, check.value)
+        XCTAssertEqual(report.documentIntegrity, expected == .positive ? .verified : expected == .negative ? .invalid : .notVerifiable)
+        XCTAssertEqual(report.withoutPreview().currentRevisionCoverage, report.currentRevisionCoverage)
+        XCTAssertEqual(documentCheck(report.withoutPreview()), check)
+        let coverage = report.currentRevisionCoverage
+        if expected == .positive {
+            XCTAssertEqual(coverage.state, .covered)
+            XCTAssertEqual(coverage.lastVerifiedRevisionEnd, pdf.count)
+            XCTAssertEqual(coverage.bytesAfterLastVerifiedRevision, 0)
+            XCTAssertTrue(check.value.contains("revisione coperta") || check.value.contains("revisione corrente coperta"))
+        } else {
+            XCTAssertEqual(coverage.state, .notEvaluated)
+            XCTAssertEqual(coverage.subsequentMaterial, .unclassified)
+        }
+        if expected == .uncertain {
+            XCTAssertGreaterThan(try XCTUnwrap(coverage.bytesAfterLastVerifiedRevision), 0)
+            XCTAssertEqual(coverage.lastVerifiedRevisionEnd, report.signatures[0].signedRevisionEnd)
+            XCTAssertTrue(check.accessibilityLabel.contains("non valutate"))
+        }
         XCTAssertEqual(check.symbol, expected == .positive ? "checkmark.circle.fill" : expected == .negative ? "xmark.circle.fill" : "questionmark.circle", name)
         if expected == .uncertain {
             XCTAssertTrue(report.summary.contains("non valutate"), report.summary)
@@ -94,17 +115,22 @@ final class PDFRevisionCoverageTests: XCTestCase {
         let at = Date(timeIntervalSince1970: 1_800_000_000)
         let document = try VerificationReportDocument(report: report.withoutPreview(), validations: [], verificationDate: at, exportedAt: at)
         // The verdict must be in the overview, before the individual signature details.
+        XCTAssertEqual(document.fields.first { $0.label == check.title }?.value, check.value, name)
         let overview = document.fields.map { $0.value }.joined(separator: " ")
         if expected == .uncertain { XCTAssertTrue(overview.contains("non valutate"), overview) }
         let txt = try VerificationReportExporter.data(document, format: .text)
         let exported = try VerificationReportExporter.data(document, format: .pdf)
         let extracted = try text(exported, root: root, name: name+"-report")
+        XCTAssertTrue(String(decoding: txt, as: UTF8.self).contains(check.title + ": " + check.value))
+        let flat = extracted.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        XCTAssertTrue(flat.contains(check.value), flat)
         if expected == .uncertain {
             XCTAssertTrue(String(decoding: txt, as: UTF8.self).contains("non valutate"))
             XCTAssertTrue(extracted.contains("non valutate"))
         }
         let evidence = try FixtureFiles.directory("s01-"+name, evidence: true)
         try pdf.write(to: evidence.appendingPathComponent(name+".pdf"))
+        try Data(text(pdf, root: root, name: name+"-source").utf8).write(to: evidence.appendingPathComponent("source-pdftotext.txt"))
         try exported.write(to: evidence.appendingPathComponent("report.pdf"))
         try txt.write(to: evidence.appendingPathComponent("report.txt"))
         try Data(extracted.utf8).write(to: evidence.appendingPathComponent("report-pdftotext.txt"))
@@ -140,6 +166,8 @@ final class PDFRevisionCoverageTests: XCTestCase {
             XCTAssertTrue(try text(second, root: root, name: "c-source").contains(originalText))
             let r = try assess(second, root: root, name: "c-multiple", expected: .positive)
             XCTAssertEqual(r.signatures.map(\.integrity), [.verified, .verified])
+            XCTAssertEqual(r.currentRevisionCoverage.subsequentMaterial, .signedRevisions)
+            XCTAssertTrue(r.signatureCoverageDescription(r.signatures[0]).contains("firma successiva"))
             XCTAssertEqual(r.signatures.map(\.laterChanges), [true, false]); XCTAssertEqual(r.signatures.last?.signedRevisionEnd, second.count)
         }
     }
@@ -180,5 +208,41 @@ final class PDFRevisionCoverageTests: XCTestCase {
             XCTAssertEqual(r.signatures.map(\.integrity), [.invalid])
         }
     }
+    func testHMissingOrInconsistentCoverageMetadataFailsClosedWithoutChangingSignatureMath() throws {
+        let signature = SignatureVerificationResult(id: 0, integrity: .verified, certificate: nil,
+            algorithm: "", declaredTime: "", reason: "", signedRevisionEnd: 100, laterChanges: false, cmsLayer: 1)
+        var report = VerificationReport(id: UUID(), documentName: "metadata.pdf", sha256: String(repeating: "a", count: 64),
+            format: .pades, signatures: [signature], documentState: "signed", issue: "", previewPDF: Data(repeating: 0, count: 100), originalContent: nil)
+        // Preview length and laterChanges=false alone are not evidence of coverage.
+        XCTAssertEqual(report.integrity, .verified)
+        XCTAssertEqual(report.currentRevisionCoverage.state, .notEvaluated)
+        XCTAssertEqual(documentCheck(report).tone, .uncertain)
+        XCTAssertTrue(documentCheck(report).accessibilityLabel.contains("non valutata"))
+        report.documentByteCount = 101
+        XCTAssertEqual(report.currentRevisionCoverage.state, .notEvaluated)
+        XCTAssertEqual(report.documentIntegrity, .notVerifiable)
+        report.documentByteCount = 99
+        XCTAssertEqual(report.currentRevisionCoverage.state, .notEvaluated)
+        XCTAssertEqual(report.integrity, .verified)
+        // PDF coverage requirements do not change other formats' mathematics.
+        let cms = VerificationReport(id: UUID(), documentName: "metadata.p7m", sha256: report.sha256,
+            format: .cades, signatures: [signature], documentState: "signed", issue: "", previewPDF: nil, originalContent: nil)
+        XCTAssertEqual(cms.currentRevisionCoverage.state, .notApplicable)
+        XCTAssertEqual(cms.documentIntegrity, .verified)
+    }
+    func testInvalidPreviousSignatureTakesPrecedenceEvenIfLaterSignatureCoversCurrentBytes() {
+        let signatures = [
+            SignatureVerificationResult(id: 0, integrity: .invalid, certificate: nil, algorithm: "", declaredTime: "", reason: "", signedRevisionEnd: 50, laterChanges: true, cmsLayer: 1),
+            SignatureVerificationResult(id: 1, integrity: .verified, certificate: nil, algorithm: "", declaredTime: "", reason: "", signedRevisionEnd: 100, laterChanges: false, cmsLayer: 1)
+        ]
+        var report = VerificationReport(id: UUID(), documentName: "invalid-previous.pdf", sha256: String(repeating: "a", count: 64),
+            format: .pades, signatures: signatures, documentState: "signed", issue: "", previewPDF: nil, originalContent: nil)
+        report.documentByteCount = 100
+        XCTAssertEqual(report.currentRevisionCoverage.state, .covered)
+        XCTAssertEqual(report.documentIntegrity, .invalid)
+        XCTAssertEqual(documentCheck(report).tone, .negative)
+        XCTAssertEqual(VerificationPresentation.documentList(report), documentCheck(report))
+    }
+
 }
 #endif

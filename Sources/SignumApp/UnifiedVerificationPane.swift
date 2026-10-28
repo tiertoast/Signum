@@ -211,6 +211,10 @@ struct UnifiedVerificationPane: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
                             if let report = row.report {
+                                check(VerificationPresentation.document(report))
+                                if report.format == .pades, !report.signatures.isEmpty {
+                                    Text(report.revisionCoverageDescription).font(.callout).textSelection(.enabled)
+                                }
                                 if report.signatures.count > 1 {
                                     Picker("Firma", selection: Binding(get: { selectedSignature ?? report.signatures.first!.id }, set: { selectedSignature = $0; detailsExpanded = false })) {
                                         ForEach(report.signatures) { signature in
@@ -219,7 +223,7 @@ struct UnifiedVerificationPane: View {
                                     }.pickerStyle(.menu).frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 if let signature = report.signatures.first(where: { $0.id == selectedSignature }) ?? report.signatures.first {
-                                    signatureSummary(signature, row: row)
+                                    signatureSummary(signature, row: row, report: report)
                                     DisclosureGroup("Dettagli", isExpanded: $detailsExpanded) {
                                         technicalDetails(row, report: report, signature: signature)
                                             .padding(.top, 12)
@@ -284,8 +288,15 @@ struct UnifiedVerificationPane: View {
                             }
                         }.help(row.sourceURL.path)
                         Spacer()
-                        Text(row.report.map { $0.integrity == .verified ? "Integrità verificata" : $0.summary } ?? (workspace.busy && !row.finished ? (row.started ? "In verifica…" : "In coda…") : "Non disponibile"))
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if let report = row.report {
+                            let outcome = VerificationPresentation.documentList(report)
+                            Text(outcome.value).font(.caption)
+                                .foregroundStyle(outcome.tone == .positive ? Color.green : outcome.tone == .negative ? Color.red : Color.secondary)
+                                .lineLimit(1).help(outcome.value).accessibilityLabel(outcome.accessibilityLabel)
+                        } else {
+                            Text(workspace.busy && !row.finished ? (row.started ? "In verifica…" : "In coda…") : "Non disponibile")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
                         SessionRemovalButton(name: row.name, disabled: workspace.busy || exporting) {
                             if workspace.remove(row.id) { extractionIssue = "" }
                         }
@@ -303,12 +314,12 @@ struct UnifiedVerificationPane: View {
     private func check(_ value: VerificationCheck) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Image(systemName: value.symbol).foregroundStyle(value.tone == .positive ? Color.green : value.tone == .negative ? Color.red : Color.secondary)
-                .accessibilityLabel(value.tone == .positive ? "Verificato" : value.tone == .negative ? "Esito negativo" : "Indeterminato")
+                .accessibilityHidden(true)
             Text(value.title).foregroundStyle(.secondary).frame(width: 170, alignment: .leading)
             Text(value.value).frame(maxWidth: .infinity, alignment: .leading)
-        }.font(.body)
+        }.font(.body).accessibilityElement(children: .ignore).accessibilityLabel(value.accessibilityLabel)
     }
-    private func signatureSummary(_ signature: SignatureVerificationResult, row: VerificationWorkspace.Row) -> some View {
+    private func signatureSummary(_ signature: SignatureVerificationResult, row: VerificationWorkspace.Row, report: VerificationReport) -> some View {
         let value = row.validations[signature.id]
         let path = row.paths[signature.id]
         let policy = CertificatePolicyPresentation(certificate: signature.signerDER)
@@ -324,7 +335,10 @@ struct UnifiedVerificationPane: View {
                 }
             }
             VStack(alignment: .leading, spacing: 14) {
-                check(VerificationPresentation.integrity(signature.integrity))
+                check(VerificationPresentation.signatureIntegrity(signature))
+                if report.format == .pades {
+                    Text(report.signatureCoverageDescription(signature)).font(.callout).textSelection(.enabled)
+                }
                 check(VerificationPresentation.provider(path))
                 check(VerificationPresentation.revocation(value?.evidence.revocation.state))
                 check(VerificationPresentation.qualification(value?.qualification))

@@ -7,6 +7,7 @@ struct VerificationCheck: Equatable {
     let title: String
     let value: String
     let tone: VerificationTone
+    var accessibilityLabel: String { title + ": " + value }
     var symbol: String { tone == .positive ? "checkmark.circle.fill" : tone == .negative ? "xmark.circle.fill" : "questionmark.circle" }
 }
 /// Maps existing motor results to labels only. No trust decision is made here.
@@ -14,6 +15,16 @@ enum VerificationPresentation {
     static func integrity(_ value: CryptographicIntegrity) -> VerificationCheck {
         .init(title: "Integrità del documento", value: value == .verified ? "Verificata" : value == .invalid ? "Firma alterata o non valida" : value == .absent ? "Firma assente" : "Non determinabile",
               tone: value == .verified ? .positive : value == .invalid ? .negative : .uncertain)
+    }
+    static func document(_ report: VerificationReport) -> VerificationCheck {
+        let outcome = report.documentOutcome
+        return .init(title: outcome.title, value: outcome.value,
+                     tone: outcome.integrity == .verified ? .positive : outcome.integrity == .invalid ? .negative : .uncertain)
+    }
+    static func documentList(_ report: VerificationReport) -> VerificationCheck { document(report) }
+    static func signatureIntegrity(_ signature: SignatureVerificationResult) -> VerificationCheck {
+        let value = integrity(signature.integrity)
+        return .init(title: "Integrità della firma", value: value.value, tone: value.tone)
     }
     static func provider(_ path: CertificatePathResult?) -> VerificationCheck {
         let recognized = path?.state == .verified && path?.service != nil

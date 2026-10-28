@@ -55,6 +55,8 @@ public struct VerificationReport: Identifiable, Sendable {
     public let trust = UnassessedValidation.notChecked
     public let revocation = UnassessedValidation.notChecked
     public let qualification = UnassessedValidation.notChecked
+    /// Size of the immutable input verified by the native engine; retained without preview bytes.
+    public var documentByteCount: Int? = nil
     public var detachedContentSHA256: String? = nil
     public var unassociatedEvidence: [EmbeddedValidationEvidence] = []
     public static let scope = "Attendibilità del certificato non ancora verificata. Revoca, qualificazione eIDAS, marche temporali e LTV non valutate."
@@ -70,11 +72,13 @@ public struct VerificationReport: Identifiable, Sendable {
         if documentState == "damaged" { return "Documento danneggiato o struttura non supportata" }
         if documentState == "unsupported" { return "Formato non supportato" }
         if format == .pades && integrity == .absent { return "PDF non firmato" }
+        if format == .pades { return documentOutcome.value }
         return integrity.description
     }
     public func withoutPreview() -> Self {
         var copy = Self(id: id, documentName: documentName, sha256: sha256, format: format,
               signatures: signatures, documentState: documentState, issue: issue, previewPDF: nil, originalContent: nil)
+        copy.documentByteCount = documentByteCount
         copy.detachedContentSHA256 = detachedContentSHA256
         copy.unassociatedEvidence = unassociatedEvidence
         return copy
@@ -186,6 +190,10 @@ public enum SignumVerificationService {
                   [$0.reason,$0.subject,$0.issuer,$0.algorithm,$0.declaredTime].allSatisfy({ $0.utf8.count <= 8192 }) &&
                   ($0.fingerprint.isEmpty || ($0.fingerprint.count == 64 && $0.fingerprint.allSatisfy { $0.isHexDigit })) &&
                   ($0.integrity != .verified || !$0.fingerprint.isEmpty) }) else { throw SupervisedProcess.Failure.protocolViolation }
+        // A PDF boundary is meaningful only relative to the exact immutable input.
+        guard wire.format != .pades || wire.signatures.allSatisfy({
+            $0.integrity != .verified || ($0.revisionEnd > 0 && $0.laterChanges == ($0.revisionEnd < data.count))
+        }) else { throw SupervisedProcess.Failure.protocolViolation }
         let records = try wire.signatures.enumerated().map { i, s in
             var record = SignatureVerificationResult(id: i, integrity: s.integrity,
                 certificate: s.fingerprint.isEmpty ? nil : .init(subject: s.subject, issuer: s.issuer, sha256: s.fingerprint),
@@ -233,6 +241,7 @@ public enum SignumVerificationService {
               (wire.unassociatedEvidence ?? []).allSatisfy({ validEvidence($0, inputSize: data.count) && $0.association == .unassociated }) else { throw SupervisedProcess.Failure.protocolViolation }
         var result = VerificationReport(id: UUID(), documentName: name, sha256: DocumentSnapshot.digest(data), format: wire.format,
             signatures: records, documentState: wire.state, issue: wire.reason, previewPDF: preview, originalContent: original)
+        result.documentByteCount = data.count
         result.detachedContentSHA256 = detachedContent.map { DocumentSnapshot.digest($0) }
         result.unassociatedEvidence = wire.unassociatedEvidence ?? []
         return result
