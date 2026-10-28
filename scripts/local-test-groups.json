@@ -12,7 +12,9 @@
       "SigningWorkspaceSelectionTests",
       "SignumCoreTests",
       "DeviceRefreshLifecycleTests",
-      "DefaultApplicationsTests"
+      "DefaultApplicationsTests",
+      "SignumTrustCoreTests.TLContinuityPolicyTests",
+      "SignumTrustCoreTests.TrustedListParserTests"
     ],
     "native-helper": [
       "BatchDestinationTests",
@@ -24,7 +26,10 @@
       "PAdESStatusIntegrationTests",
       "SigningFormatStabilizationTests",
       "UnifiedVerificationTests",
-      "SigningIncomingFormatTests"
+      "SigningIncomingFormatTests",
+      "PDFRevisionCoverageTests",
+      "S03PINFidelityTests",
+      "S15SigningTimeTests"
     ],
     "poppler": [
       "PAdESDefaultSigningTests",
@@ -73,7 +78,30 @@
       "SnapshotRetirementTests",
       "PDFPreviewPreparationTests",
       "ConcurrencyOwnershipTests",
-      "SigningRouteLabelTests"
+      "SigningRouteLabelTests",
+      "SignumCertificateValidationTests.CertificatePathTests",
+      "SignumCertificateValidationTests.CurrentTimeQualificationTests",
+      "SignumCertificateValidationTests.ETSISemanticsTests",
+      "SignumCertificateValidationTests.EuropeanAppIntegrationTests",
+      "SignumCertificateValidationTests.EuropeanCatalogTests",
+      "SignumCertificateValidationTests.EvidenceBindingTests",
+      "SignumCertificateValidationTests.QualificationTests",
+      "SignumCertificateValidationTests.RevocationEvidenceTests",
+      "SignumCertificateValidationTests.TimestampEvidenceTests",
+      "SignumCertificateValidationTests.TrustArchitectureTests",
+      "SignumCertificateValidationTests.VerificationPresentationTests",
+      "SignumCertificateValidationTests.VerificationReportExportTests",
+      "SignumCertificateValidationTests.XAdESTrustIntegrationTests",
+      "CumulativeVerificationTests",
+      "PINChangeQualificationTests",
+      "PINManagementFoundationTests",
+      "S06PINCleanupTests",
+      "TaskCancellationLifecycleTests",
+      "SignumTrustAuthenticationTests.AuthenticationTests",
+      "SignumTrustAuthenticationTests.EuropeanBarrierTests",
+      "SignumTrustAuthenticationTests.EuropeanTests",
+      "SignumTrustAuthenticationTests.HTTPSTests",
+      "SignumTrustAuthenticationTests.RefreshTests"
     ],
     "ui": [
       "DynamicFormatWorkspaceTests",
@@ -86,7 +114,17 @@
       "PAdESPlacementPerformanceTests",
       "LegacyPAdESPreviewReferenceTests",
       "SignaturePlacementOverlayTests",
-      "SigningWorkspaceTests"
+      "SigningWorkspaceTests",
+      "SignumCertificateValidationTests.HostedPublicationLifecycleTests",
+      "SignumCertificateValidationTests.NativeWorkspaceTests",
+      "SignumCertificateValidationTests.NotificationObservationLifecycleTests",
+      "DevicesLayoutTests",
+      "DevicesPresentationTests",
+      "PlacementReadinessCharacterizationTests",
+      "S04WindowRevocationTests",
+      "S05ManualModuleRemovalTests",
+      "SessionDocumentRemovalTests",
+      "SignumTrustIntegrationTests.TrustedListsIntegrationTests"
     ]
   },
   "requires": {
@@ -105,7 +143,27 @@
       "PAdESStatusIntegrationTests",
       "SigningFormatStabilizationTests",
       "UnifiedVerificationTests",
-      "SigningIncomingFormatTests"
+      "SigningIncomingFormatTests",
+      "SignumCertificateValidationTests.CertificatePathTests",
+      "SignumCertificateValidationTests.CurrentTimeQualificationTests",
+      "SignumCertificateValidationTests.ETSISemanticsTests",
+      "SignumCertificateValidationTests.EuropeanAppIntegrationTests",
+      "SignumCertificateValidationTests.EuropeanCatalogTests",
+      "SignumCertificateValidationTests.EvidenceBindingTests",
+      "SignumCertificateValidationTests.HostedPublicationLifecycleTests",
+      "SignumCertificateValidationTests.NativeWorkspaceTests",
+      "SignumCertificateValidationTests.NotificationObservationLifecycleTests",
+      "SignumCertificateValidationTests.QualificationTests",
+      "SignumCertificateValidationTests.RevocationEvidenceTests",
+      "SignumCertificateValidationTests.TimestampEvidenceTests",
+      "SignumCertificateValidationTests.TrustArchitectureTests",
+      "SignumCertificateValidationTests.VerificationPresentationTests",
+      "SignumCertificateValidationTests.VerificationReportExportTests",
+      "SignumCertificateValidationTests.XAdESTrustIntegrationTests",
+      "PDFRevisionCoverageTests",
+      "S03PINFidelityTests",
+      "S04WindowRevocationTests",
+      "S15SigningTimeTests"
     ],
     "poppler": [
       "PAdESDefaultSigningTests",
@@ -124,7 +182,19 @@
       "LegacyPAdESPreviewReferenceTests",
       "PAdESStabilizationSigningTests",
       "SignaturePlacementOverlayTests",
-      "SigningWorkspaceTests"
+      "SigningWorkspaceTests",
+      "SignumCertificateValidationTests.HostedPublicationLifecycleTests",
+      "SignumCertificateValidationTests.NativeWorkspaceTests",
+      "SignumCertificateValidationTests.NotificationObservationLifecycleTests",
+      "DevicesLayoutTests",
+      "DevicesPresentationTests",
+      "PlacementReadinessCharacterizationTests",
+      "S04WindowRevocationTests",
+      "S05ManualModuleRemovalTests",
+      "SessionDocumentRemovalTests",
+      "SignumTrustIntegrationTests.TrustedListsIntegrationTests"
     ]
-  }
+  },
+  "schema": 2,
+  "excluded": {}
 }
