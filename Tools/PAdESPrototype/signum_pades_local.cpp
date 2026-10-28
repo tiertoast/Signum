@@ -1,3 +1,4 @@
+#include "SignumSecurePIN.h"
 #include "SigningProviderContext.h"
 #include <optional>
 #include "PAdESInput.h"
@@ -319,6 +320,16 @@ int main(int argc, char** argv) {
         // re-opened temporary pathname. The input is never opened for writing.
         charbuff pdfBytes(std::string(reinterpret_cast<const char*>(source.data()), source.size()));
 
+        std::vector<uint8_t> pin;
+        struct PINScope { std::vector<uint8_t>& value; ~PINScope() { wipe_pin(value); } } pinScope{pin};
+        if (pinFromPipe) {
+            pin = signum::readPAdESPIN(STDIN_FILENO);
+        } else {
+            std::unique_ptr<SGSecurePIN, decltype(&sg_secure_pin_destroy)> owned(sg_secure_pin_create(), sg_secure_pin_destroy);
+            if (!owned || sg_secure_pin_read_terminal(owned.get(), 120) != 0)
+                throw std::runtime_error("PIN rifiutato: 1-64 byte UTF-8 senza NUL/CR/LF; conferma Ctrl-J. Nessuna sessione aperta.");
+            pin.assign(sg_secure_pin_bytes(owned.get()), sg_secure_pin_bytes(owned.get()) + sg_secure_pin_length(owned.get()));
+        }
         std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(
             sg_token_lease_acquire(middleware.c_str(), slot, 0, 10000), sg_token_lease_release);
         if (!lease) {
@@ -347,15 +358,6 @@ int main(int argc, char** argv) {
             for (unsigned bit = 0; bit < 32; ++bit)
                 if (assessment.reasons & (1u << bit)) reason += std::string(sg_certificate_reason_message(1u << bit)) + " ";
             throw std::runtime_error(reason);
-        }
-        std::vector<uint8_t> pin;
-        if (pinFromPipe) {
-            pin = signum::readPAdESPIN(STDIN_FILENO);
-        } else {
-            char* userPIN = ::getpass("Token PIN (not echoed): ");
-            if (!userPIN || !*userPIN) throw std::runtime_error("PIN missing");
-            pin.assign(userPIN, userPIN + std::strlen(userPIN));
-            wipe_secret(userPIN, std::strlen(userPIN));
         }
 
         std::string appearanceName, appearancePDF;

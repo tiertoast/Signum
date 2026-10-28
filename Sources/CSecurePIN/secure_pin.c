@@ -80,3 +80,68 @@ int sg_secure_pin_receive(SGSecurePIN *s, int fd, double timeout) {
     }
     s->length = n; return 0;
 }
+
+/* A terminal has submission keys, unlike the length-delimited worker channel.
+ * Explicit LF is the sole terminator; CR and pasted multi-line input are refused.
+ * The prompt states Ctrl-J so no implicit CR->LF conversion can alter a PIN. */
+#include <termios.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+static int strict_utf8(const uint8_t *p, size_t n) {
+    size_t i=0;
+    while(i<n) {
+        uint32_t value=p[i++], minimum=0; unsigned rest=0;
+        if(value<0x80) continue;
+        if(value>=0xc2 && value<=0xdf){value&=0x1f;rest=1;minimum=0x80;}
+        else if(value>=0xe0 && value<=0xef){value&=0x0f;rest=2;minimum=0x800;}
+        else if(value>=0xf0 && value<=0xf4){value&=7;rest=3;minimum=0x10000;}
+        else return 0;
+        if(rest>n-i) return 0;
+        while(rest--){uint8_t b=p[i++];if((b&0xc0)!=0x80)return 0;value=(value<<6)|(b&0x3f);}
+        if(value<minimum || value>0x10ffff || (value>=0xd800 && value<=0xdfff))return 0;
+    }
+    return 1;
+}
+int sg_secure_pin_read_terminal(SGSecurePIN *s, double timeout) {
+    if(!s)return -1;
+    sg_secure_pin_clear(s);
+    if(!isfinite(timeout) || timeout<=0 || timeout>600)return -1;
+    int fd=open("/dev/tty",O_RDWR|O_CLOEXEC|O_NOCTTY);
+    if(fd<0)return -1;
+    struct termios original, raw;
+    int changed=0, result=-1; uint8_t value=0;
+    if(tcgetattr(fd,&original))goto done;
+    raw=original;cfmakeraw(&raw);
+    if(tcsetattr(fd,TCSAFLUSH,&raw))goto done;
+    changed=1;
+    const char prompt[]="Token PIN (1-64 byte UTF-8, no NUL/CR/LF; conferma Ctrl-J, annulla Ctrl-C): ";
+    size_t offset=0;
+    while(offset<sizeof(prompt)-1){ssize_t n=write(fd,prompt+offset,sizeof(prompt)-1-offset);if(n<0&&errno==EINTR)continue;if(n<=0)goto done;offset+=(size_t)n;}
+    double now=monotonic();if(now<0)goto done;
+    const double deadline=now+timeout;
+    for(;;) {
+        now=monotonic();if(now<0 || now>=deadline)goto done;
+        struct pollfd p={fd,POLLIN,0};int ready=poll(&p,1,10);
+        if(ready<0&&errno==EINTR)continue;
+        if(ready<0)goto done;if(!ready)continue;
+        ssize_t n=read(fd,&value,1);if(n<0&&errno==EINTR)continue;if(n!=1)goto done;
+        if(value=='\n') {
+            int pending=0;
+            if(ioctl(fd,FIONREAD,&pending) || pending || !s->length || !strict_utf8(s->bytes,s->length))goto done;
+            result=0;break;
+        }
+        if(value==0 || value=='\r' || value==3 || value==4 || s->length>=64)goto done;
+        s->bytes[s->length++]=value;wipe(&value,1);
+    }
+ done:
+    wipe(&value,1);
+    if(changed) {
+        /* Discard refused input before re-enabling echo. Never print it. */
+        if(tcflush(fd,TCIFLUSH))result=-1;
+        if(tcsetattr(fd,TCSANOW,&original))result=-1;
+        (void)write(fd,"\n",1);
+    }
+    close(fd);
+    if(result)sg_secure_pin_clear(s);
+    return result;
+}

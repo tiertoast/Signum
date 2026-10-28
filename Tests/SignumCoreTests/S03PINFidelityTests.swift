@@ -151,5 +151,20 @@ final class S03PINFidelityTests: XCTestCase {
             }
         }
     }
+    func testMalformedWorkerUTF8AndTerminalCancellationNeverAuthenticate() throws {
+        let f=try Fixture();defer{try? FileManager.default.removeItem(at:f.root)}
+        try f.reset()
+        let request=PKCS11WorkerRequest(action:.rsaSHA256,provider:f.module.path,slot:7,
+            certificate:.init(.init(label:"Synthetic",identifier:Data([0x53])),der:f.signer.der),attributes:Data([0x31,0]),pin:"invalid-placeholder")
+        var bytes=try JSONEncoder().encode(request)
+        let marker=try XCTUnwrap(bytes.range(of:Data("invalid-placeholder".utf8)))
+        bytes.replaceSubrange(marker,with:Data([0xff,0x80]))
+        XCTAssertThrowsError(try SupervisedProcess.run(executable:bin.appendingPathComponent("SignumPKCS11Worker"),input:&bytes,timeout:2))
+        assertAudit(f,input:Data(),valid:false)
+        let r=try terminal([(ProcessInfo.processInfo.environment["SIGNUM_TEST_CLI"] ?? bin.appendingPathComponent("SignumCLI").path),"sign-test","7","53",f.module.path],input:Data([3]),root:f.root)
+        XCTAssertEqual(r["protected"] as? Bool,true);XCTAssertEqual(r["restored"] as? Bool,true)
+        assertAudit(f,input:Data(),valid:false)
+    }
+
 }
 #endif

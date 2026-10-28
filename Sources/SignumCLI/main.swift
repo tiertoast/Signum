@@ -27,13 +27,6 @@ func help() {
     """)
 }
 
-func inputPIN() throws -> String {
-    guard let pointer = getpass("Token PIN (not stored): ") else {
-        throw SignumError.module("Cannot read PIN")
-    }
-    defer { memset(pointer, 0, strlen(pointer)) }
-    return String(cString: pointer)
-}
 
 func withCancellation<T>(_ operation: SigningOperation, _ body: () throws -> T) rethrows -> T {
     let previous = signal(SIGINT, SIG_IGN)
@@ -120,6 +113,8 @@ func run() throws {
     guard let slot = UInt(arguments[1]) else {
         throw SignumError.module("Invalid slot")
     }
+    // Acquire and validate the whole terminal input before even a public session.
+    let acquiredPIN = action == "sign-test" || action == "sign-cades" ? try TerminalPIN.read() : nil
     let rows = try withCancellation(operation) {
         try worker.certificates(provider: provider, slot: slot, isCancelled: { operation.isCancellationRequested })
     }
@@ -145,7 +140,7 @@ func run() throws {
     print(CertificateEligibility.scope)
 
     if action == "sign-test" {
-        let pin = try inputPIN()
+        let pin = acquiredPIN!
         print("Starting hardware signing test (not a PDF signature)...")
         try withCancellation(operation) {
             try worker.signProof(provider: provider, slot: slot, certificate: certificate, der: approvedCertificate,
@@ -176,7 +171,7 @@ func run() throws {
     fflush(stdout)
     guard readLine() == "FIRMA" else { throw SignumError.module("Firma annullata. Copia privata scartata.") }
     _ = try job.verifiedBytes()
-    let pin = try inputPIN()
+    let pin = acquiredPIN!
     try withCancellation(operation) { try job.signCAdES(using: worker, pin: pin, operation: operation) }
     print("Created: \(output.path)")
     print("NEXT: verify with: openssl cms -verify -inform DER -binary -noverify -in '\(output.path)' -out /tmp/signum-extracted.dat")
