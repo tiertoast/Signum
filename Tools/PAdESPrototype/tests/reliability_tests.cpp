@@ -753,7 +753,9 @@ int main(int argc, char** argv) {
                 "--expected-document-sha256", sha256(source), "--expected-cert-sha256", sha256(Bytes(signer.der.begin(), signer.der.end())), "--verified-output-v4"};
             std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(nullptr, sg_token_lease_release);
             if (busy) { lease.reset(sg_token_lease_acquire(module.c_str(), 7, 0, 0)); expect(lease != nullptr, "Cannot hold fixture token"); }
-            auto pid = spawnFixture(args, f.path / "helper.log", busy ? "" : "synthetic-fixture\n");
+            // A valid frame is required to reach lease acquisition (S03).
+            // Empty stdin must now reject before the provider rather than block.
+            auto pid = spawnFixture(args, f.path / "helper.log", "synthetic-fixture\n");
             if (busy) {
                 usleep(150000);
                 expect(!fs::exists(f.path / "operations") && !fs::exists(output), "Blocked helper accessed provider or output");
