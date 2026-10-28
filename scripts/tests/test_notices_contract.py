@@ -12,7 +12,7 @@ c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
 class NoticeContractTests(unittest.TestCase):
     def fixture(self,body):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory).resolve();prefix=root/'lib';prefix.mkdir();app=root/'product';app.write_bytes(b'product');library=prefix/'libfixture.1.dylib';library.write_bytes(b'library')
+            root=Path(directory).resolve();prefix=root/'prefix/lib';prefix.mkdir(parents=True);app=root/'product';app.write_bytes(b'product');library=prefix/'libfixture.1.dylib';library.write_bytes(b'library')
             notices=root/'Notices';notices.mkdir();data=b'SYNTHETIC COMPLETE NOTICE\n'+b'x'*1200;(notices/'fixture.txt').write_bytes(data)
             catalog={'components':{'fixture':{'libraryPatterns':[r'libfixture\.1\.dylib'],'notices':{'fixture.txt':hashlib.sha256(data).hexdigest()},'minimumNoticeBytes':1000,'nativeKey':'fixture','nativeVersion':'fixture-1'}}}
             native={'sources':{'fixture':{'version':'fixture-1'}}}
@@ -20,6 +20,8 @@ class NoticeContractTests(unittest.TestCase):
             body(app,prefix,notices,native,catalog,inspect)
     def test_complete_local_text_covers_derived_transitive_closure(self):
         self.fixture(lambda a,p,n,m,s,i:self.assertEqual(c.audit([a],p,n,m,s,i)['components'],['fixture']))
+    def test_native_prefix_root_resolves_its_lib_directory(self):
+        self.fixture(lambda a,p,n,m,s,i:self.assertEqual(c.audit([a],p.parent,n,m,s,i)['components'],['fixture']))
     def test_missing_changed_and_referral_notices_fail(self):
         def body(a,p,n,m,s,i):
             file=n/'fixture.txt';original=file.read_bytes()

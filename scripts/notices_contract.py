@@ -16,7 +16,7 @@ def dependencies(binary):
 
 
 def closure(binaries, prefix, inspect=dependencies):
-    prefix=Path(prefix).resolve();todo=[Path(p).resolve() for p in binaries];seen={};system=set()
+    prefix=Path(prefix).resolve();library_root=prefix/'lib' if (prefix/'lib').is_dir() else prefix;todo=[Path(p).resolve() for p in binaries];seen={};system=set()
     if not todo:raise ValueError('No product Mach-O binaries supplied')
     while todo:
         binary=todo.pop(0)
@@ -25,7 +25,7 @@ def closure(binaries, prefix, inspect=dependencies):
         refs=inspect(binary);edges=[]
         for ref in refs:
             if ref.startswith(('/usr/lib/','/System/Library/')):system.add(ref);continue
-            if ref.startswith('@rpath/'):path=prefix/ref[len('@rpath/'):]
+            if ref.startswith('@rpath/'):path=library_root/ref[len('@rpath/'):]
             elif ref.startswith('@loader_path/'):path=binary.parent/ref[len('@loader_path/'):]
             elif ref.startswith('/'):path=Path(ref)
             else:raise ValueError('Unsupported dependency locator: '+ref)
