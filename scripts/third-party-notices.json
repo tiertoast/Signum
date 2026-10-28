@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "components": {
+    "openssl": {
+      "libraryPatterns": [
+        "libcrypto\\..*\\.dylib",
+        "libssl\\..*\\.dylib"
+      ],
+      "notices": {
+        "OpenSSL.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+      },
+      "nativeKey": "openssl",
+      "nativeVersion": "openssl-3.5.6",
+      "spdx": "Apache-2.0"
+    },
+    "xmlsec": {
+      "libraryPatterns": [
+        "libxmlsec1(?:-openssl)?\\..*\\.dylib"
+      ],
+      "notices": {
+        "xmlsec.txt": "a6d217151f3d423e06639c075bad8e442ea1936828d3a660105122ef78ecd96d"
+      },
+      "nativeKey": "xmlsec",
+      "nativeVersion": "xmlsec1-1.3.12",
+      "minimumNoticeBytes": 1000,
+      "spdx": "MIT",
+      "spdxEvidence": "Local Homebrew formula libxmlsec1 1.3.12_1 license field; full Copyright remains authoritative",
+      "upstreamSourceSHA256": "24045199af12d93fe5fdbbbf7e386e823e4842071e9432e2b90ac108b889a923"
+    },
+    "libxml2": {
+      "libraryPatterns": [
+        "libxml2\\..*\\.dylib"
+      ],
+      "notices": {
+        "libxml2.txt": "5d4873884a890122a4b9b20ad56ac6f7da1d796a5bfcf04a427970ac96217626"
+      },
+      "nativeKey": "libxml2",
+      "nativeVersion": "libxml2-2.15.4"
+    },
+    "podofo": {
+      "libraryPatterns": [
+        "libpodofo\\..*\\.dylib"
+      ],
+      "notices": {
+        "PoDoFo-LGPL.txt": "cd758abe2acf45f96d7802f4bc864fc955f548fbe8d6d9b41446b303daca1005",
+        "PoDoFo-MPL.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+      },
+      "nativeKey": "podofo",
+      "nativeVersion": "podofo-1.1.2",
+      "spdx": "LGPL-2.0-or-later OR MPL-2.0",
+      "embedded": [
+        "freetype",
+        "pdfium",
+        "numerics",
+        "liberalean",
+        "foxit"
+      ]
+    },
+    "freetype": {
+      "libraryPatterns": [],
+      "notices": {
+        "FreeType-license.txt": "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b",
+        "FreeType-FTL.txt": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1"
+      },
+      "nativeKey": "freetype",
+      "nativeVersion": "freetype-2.13.3"
+    },
+    "pdfium": {
+      "libraryPatterns": [],
+      "notices": {
+        "PoDoFo-PDFium.txt": "1fe9dea718fbd75cf149adaf4d8a22a4335604d964ddb76d1b45383dec8668c9"
+      }
+    },
+    "numerics": {
+      "libraryPatterns": [],
+      "notices": {
+        "PoDoFo-numerics.txt": "c7e67a125a4b8c77b3cb7c982401857109d5f3c551c10d4db30c9e7ed7cc333c"
+      }
+    },
+    "liberalean": {
+      "libraryPatterns": [],
+      "notices": {
+        "PoDoFo-LiberaLean.txt": "bccafaa2299349adf986cf073b47708a88a27840a3332b91c23da40a48a448d0"
+      }
+    },
+    "foxit": {
+      "libraryPatterns": [],
+      "notices": {
+        "PoDoFo-Foxit.txt": "fda5758046282a46e78e519b1c8aa4cc986072e9ce8e91d52a2ad61946abda4f"
+      }
+    }
+  },
+  "scope": "Approved local notice bytes and native recipe versions; does not attest source correspondence or select a distribution license"
+}
