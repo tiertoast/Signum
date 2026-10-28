@@ -225,5 +225,65 @@ extension S04WindowRevocationTests {
         }
     }
 
+    func testTerminationRecordsPrivateUncertaintyBeforeTheGraceDeadline() async throws {
+        try await repeated {
+            try await fixture { f in
+                let gate=Gate(expectation(description:"verified private reply before publication")); defer { gate.release() }
+                let worker=f.worker
+                let task=Task { try await f.batch.authorizeNext(pin:"synthetic-fixture") { job,pin,operation in
+                    try job.executeCAdES(isCancelled:{ operation.isCancellationRequested }) { bytes in
+                        let prepared=try CAdES.Prepared(document:bytes,certificateDER:job.certificateDER)
+                        operation.transition(to:.signing)
+                        let signature=try worker.sign(provider:job.providerPath,slot:job.slot,certificate:job.certificate,der:job.certificateDER,attributes:prepared.attributesToSign,pin:pin,id:job.id,isCancelled:{ operation.isCancellationRequested })
+                        operation.transition(to:.verifying); try gate.enter(); try operation.checkCancellation()
+                        return try prepared.finish(signature:signature)
+                    }
+                    operation.transition(to:.completed)
+                } }
+                await fulfillment(of:[gate.reached],timeout:8)
+                var deadline: (@MainActor () -> Void)?, replies:[Bool]=[]
+                let delegate=SignumLifecycle(controller:f.controller,reply:{replies.append($0)},scheduleDeadline:{deadline=$0})
+                XCTAssertEqual(delegate.applicationShouldTerminate(NSApplication.shared),.terminateLater)
+                XCTAssertEqual(f.batch.documents.first?.state,.uncertain)
+                XCTAssertTrue(f.batch.needsOutcomeReview)
+                try XCTUnwrap(deadline)(); XCTAssertEqual(replies,[true])
+                gate.release(); try await task.value; await drained(f.session)
+                XCTAssertEqual(states(f),[.uncertain,.cancelled,.cancelled])
+                XCTAssertEqual(count(f,16),1)
+                XCTAssertFalse(try XCTUnwrap(f.plan).jobs.contains { FileManager.default.fileExists(atPath:$0.destination.path) })
+            }
+        }
+    }
+
+    func testLateConfirmedPublicationResolvesOnlyProvisionalWindowUncertainty() async throws {
+        try await repeated {
+            try await fixture { f in
+                let gate=Gate(expectation(description:"helper publication before parent confirmation")); defer { gate.release() }
+                let worker=f.worker
+                let task=Task { try await f.batch.authorizeNext(pin:"synthetic-fixture") { job,pin,operation in
+                    // Model the helper's independently committed, verified file; its parent status is delayed.
+                    try job.executeCAdES { bytes in
+                        let prepared=try CAdES.Prepared(document:bytes,certificateDER:job.certificateDER)
+                        operation.transition(to:.signing)
+                        let signature=try worker.sign(provider:job.providerPath,slot:job.slot,certificate:job.certificate,der:job.certificateDER,attributes:prepared.attributesToSign,pin:pin,id:job.id)
+                        operation.transition(to:.verifying); return try prepared.finish(signature:signature)
+                    }
+                    try gate.enter(); operation.recordPublished()
+                } }
+                await fulfillment(of:[gate.reached],timeout:8)
+                let file=try XCTUnwrap(f.plan).jobs[0].destination
+                XCTAssertEqual(try CAdESVerifier.verify(file:file).originalDocument,Data("Synthetic approved 1".utf8))
+                await close(.close,f)
+                XCTAssertTrue(f.batch.needsOutcomeReview)
+                XCTAssertEqual(f.batch.documents.first?.state,.uncertain)
+                gate.release(); try await task.value; await drained(f.session)
+                XCTAssertEqual(states(f),[.completed,.cancelled,.cancelled])
+                XCTAssertFalse(f.batch.needsOutcomeReview)
+                XCTAssertEqual(try CAdESVerifier.verify(file:file).originalDocument,Data("Synthetic approved 1".utf8))
+                XCTAssertEqual(count(f,16),1)
+            }
+        }
+    }
+
 }
 #endif

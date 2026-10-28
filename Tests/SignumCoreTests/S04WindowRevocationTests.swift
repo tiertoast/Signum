@@ -186,9 +186,10 @@ import Darwin
                 let file = f.mock.folder.appendingPathComponent("operations"), fd = open(f.mock.folder.appendingPathComponent("operations").path,O_EVTONLY)
                 XCTAssertGreaterThanOrEqual(fd,0); guard fd >= 0 else { return }
                 let reached = expectation(description: "worker entered private C_Sign"), delivered = FixtureLocked(false)
+                let priorSignCount = f.auditStart[16] ?? 0
                 let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor:fd,eventMask:.write,queue:.global())
                 watch.setEventHandler {
-                    if ((try? String(contentsOf:file)) ?? "").split(separator:"\n").contains("16"), delivered.withValue({ value in if value { return false }; value=true; return true }) { reached.fulfill() }
+                    if ((try? String(contentsOf:file)) ?? "").split(separator:"\n").filter({ $0 == "16" }).count > priorSignCount, delivered.withValue({ value in if value { return false }; value=true; return true }) { reached.fulfill() }
                 }
                 watch.setCancelHandler { Darwin.close(fd) }; watch.resume(); defer { watch.cancel() }
                 let worker=f.worker
