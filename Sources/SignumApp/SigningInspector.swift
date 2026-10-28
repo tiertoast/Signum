@@ -212,6 +212,13 @@ extension SignumWindow {
             VStack(alignment: .leading, spacing: 10) {
                 if !batch.isApproved {
                     Text(signingAvailability).font(.callout).accessibilityIdentifier("signum.signing-availability")
+                    if let plan = review.approval {
+                        ForEach(Array(Set(plan.jobs.map(\.signingTimeDeclaration))).sorted(), id: \.self) { declaration in
+                            Text(declaration).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("signum.signing-time-policy")
+                        }
+                    }
                     if canApproveBatch {
                         Text(SigningConsentDeclaration.text(documentCount: batch.documents.count))
                             .font(.caption).foregroundStyle(.secondary)

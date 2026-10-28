@@ -28,8 +28,10 @@ extension SignumWindow {
                         }
                         Divider()
                         SignumSettingsSection(title: "Preferenze di firma") {
-                            Toggle("Includi data e ora della firma", isOn: $includeSigningTime)
-                                .help("Data dichiarata, non una marca temporale certificata")
+                            Toggle(SigningTimePolicy.preferenceTitle, isOn: $includeSigningTime)
+                                .help(SigningTimePolicy.preferenceExplanation)
+                            Text(SigningTimePolicy.preferenceExplanation)
+                                .font(.callout).foregroundStyle(.secondary)
                             Toggle("Conferma aggiuntiva prima della firma", isOn: $additionalConfirmation)
                             Text("Documenti e destinazioni richiedono sempre l’approvazione. La conferma aggiuntiva è un passaggio ulteriore.")
                                 .font(.callout).foregroundStyle(.secondary)

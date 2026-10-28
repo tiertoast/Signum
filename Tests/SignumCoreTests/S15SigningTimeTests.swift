@@ -44,6 +44,10 @@ import CoreGraphics
                 let attribute=format == .pades ? "PDF /M":format == .xades || format.isASiC ? "XML SigningTime":"CMS signingTime"
                 XCTAssertTrue(job.approvalDescription.contains(attribute),"Missing policy in approval: \(format) flag=\(include)")
                 XCTAssertTrue(job.approvalDescription.contains("marca temporale"))
+                XCTAssertEqual(job.signingTimeDeclaration,SigningTimePolicy.declaration(for:format,includeCMS:include))
+                if format == .cades || format.isAdvancedCAdES {
+                    XCTAssertTrue(job.signingTimeDeclaration.contains(include ? "incluso":"omesso"))
+                } else {XCTAssertTrue(job.signingTimeDeclaration.contains("sempre incluso"))}
                 var changed=context;changed.includeSigningTime.toggle()
                 XCTAssertFalse(review.matches(changed,batch:batch),"Policy change must invalidate old consent")
                 XCTAssertTrue(review.matches(context,batch:batch))
@@ -64,6 +68,10 @@ import CoreGraphics
                     detachedContent:format == .cadesDetached ? payload:nil,helper:helper)
                 XCTAssertEqual(report.integrity,.verified)
                 let newSignature=try XCTUnwrap(report.signatures.first{$0.signerDER==signer.der})
+                if format == .cadesCoSign || format == .cadesCounterSign {
+                    let oldSignature=try XCTUnwrap(report.signatures.first{$0.signerDER==original.der})
+                    XCTAssertFalse(oldSignature.declaredTime.isEmpty,"Existing signed time must stay intact")
+                }
                 XCTAssertTrue(newSignature.evidence?.timestampTokens.isEmpty == true,"Declared time is not a timestamp")
                 if format == .pades {
                     let pdf=try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data:output as CFData))))

@@ -105,8 +105,12 @@ public struct SigningJob: Sendable {
         format.title
     }
 
+    public var signingTimeDeclaration: String {
+        SigningTimePolicy.declaration(for: format, includeCMS: includeSigningTime)
+    }
+
     public var approvalDescription: String {
-        (counterSignatureKey.map { "Controfirma della SignatureValue SHA-256: " + $0 + "\n" } ?? "") + (format.isASiC ? asicApprovalContents + "\n\n" : "") + "Documento: \(snapshot.originalURL.lastPathComponent)\nFormato: \(format.rawValue.uppercased()) · \(snapshotIdentity.byteCount) byte\nSHA-256: \(contentSHA256)\nDestinazione: \(destination.path)\n\nVerrà firmata questa copia. Le modifiche successive all'originale non saranno incluse: riseleziona il documento per aggiornarla."
+        (counterSignatureKey.map { "Controfirma della SignatureValue SHA-256: " + $0 + "\n" } ?? "") + (format.isASiC ? asicApprovalContents + "\n\n" : "") + "Documento: \(snapshot.originalURL.lastPathComponent)\nFormato: \(format.rawValue.uppercased()) · \(snapshotIdentity.byteCount) byte\nSHA-256: \(contentSHA256)\nDestinazione: \(destination.path)\n\(signingTimeDeclaration)\n\nVerrà firmata questa copia. Le modifiche successive all'originale non saranno incluse: riseleziona il documento per aggiornarla."
     }
 
     public func verifiedBytes() throws -> Data {
