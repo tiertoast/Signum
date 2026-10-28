@@ -590,7 +590,10 @@ enum SignumFormat: String, Hashable, CaseIterable {
         MiddlewarePreferences(defaults: preferences.defaults).remove(path); manualPaths = MiddlewarePreferences(defaults: preferences.defaults).paths
         authorizedManualPaths.removeAll { $0 == path }
         if manualPath == path { manualPath = "" }
-        devices.beginDiscovery(); provider.beginDiscovery(); batch.invalidateReview()
+        discoveryOperation?.requestCancellation(); discoveryOperation = nil
+        refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
+        review.cancel(); batch.invalidateReview()
+        approvedRoute = nil; approvedHolder = ""; authenticationAttempted = false
         status = "Configurazione manuale rimossa. Cerca nuovamente per scegliere un certificato."
     }
 
