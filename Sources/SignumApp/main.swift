@@ -20,7 +20,7 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
     let services = SignumServices()
     let trustedLists: TrustedListsModel?
     private let reply: (Bool) -> Void
-    private let scheduleTerminationDeadline: (@escaping @MainActor () -> Void) -> Void
+    private let scheduleTerminationDeadline: (@escaping @MainActor @Sendable () -> Void) -> Void
     private var terminationPending = false
     static let terminationGrace: TimeInterval = 2
 
@@ -31,7 +31,7 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         super.init()
     }
     init(controller: SignumMainWindowController, reply: @escaping (Bool) -> Void,
-         scheduleDeadline: @escaping (@escaping @MainActor () -> Void) -> Void) {
+         scheduleDeadline: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void) {
         trustedLists = nil; mainWindowController = controller; self.reply = reply
         scheduleTerminationDeadline = scheduleDeadline; super.init()
     }
@@ -50,7 +50,7 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         guard !session.isDrained else { return .terminateNow }
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
-        let finish = { [weak self] in
+        let finish: @MainActor @Sendable () -> Void = { [weak self] in
             guard let self, self.terminationPending else { return }
             self.terminationPending = false; self.reply(true)
         }

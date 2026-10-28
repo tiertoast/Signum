@@ -6,8 +6,8 @@ import SignumCore
 /// One window session. Revocation is synchronous; owned work drains off-main.
 /// A closed generation cannot submit or apply a late completion.
 @MainActor final class SigningWindowSession: ObservableObject {
-    let objectWillChange = ObservableObjectPublisher()
-    private func notify() { DispatchQueue.main.async { [weak self] in self?.objectWillChange.send() } }
+    @Published private var publicationRevision: UInt = 0
+    private func notify() { DispatchQueue.main.async { [weak self] in self?.publicationRevision &+= 1 } }
     private(set) var generation = UUID()
     private(set) var isActive = true
     private(set) var isTerminating = false
