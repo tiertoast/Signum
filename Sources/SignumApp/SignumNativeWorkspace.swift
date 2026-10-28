@@ -29,11 +29,32 @@ struct SignumNativeWorkspace: NSViewControllerRepresentable {
         controller.detailContent.content = detail
         controller.update(controls)
     }
+    static func dismantleNSViewController(_ controller: SignumNativeWorkspaceController, coordinator: ()) {
+        controller.invalidate()
+    }
 }
 
 @MainActor final class SignumHostedContentStore: ObservableObject {
-    @Published var content: AnyView
-    init(_ content: AnyView) { self.content = content }
+    @Published private var current: AnyView
+    private var pending: AnyView?
+    private var scheduled = false, invalidated = false
+    var content: AnyView {
+        get { current }
+        set {
+            guard !invalidated else { return }
+            pending = newValue
+            guard !scheduled else { return }
+            scheduled = true
+            // Representable updates may run inside SwiftUI's update cycle.
+            // Publish the latest value on the next main-queue turn, keeping the hosts.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.invalidated, let value = self.pending else { return }
+                self.pending = nil; self.scheduled = false; self.current = value
+            }
+        }
+    }
+    init(_ content: AnyView) { current = content }
+    func invalidate() { invalidated = true; pending = nil }
 }
 struct SignumHostedContent: View {
     @ObservedObject var store: SignumHostedContentStore
@@ -49,6 +70,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
     private let nativeToolbar = NSToolbar(identifier: "signum.window.toolbar")
     private var items: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
     private var installed = false
+    private var invalidated = false
     private static let toggle = NSToolbarItem.Identifier("signum.sidebar")
     private static let separator = NSToolbarItem.Identifier("signum.sidebar.separator")
     private static let backID = NSToolbarItem.Identifier("signum.back")
@@ -99,6 +121,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
     }
     override func viewDidAppear() {
         super.viewDidAppear()
+        guard !invalidated else { return }
         guard let window = view.window else { return }
         if !installed {
             installed = true
@@ -114,7 +137,16 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         update(controls)
     }
     deinit { if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) } }
+    func invalidate() {
+        guard !invalidated else { return }
+        invalidated = true
+        sidebarContent.invalidate(); detailContent.invalidate()
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
+        controls.close()
+    }
     func update(_ controls: SignumNativeWorkspace.Controls) {
+        guard !invalidated else { return }
         self.controls = controls
         for item in items.values { item.isEnabled = !controls.locked }
         items[Self.refreshID]?.isEnabled = !controls.locked && !controls.searching

@@ -95,7 +95,7 @@ import Combine
                 controller.detailContent.content = AnyView(TabView {
                     Text("General \(index)").tabItem { Text("General") }
                     Text("Devices").tabItem { Text("Devices") }
-                }.onAppear { appeared.fulfill() })
+                }.frame(width: 710, height: 500).onAppear { appeared.fulfill() })
                 await fulfillment(of: [appeared], timeout: 3)
                 controller.detailContent.content = AnyView(Text("Documents"))
                 await fence()
