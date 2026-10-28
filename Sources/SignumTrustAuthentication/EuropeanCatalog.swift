@@ -111,7 +111,7 @@ public actor EuropeanTrustCatalogService {
     private func perform(countries: Set<String>, now: Date, force: Bool) async throws -> EuropeanCatalogView {
         try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
         let started = ProcessInfo.processInfo.systemUptime
-        let clock = { now.addingTimeInterval(ProcessInfo.processInfo.systemUptime-started) }
+        let clock: @Sendable () -> Date = { now.addingTimeInterval(ProcessInfo.processInfo.systemUptime-started) }
         let previous = try readJournal(now:clock()) // Corruption must never reset continuity.
         let wanted = countries.isEmpty ? cachedCountries() : countries
         var failures = [String:String]()

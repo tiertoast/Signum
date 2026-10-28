@@ -60,12 +60,24 @@ struct SignumHostedContent: View {
     @ObservedObject var store: SignumHostedContentStore
     var body: some View { store.content }
 }
+/// Foundation owns removal independently of the controller's actor isolation.
+/// This non-Sendable owner stays with its creating controller/executor.
+final class SignumNotificationObservation {
+    private let center: NotificationCenter
+    private let token: NSObjectProtocol
+    init(center: NotificationCenter = .default, name: Notification.Name, object: Any?,
+         queue: OperationQueue? = .main, handler: @escaping @Sendable (Notification) -> Void) {
+        self.center = center
+        token = center.addObserver(forName: name, object: object, queue: queue, using: handler)
+    }
+    deinit { center.removeObserver(token) }
+}
 final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDelegate {
     let sidebarContent: SignumHostedContentStore
     let detailContent: SignumHostedContentStore
     let sidebarHost: NSHostingController<SignumHostedContent>
     let detailHost: NSHostingController<SignumHostedContent>
-    private var closeObserver: NSObjectProtocol?
+    private var closeObserver: SignumNotificationObservation?
     private var controls: SignumNativeWorkspace.Controls
     private let nativeToolbar = NSToolbar(identifier: "signum.window.toolbar")
     private var items: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
@@ -125,7 +137,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         guard let window = view.window else { return }
         if !installed {
             installed = true
-            closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            closeObserver = SignumNotificationObservation(name: NSWindow.willCloseNotification, object: window) { [weak self] _ in
                 MainActor.assumeIsolated { self?.controls.close() }
             }
             window.toolbar = nativeToolbar
@@ -136,12 +148,10 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         }
         update(controls)
     }
-    deinit { if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) } }
     func invalidate() {
         guard !invalidated else { return }
         invalidated = true
         sidebarContent.invalidate(); detailContent.invalidate()
-        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
         closeObserver = nil
         controls.close()
     }
