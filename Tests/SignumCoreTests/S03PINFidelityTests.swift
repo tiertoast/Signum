@@ -84,7 +84,7 @@ final class S03PINFidelityTests: XCTestCase {
             if status is None:
                 os.kill(pid,signal.SIGKILL);_,status=os.waitpid(pid,0)
             restored=termios.tcgetattr(fd)==initial
-            print(json.dumps({'sent':sent,'protected':protected,'restored':restored,'clean':len(payload)<8 or payload not in output,'failed':os.waitstatus_to_exitcode(status)!=0,'pinError':b'PIN' in output and (b'rifiut' in output or b'represent' in output or b'Invalid' in output)}))
+            print(json.dumps({'sent':sent,'protected':protected,'restored':restored,'clean':len(payload)<8 or payload not in output,'failed':os.waitstatus_to_exitcode(status)!=0,'reason':next((line for line in output.decode('utf-8','replace').splitlines() if line.startswith('Signum error:')),'').replace(payload.decode('utf-8','replace') or 'unused','[redacted]'),'pinError':b'PIN' in output and (b'rifiut' in output or b'represent' in output or b'Invalid' in output)}))
         finally: os.close(fd)
         """#.utf8).write(to:script)
         let p=Process();p.executableURL=URL(fileURLWithPath:"/usr/bin/python3");p.arguments=[script.path]
@@ -99,11 +99,12 @@ final class S03PINFidelityTests: XCTestCase {
         let f=try Fixture();defer{try? FileManager.default.removeItem(at:f.root)}
         for (index,input) in inputs.enumerated() {
             try f.reset();let allowed=permittedTerminal(input)
-            let r=try terminal([bin.appendingPathComponent("SignumCLI").path,"sign-test","7","01",f.module.path],input:input,root:f.root)
+            let r=try terminal([(ProcessInfo.processInfo.environment["SIGNUM_TEST_CLI"] ?? bin.appendingPathComponent("SignumCLI").path),"sign-test","7","53",f.module.path],input:input,root:f.root)
             XCTAssertEqual(r["sent"] as? Bool,true,"case \(index)")
             XCTAssertEqual(r["protected"] as? Bool,true);XCTAssertEqual(r["restored"] as? Bool,true)
             XCTAssertEqual(r["clean"] as? Bool,true,"No PIN in diagnostic/TTY output")
             if !allowed {XCTAssertEqual(r["pinError"] as? Bool,true,"Clear PIN rejection, case \(index)")}
+            if allowed { XCTAssertEqual(r["failed"] as? Bool, false, String(describing:r["reason"])) }
             assertAudit(f,input:input,valid:allowed)
         }
     }
