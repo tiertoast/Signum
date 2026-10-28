@@ -262,7 +262,9 @@ extension S04WindowRevocationTests {
                 let worker=f.worker
                 let task=Task { try await f.batch.authorizeNext(pin:"synthetic-fixture") { job,pin,operation in
                     // Model the helper's independently committed, verified file; its parent status is delayed.
-                    try job.executeCAdES { bytes in
+                    var io = SignumFileOutput.OutputIO()
+                    io.beforePublish = { guard operation.beginPublication() else { throw SupervisedProcess.Failure.cancelled } }
+                    try job.executeCAdES(io: io) { bytes in
                         let prepared=try CAdES.Prepared(document:bytes,certificateDER:job.certificateDER)
                         operation.transition(to:.signing)
                         let signature=try worker.sign(provider:job.providerPath,slot:job.slot,certificate:job.certificate,der:job.certificateDER,attributes:prepared.attributesToSign,pin:pin,id:job.id)
@@ -327,6 +329,22 @@ extension S04WindowRevocationTests {
                 XCTAssertTrue(f.session.isActive); XCTAssertFalse(f.session.accepts(generation))
                 XCTAssertTrue(f.installed.provider.pin.isEmpty); XCTAssertNil(f.installed.approvedRoute)
                 XCTAssertEqual(count(f,16),0)
+            }
+        }
+    }
+
+    func testTerminationCannotBeUndoneByLateNativeOpenEvents() async throws {
+        try await repeated {
+            try await fixture(approved:false) { f in
+                let delegate=SignumLifecycle(controller:f.controller,reply:{_ in},scheduleDeadline:{_ in})
+                XCTAssertEqual(delegate.applicationShouldTerminate(NSApplication.shared),.terminateNow)
+                let generation=f.session.generation
+                NotificationCenter.default.post(name:.signumWindowOpened,object:f.controller.window)
+                NotificationCenter.default.post(name:NSWindow.didBecomeKeyNotification,object:f.controller.window)
+                let delivered=expectation(description:"late open callbacks delivered")
+                DispatchQueue.main.async { delivered.fulfill() }; await fulfillment(of:[delivered],timeout:3)
+                XCTAssertFalse(f.session.isActive); XCTAssertEqual(f.session.generation,generation)
+                XCTAssertFalse(f.installed.canAuthorizeNext); XCTAssertEqual(count(f,16),0)
             }
         }
     }
