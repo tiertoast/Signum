@@ -34,6 +34,7 @@ public final class SigningOperation: @unchecked Sendable {
         self.id = id; self.changed = changed
     }
     public var state: SigningOperationPhase { lock.lock(); defer { lock.unlock() }; return phase }
+    public var hasRequestedPrivateOperation: Bool { lock.lock(); defer { lock.unlock() }; return privateRequestStarted }
     public var isCancellationRequested: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     @discardableResult public func requestCancellation(preservingPrivateOutcome: Bool = false) -> Bool {
         lock.lock(); defer { lock.unlock() }

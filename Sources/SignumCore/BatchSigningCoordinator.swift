@@ -66,6 +66,7 @@ public struct BatchApproval: Sendable {
     private var reviewRequest = UUID()
     private var acquisitionID = UUID()
     private var activeID: UUID?
+    private var provisionalWindowUncertainty: UUID?
     private var acquisitionOperation: SigningOperation?
     private var captureDocument: @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot = {
         url, format, operation in try DocumentSnapshot.capture(source: url, format: format, isCancelled: { operation.isCancellationRequested })
@@ -313,6 +314,21 @@ public struct BatchApproval: Sendable {
         documents[index].result = "Nessuna richiesta privata inviata."
         documents[index].snapshot.retire()
     }
+    /// Revoke the window's authorization immediately, even if process drain
+    /// outlives the application's bounded termination grace. Keep engine state
+    /// nonterminal so an already committed helper publication can be confirmed.
+    public func revokeForWindowClosure() {
+        let operation = activeOperation
+        let requested = operation?.requestCancellation(preservingPrivateOutcome: true) ?? false
+        cancelPending()
+        guard let operation, (requested && operation.hasRequestedPrivateOperation) || operation.state == .outcomeUncertain,
+              let activeID, let index = documents.firstIndex(where: { $0.id == activeID }) else { return }
+        if !needsOutcomeReview {
+            provisionalWindowUncertainty = activeID
+            authenticationNotice = SigningOperationPhase.outcomeUncertain.message
+        } else if authenticationNotice.isEmpty { authenticationNotice = SigningOperationPhase.outcomeUncertain.message }
+        documents[index].state = .uncertain; needsOutcomeReview = true
+    }
     public func cancelAll() { cancelPending(); activeOperation?.requestCancellation() }
     public func acknowledgeUncertainOutcome() { if !isRunning { needsOutcomeReview = false } }
 
@@ -371,7 +387,7 @@ public struct BatchApproval: Sendable {
         isRunning = true; activeID = next.id
         let operation = SigningOperation(id: job.id) { [weak self] phase in
             Task { @MainActor in
-                guard let self, self.activeID == next.id, let i = self.documents.firstIndex(where: { $0.id == next.id }) else { return }
+                guard let self, self.activeID == next.id, let i = self.documents.firstIndex(where: { $0.id == next.id }), !self.documents[i].state.isTerminal else { return }
                 switch phase {
                 case .preparing: self.documents[i].state = .preparing
                 case .waitingForAuthentication: self.documents[i].state = .waitingForAuthorization
@@ -405,6 +421,11 @@ public struct BatchApproval: Sendable {
         switch outcome {
         case .success:
             documents[index].state = .completed; documents[index].result = "Integrità verificata; copia pubblicata."
+            if provisionalWindowUncertainty == next.id,
+               authenticationNotice == SigningOperationPhase.outcomeUncertain.message,
+               !documents.contains(where: { $0.state == .uncertain }) {
+                needsOutcomeReview = false; authenticationNotice = ""
+            }
         case .failure(let error):
             if case SignumError.outputUncertain = error {
                 operation.transition(to: .outcomeUncertain)
@@ -419,6 +440,7 @@ public struct BatchApproval: Sendable {
             } else { operation.transition(to: .failed); documents[index].state = .failed }
             documents[index].result = error.localizedDescription
         }
+        if provisionalWindowUncertainty == next.id { provisionalWindowUncertainty = nil }
         if let index = documents.firstIndex(where: { !$0.state.isTerminal }) { documents[index].state = .waitingForAuthorization }
     }
     private nonisolated static func failure(_ message: String) -> SignumError { .module(message) }

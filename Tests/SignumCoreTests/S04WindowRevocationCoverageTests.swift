@@ -285,5 +285,22 @@ extension S04WindowRevocationTests {
         }
     }
 
+    func testNativeClosureMatrixRevokesSelectionAwaitingPIN() async throws {
+        try await repeated {
+            for route in Route.allCases {
+                try await fixture { f in
+                    XCTAssertEqual(f.batch.nextDocument?.state,.waitingForAuthorization)
+                    f.installed.provider.pin="synthetic-fixture"
+                    XCTAssertTrue(f.installed.canAuthorizeNext)
+                    await close(route,f); await drained(f.session)
+                    XCTAssertTrue(f.installed.provider.pin.isEmpty)
+                    XCTAssertFalse(f.installed.canAuthorizeNext); XCTAssertFalse(f.installed.canApproveBatch)
+                    XCTAssertEqual(states(f),[.cancelled,.cancelled,.cancelled])
+                    XCTAssertEqual(count(f,8),0); XCTAssertEqual(count(f,16),0)
+                }
+            }
+        }
+    }
+
 }
 #endif

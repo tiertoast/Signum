@@ -274,10 +274,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
             let activity = session.beginActivity()
             appearanceRenderer.whenIdle { session.endActivity(activity) }
         }
-        batch.activeOperation?.requestCancellation(preservingPrivateOutcome: true)
         work?.requestCancellation(preservingPrivateOutcome: true); work = nil
         discoveryOperation?.requestCancellation(); discoveryOperation = nil
-        batch.cancelAll(); refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
+        batch.revokeForWindowClosure(); refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
         selectionRequestID = UUID(); workspace.select(nil); inputFile = nil
         placements = [:]; readyPreviews = []; pdfPlacement = nil; previewSnapshotID = nil
         approvedRoute = nil; approvedHolder = ""; authorizedManualPaths = []; manualPath = ""
