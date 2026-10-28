@@ -302,5 +302,34 @@ extension S04WindowRevocationTests {
         }
     }
 
+    func testClosureMatrixDiscardsQueuedSystemSigningRequests() async throws {
+        try await repeated {
+            for route in Route.allCases {
+                try await fixture { f in
+                    f.installed.systemDocuments.receive([f.root.appendingPathComponent("queued.txt")],action:.sign)
+                    await close(route,f); await drained(f.session)
+                    XCTAssertNil(f.installed.systemDocuments.next())
+                    XCTAssertEqual(states(f),[.cancelled,.cancelled,.cancelled])
+                    XCTAssertEqual(count(f,16),0)
+                }
+            }
+        }
+    }
+    func testServiceStyleKeyReopenActivatesTheSameCleanSession() async throws {
+        try await repeated {
+            try await fixture(approved:false) { f in
+                let generation=f.session.generation
+                await close(.close,f); await drained(f.session)
+                // Services use makeKeyAndOrderFront directly, instead of showWindow.
+                NotificationCenter.default.post(name:NSWindow.didBecomeKeyNotification,object:f.controller.window)
+                let delivered=expectation(description:"native key reopen callback")
+                DispatchQueue.main.async { delivered.fulfill() }; await fulfillment(of:[delivered],timeout:3)
+                XCTAssertTrue(f.session.isActive); XCTAssertFalse(f.session.accepts(generation))
+                XCTAssertTrue(f.installed.provider.pin.isEmpty); XCTAssertNil(f.installed.approvedRoute)
+                XCTAssertEqual(count(f,16),0)
+            }
+        }
+    }
+
 }
 #endif

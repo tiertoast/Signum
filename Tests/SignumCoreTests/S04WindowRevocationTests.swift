@@ -7,17 +7,21 @@ import Darwin
 @testable import SignumApp
 
 @MainActor final class S04WindowRevocationTests: XCTestCase {
-    enum Route: String, CaseIterable { case close, performClose, replaceRoot, replaceWindow, lastWindowClosed, shouldTerminate, willTerminate }
+    enum Route: String, CaseIterable { case close, button, performClose, replaceRoot, replaceWindow, lastWindowClosed, shouldTerminate, willTerminate }
     final class Gate: @unchecked Sendable {
         let reached: XCTestExpectation
-        private let condition = NSCondition(); private var released = false
+        private let lock = NSLock(), signal = DispatchSemaphore(value: 0)
+        private var released = false
         init(_ reached: XCTestExpectation) { self.reached = reached }
         func enter() throws {
-            condition.lock(); defer { condition.unlock() }; reached.fulfill()
-            let deadline = Date().addingTimeInterval(15)
-            while !released { guard condition.wait(until: deadline) else { throw SupervisedProcess.Failure.timeout } }
+            reached.fulfill()
+            lock.lock(); let open = released; lock.unlock()
+            if !open, signal.wait(timeout: .now() + 15) != .success { throw SupervisedProcess.Failure.timeout }
         }
-        func release() { condition.lock(); released = true; condition.broadcast(); condition.unlock() }
+        func release() {
+            lock.lock(); let first = !released; released = true; lock.unlock()
+            if first { signal.signal() }
+        }
     }
     struct Fixture {
         let root: URL, mock: MockModule, worker: IsolatedPKCS11Client
@@ -75,9 +79,11 @@ import Darwin
         let appeared = expectation(description: "installed production root appeared")
         let session = SigningWindowSession()
         var installed: SignumWindow?
-        let view = SignumWindow(batch: batch, selectedSnapshot: batch.documents[0].snapshot, automaticallyDiscover: false, defaults: defaults, workspace: workspace, sessionResults: results, session: session, sessionReady: { installed = $0 }, discoveryLoader: { paths,cancelled in
+        var rootView = SignumWindow(batch: batch, selectedSnapshot: batch.documents[0].snapshot, automaticallyDiscover: false, defaults: defaults, workspace: workspace, sessionResults: results, session: session, sessionReady: { installed = $0 }, discoveryLoader: { paths,cancelled in
             DeviceDiscoveryResult(providers: MiddlewareDiscovery(client: worker).discover(registry: [], manualPaths: paths, isCancelled: cancelled), expectedPaths: Set(paths))
-        }, appearanceRenderer: renderer, worker: worker).onAppear { appeared.fulfill() }
+        }, appearanceRenderer: renderer, worker: worker)
+        rootView.systemDocuments = SystemDocuments()
+        let view = rootView.onAppear { appeared.fulfill() }
         let controller = SignumMainWindowController(content: AnyView(view), session: session)
         controller.showWindow(nil); controller.window?.makeKeyAndOrderFront(nil)
         let originalWindow = try XCTUnwrap(controller.window)
@@ -93,6 +99,9 @@ import Darwin
     func close(_ route: Route, _ fixture: Fixture) async {
         switch route {
         case .close: fixture.controller.window?.close()
+        case .button:
+            let button = fixture.controller.window?.standardWindowButton(.closeButton)
+            XCTAssertNotNil(button); button?.performClick(nil)
         case .performClose: fixture.controller.window?.performClose(nil)
         case .replaceRoot: fixture.controller.contentHost.rootView = AnyView(Text("Replacement"))
         case .replaceWindow: fixture.controller.window = nil
