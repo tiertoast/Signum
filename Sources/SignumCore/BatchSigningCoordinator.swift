@@ -395,6 +395,7 @@ public struct BatchApproval: Sendable {
             if case SignumError.outputUncertain = error {
                 operation.transition(to: .outcomeUncertain)
                 documents[index].state = .uncertain; needsOutcomeReview = true
+                authenticationNotice = error.localizedDescription
             } else if (error as? SupervisedProcess.Failure) == .cancelled {
                 operation.transition(to: .cancelled); documents[index].state = .cancelled
             } else { operation.transition(to: .failed); documents[index].state = .failed }

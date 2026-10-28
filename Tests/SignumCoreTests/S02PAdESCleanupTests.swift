@@ -23,7 +23,7 @@ extension PAdESStatusIntegrationTests {
         let phase=scenario == "closeSession" ? 6:1
         let effect=scenario == "timeout" ? 2:scenario == "crash" ? 3:4
         let mock=try MockModule(certificate:signer.der,privateKey:scenario == "compound" ? nil:signer.rsaPrivateDER(),
-            workerPhase:phase,workerEffect:effect,audit:true,faultAfter:scenario == "closeSession" ? 2:0)
+            workerPhase:phase,workerEffect:effect,audit:true,faultAfter:scenario == "closeSession" ? 3:0)
         let inspected=try MiddlewareFileSecurity.inspect(mock.path.path,automatic:false)
         let token=SignumToken(slot:7,label:"Signum Mock",manufacturer:"Offline fixture",model:"Synthetic",reader:"Synthetic reader",serial:"SYNTHETIC-0001")
         let binding=bound ? OneShotContextTests().context(path:inspected.canonicalPath,identity:inspected.identity,token:token,der:signer.der):nil
@@ -61,19 +61,44 @@ extension PAdESStatusIntegrationTests {
         }
     }
     func testS02PublishedFileRequiresExplicitCleanupConfirmationAndIsPreserved() throws {
-        for confirmation in [false,true] {
+        for confirmation: Bool? in [nil,false,true] {
             let root=try FixtureFiles.directory("s02-published");defer{try? FileManager.default.removeItem(at:root)}
             let output=root.appendingPathComponent("output.pdf"),peer=root.appendingPathComponent("peer"),id=UUID()
-            let status:[String:Any]=["version":4,"jobID":id.uuidString,"outcome":"published","reason":"none","cleanupConfirmed":confirmation,"documentVerified":true,"documentPublished":true]
+            var status:[String:Any]=["version":4,"jobID":id.uuidString,"outcome":"published","reason":"none","documentVerified":true,"documentPublished":true]
+            if let confirmation {status["cleanupConfirmed"]=confirmation}
             let json=String(decoding:try JSONSerialization.data(withJSONObject:status),as:UTF8.self)
             try Data(("#!/bin/sh\n/bin/cat >/dev/null\nprintf synthetic > \"$1\"\nprintf '%s' '"+json+"'\n").utf8).write(to:peer)
             try FileManager.default.setAttributes([.posixPermissions:0o700],ofItemAtPath:peer.path)
             var input=Data("synthetic-fixture\n".utf8)
             let outcome=PAdESHelperProcess.run(executable:peer,arguments:[output.path],input:&input,destination:output,expectedJobID:id)
-            if confirmation {XCTAssertEqual(outcome,.published)}
+            if confirmation == true {XCTAssertEqual(outcome,.published)}
             else {guard case .uncertain(let message)=outcome else {return XCTFail("Published file hid unconfirmed cleanup")};XCTAssertTrue(message.lowercased().contains("chiusura"))}
             XCTAssertEqual(try String(contentsOf:output),"synthetic")
         }
     }
+    @MainActor func testS02CleanupNoticeBlocksTheActualCoordinatorBeforeTheNextDocument() async throws {
+        let root=try FixtureFiles.directory("s02-coordinator");defer{try? FileManager.default.removeItem(at:root)}
+        let signer=try SoftwareSigner(folder:root),mock=try MockModule(certificate:signer.der,privateKey:signer.rsaPrivateDER(),workerPhase:1,workerEffect:4,audit:true)
+        let helper=URL(fileURLWithPath:try FixtureRequirements.helper())
+        let sources=try (1...2).map{pages -> URL in
+            let url=root.appendingPathComponent("source-\(pages).pdf")
+            try PAdESAppearanceTests().pdf(pages:pages).write(to:url);return url
+        }
+        let batch=BatchSigningCoordinator(padesHelper:helper);defer{batch.reset()}
+        await batch.addDocuments(sources,format:.pades)
+        let approval=try await batch.prepareApproval(provider:mock.path.path,slot:7,certificate:.init(label:"Synthetic",identifier:Data([1])),der:signer.der)
+        try batch.confirm(approval)
+        try await batch.authorizeNext(pin:"synthetic-fixture") {job,pin,operation in
+            try SignumPAdESHelper.sign(job:job,pin:pin,appearanceName:"Synthetic",field:nil,operation:operation,executable:helper)
+        }
+        XCTAssertEqual(batch.documents[0].state,.uncertain)
+        XCTAssertTrue(batch.needsOutcomeReview)
+        XCTAssertTrue(batch.authenticationNotice.lowercased().contains("chiusura"))
+        do {try await batch.authorizeNext(pin:"synthetic-fixture") {_,_,_ in XCTFail("Second job was authorized after unconfirmed cleanup")};XCTFail("Authorization should be blocked")}
+        catch { }
+        let ops=((try? String(contentsOf:mock.folder.appendingPathComponent("operations"))) ?? "").split(separator:"\n")
+        XCTAssertEqual(ops.filter{$0=="16"}.count,1);XCTAssertEqual(ops.filter{$0=="1"}.count,1)
+    }
+
 }
 #endif
