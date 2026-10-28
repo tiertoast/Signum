@@ -317,6 +317,10 @@ public struct BatchApproval: Sendable {
     public func acknowledgeUncertainOutcome() { if !isRunning { needsOutcomeReview = false } }
 
     public func authorizeNext(pin: String, expectedDocumentID: UUID? = nil, execute: @escaping @Sendable (SigningJob, String, SigningOperation) throws -> Void) async throws {
+        if Task.isCancelled {
+            if let next = nextDocument, expectedDocumentID == nil || next.id == expectedDocumentID { cancelDocument(next.id) }
+            throw CancellationError()
+        }
         guard isApproved, !isRunning, !needsOutcomeReview, let next = nextDocument,
               expectedDocumentID == nil || next.id == expectedDocumentID,
               !isContinuingAuthenticated, !pin.isEmpty, pin.utf8.count <= 64, !pin.utf8.contains(0),
@@ -346,15 +350,21 @@ public struct BatchApproval: Sendable {
     public func continueAuthenticatedBatch(using session: BatchCAdESSession) async {
         guard isApproved, !isRunning, !isContinuingAuthenticated, approval?.id == session.approvalID else { session.requestStop(); return }
         isContinuingAuthenticated = true
-        while session.canContinue, !needsOutcomeReview, let next = nextDocument {
-            await executeNext(expectedDocumentID: next.id) { job, operation in try session.signCAdES(job: job, pin: nil, operation: operation) }
-            guard documents.first(where: { $0.id == next.id })?.state == .completed else { break }
-        }
-        await retireAuthenticatedSession(using: session).value
+        await withTaskCancellationHandler(operation: {
+            while !Task.isCancelled, session.canContinue, !needsOutcomeReview, let next = nextDocument {
+                await executeNext(expectedDocumentID: next.id) { job, operation in try session.signCAdES(job: job, pin: nil, operation: operation) }
+                guard documents.first(where: { $0.id == next.id })?.state == .completed else { break }
+            }
+            await retireAuthenticatedSession(using: session).value
+        }, onCancel: { session.requestStop() })
         isContinuingAuthenticated = false
     }
 
     private func executeNext(expectedDocumentID: UUID?, execute: @escaping @Sendable (SigningJob, SigningOperation) throws -> Void) async {
+        guard !Task.isCancelled else {
+            if let next = nextDocument, expectedDocumentID == nil || next.id == expectedDocumentID { cancelDocument(next.id) }
+            return
+        }
         guard isApproved, !isRunning, !needsOutcomeReview, let approval, let next = nextDocument,
               expectedDocumentID == nil || expectedDocumentID == next.id,
               let job = approval.jobs.first(where: { $0.snapshotIdentity.id == next.id }) else { return }
@@ -372,20 +382,24 @@ public struct BatchApproval: Sendable {
             }
         }
         activeOperation = operation
-        let outcome = await Task.detached(priority: .userInitiated) {
+        let outcome = await withTaskCancellationHandler(operation: {
+            await Task.detached(priority: .userInitiated) {
             defer { job.snapshot.close() }
             return Result {
                 var info = stat()
+                try operation.checkCancellation()
                 try job.requireAvailableDestination()
                 _ = try job.verifiedBytes()
                 operation.transition(to: .preparing)
+                try operation.checkCancellation()
                 try execute(job, operation)
                 guard operation.state == .completed, lstat(job.destination.path, &info) == 0,
                       info.st_mode & S_IFMT == S_IFREG, info.st_size > 0 else {
                     throw SignumError.outputUncertain("Il motore non ha confermato una pubblicazione verificata. Controllare l'esito senza ripetere questa firma.")
                 }
             }
-        }.value
+            }.value
+        }, onCancel: { operation.requestCancellation(preservingPrivateOutcome: true) })
         activeID = nil; activeOperation = nil; isRunning = false
         guard let index = documents.firstIndex(where: { $0.id == next.id }) else { return }
         switch outcome {
@@ -397,7 +411,11 @@ public struct BatchApproval: Sendable {
                 documents[index].state = .uncertain; needsOutcomeReview = true
                 authenticationNotice = error.localizedDescription
             } else if (error as? SupervisedProcess.Failure) == .cancelled {
-                operation.transition(to: .cancelled); documents[index].state = .cancelled
+                operation.transition(to: .cancelled)
+                if operation.state == .outcomeUncertain {
+                    documents[index].state = .uncertain; needsOutcomeReview = true
+                    authenticationNotice = SigningOperationPhase.outcomeUncertain.message
+                } else { documents[index].state = .cancelled }
             } else { operation.transition(to: .failed); documents[index].state = .failed }
             documents[index].result = error.localizedDescription
         }
