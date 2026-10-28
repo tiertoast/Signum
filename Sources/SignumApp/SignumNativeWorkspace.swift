@@ -80,6 +80,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
     let detailHost: NSHostingController<SignumHostedContent>
     private var closeObserver: SignumNotificationObservation?
     private var openObserver: SignumNotificationObservation?
+    private var keyObserver: SignumNotificationObservation?
     private var controls: SignumNativeWorkspace.Controls
     private let nativeToolbar = NSToolbar(identifier: "signum.window.toolbar")
     private var items: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
@@ -145,6 +146,9 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
             openObserver = SignumNotificationObservation(name: .signumWindowOpened, object: window) { [weak self] _ in
                 MainActor.assumeIsolated { self?.controls.opened() }
             }
+            keyObserver = SignumNotificationObservation(name: NSWindow.didBecomeKeyNotification, object: window) { [weak self] _ in
+                MainActor.assumeIsolated { self?.controls.opened() }
+            }
             controls.opened()
             window.toolbar = nativeToolbar
             window.toolbarStyle = .unified
@@ -158,7 +162,7 @@ final class SignumNativeWorkspaceController: NSSplitViewController, NSToolbarDel
         guard !invalidated else { return }
         invalidated = true
         sidebarContent.invalidate(); detailContent.invalidate()
-        closeObserver = nil; openObserver = nil
+        closeObserver = nil; openObserver = nil; keyObserver = nil
         controls.close()
     }
     func update(_ controls: SignumNativeWorkspace.Controls) {

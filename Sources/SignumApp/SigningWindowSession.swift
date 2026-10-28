@@ -10,6 +10,7 @@ import SignumCore
     private func notify() { DispatchQueue.main.async { [weak self] in self?.objectWillChange.send() } }
     private(set) var generation = UUID()
     private(set) var isActive = true
+    private(set) var isTerminating = false
     private var cleanup: (() -> Void)?
     private weak var batch: BatchSigningCoordinator?
     private var observation: AnyCancellable?
@@ -24,7 +25,7 @@ import SignumCore
     func endActivity(_ id: UUID) { activities.remove(id); checkDrain() }
     func accepts(_ generation: UUID) -> Bool { isActive && self.generation == generation }
     @discardableResult func activate(batch: BatchSigningCoordinator, cleanup: @escaping () -> Void) -> Bool {
-        guard isActive || isDrained else { return false }
+        guard !isTerminating, isActive || isDrained else { return false }
         let changed = !isActive || self.cleanup == nil
         self.batch = batch; self.cleanup = cleanup; isActive = true
         if changed { notify() }
@@ -44,7 +45,8 @@ import SignumCore
             self?.tasks[id] = nil; self?.checkDrain()
         }
     }
-    func revoke() {
+    func revoke(terminating: Bool = false) {
+        if terminating { isTerminating = true }
         reopenID = nil
         guard isActive else { return }
         isActive = false; generation = UUID()
@@ -58,6 +60,7 @@ import SignumCore
     }
     func removeDrainObserver(_ id: UUID) { drained[id] = nil }
     func reopen(_ activate: @escaping () -> Void) {
+        guard !isTerminating else { return }
         let id = UUID(); reopenID = id
         whenDrained { [weak self] in
             guard self?.reopenID == id else { return }

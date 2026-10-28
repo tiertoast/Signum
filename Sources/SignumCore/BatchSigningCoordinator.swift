@@ -319,9 +319,9 @@ public struct BatchApproval: Sendable {
     /// nonterminal so an already committed helper publication can be confirmed.
     public func revokeForWindowClosure() {
         let operation = activeOperation
-        let requested = operation?.requestCancellation(preservingPrivateOutcome: true) ?? false
+        operation?.requestCancellation(preservingPrivateOutcome: true)
         cancelPending()
-        guard let operation, (requested && operation.hasRequestedPrivateOperation) || operation.state == .outcomeUncertain,
+        guard let operation, (operation.hasRequestedPrivateOperation && !operation.state.isTerminal) || operation.state == .outcomeUncertain,
               let activeID, let index = documents.firstIndex(where: { $0.id == activeID }) else { return }
         if !needsOutcomeReview {
             provisionalWindowUncertainty = activeID

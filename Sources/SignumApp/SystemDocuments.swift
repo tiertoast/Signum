@@ -28,6 +28,7 @@ struct SystemDocumentRequest: Identifiable {
         }
         revision += 1
     }
+    func discardPending() { pending.removeAll(); revision += 1 }
     func next() -> SystemDocumentRequest? { pending.isEmpty ? nil : pending.removeFirst() }
 }
 

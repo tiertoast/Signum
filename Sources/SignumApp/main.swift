@@ -46,7 +46,7 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let session = mainWindowController?.signingSession else { return .terminateNow }
-        session.revoke()
+        session.revoke(terminating: true)
         guard !session.isDrained else { return .terminateNow }
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
@@ -62,7 +62,7 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         mainWindowController?.signingSession?.revoke(); return false
     }
     func applicationWillTerminate(_ notification: Notification) {
-        mainWindowController?.signingSession?.revoke(); trustedLists?.stop()
+        mainWindowController?.signingSession?.revoke(terminating: true); trustedLists?.stop()
     }
     func application(_ application: NSApplication, open urls: [URL]) {
         SystemDocuments.shared.receive(urls)

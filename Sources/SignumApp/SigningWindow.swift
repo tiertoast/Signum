@@ -257,6 +257,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
 
     func activateSession() {
+        guard !session.isTerminating else { return }
         if !session.isActive && !session.isDrained {
             session.reopen { activateSession() }; return
         }
@@ -269,6 +270,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         if let sessionReady { var value = self; value.sessionReady = nil; sessionReady(value) }
     }
     private func revokeSessionState() {
+        systemDocuments.discardPending()
         review.cancel(); verificationWorkspace.cancel(); appearanceRenderer.suspend()
         if !appearanceRenderer.isIdle {
             let activity = session.beginActivity()
@@ -652,6 +654,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
 
     func showDocument(_ id: UUID?) {
+        guard session.isActive else { return }
         if let old = documentSnapshot, batch.documents.contains(where: { $0.id == old.identity.id }) { placements[old.identity.id] = pdfPlacement }
         let entry = batch.documents.first(where: { $0.id == id })
         workspace.select(entry?.snapshot,format:entry?.format)
@@ -665,11 +668,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
               let route = devices.selectedRoute, let binding = context.providerContext,
               binding.valid, plan.jobs.allSatisfy({ $0.providerContext == binding }) else { return }
         provider.pin = ""
+        let generation = session.generation
         let holder = selectedHolder, requestedAuthenticationMode = authenticationMode
         if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
         do {
             let approved = try interaction.approveDisplayed(batch: batch, approval: plan,
-                additionalConfirmation: additionalConfirmation, isCurrent: { reviewContext == context }, present: { approval in
+                additionalConfirmation: additionalConfirmation, isCurrent: { session.accepts(generation) && reviewContext == context }, present: { approval in
                     let alert = NSAlert()
                     alert.messageText = "Conferma firma"
                     alert.informativeText = "Firmatario: \(holder)\nCertificato: \(route.title) · \(route.identity?.issuer ?? "Emittente non disponibile")\n\(approval.jobs.count) documenti. \(authenticationExplanation)"
@@ -677,8 +681,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     content.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
                     alert.accessoryView = content
                     alert.addButton(withTitle: "Conferma e prosegui"); alert.addButton(withTitle: "Annulla")
-                    return alert.runModal() == .alertFirstButtonReturn
+                    return alert.runModal() == .alertFirstButtonReturn && session.accepts(generation)
                 })
+            guard session.accepts(generation) else { return }
             if approved {
                 approvedHolder = holder; approvedRoute = route
                 approvedAuthenticationMode = requestedAuthenticationMode
@@ -686,7 +691,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 authenticationStatus = BatchAuthenticationPolicy.explanation(formats: plan.jobs.map(\.format), serial: route.token.serial, mode: requestedAuthenticationMode)
                 status = "Documenti approvati. Inserisci il PIN per la firma corrente."
             } else { status = "Conferma annullata. Nessuna firma avviata." }
-        } catch { status = error.localizedDescription }
+        } catch { if session.accepts(generation) { status = error.localizedDescription } }
     }
 
     func authorizeNextDocument() {

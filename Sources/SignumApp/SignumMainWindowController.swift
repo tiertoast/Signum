@@ -10,7 +10,7 @@ extension Notification.Name { static let signumWindowOpened = Notification.Name(
     let signingSession: SigningWindowSession?
     override var window: NSWindow? {
         didSet {
-            if let oldValue, oldValue !== window { signingSession?.revoke(); oldValue.delegate = nil }
+            if let oldValue, oldValue !== window { signingSession?.revoke(); oldValue.delegate = nil; oldValue.close() }
             window?.delegate = self
         }
     }
