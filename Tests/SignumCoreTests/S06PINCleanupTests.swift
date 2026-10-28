@@ -21,7 +21,7 @@ final class S06PINCleanupTests: XCTestCase {
         static void *blocks[4096];static size_t sizes[4096];static int dirty=0,allocated=0,retired=0;
         static bool watching=false;
         void *operator new(size_t n){void*p=std::malloc(n?n:1);if(!p)throw std::bad_alloc();std::memset(p,0,n);if(watching){for(int i=0;i<4096;i++)if(!blocks[i]){blocks[i]=p;sizes[i]=n;++allocated;break;}}return p;}
-        void operator delete(void*p) noexcept {for(int i=0;i<4096;i++)if(blocks[i]==p){if(sizes[i]&&((unsigned char*)p)[0]==0xa7)++dirty;blocks[i]=nullptr;++retired;break;}std::free(p);}
+        void operator delete(void*p) noexcept {for(int i=0;i<4096;i++)if(blocks[i]==p){if(std::memchr(p,0xa7,sizes[i]))++dirty;blocks[i]=nullptr;++retired;break;}std::free(p);}
         void operator delete(void*p,size_t) noexcept{::operator delete(p);}
         static int mode=0,position=0,copied=0;static bool interrupted=false;
         static ssize_t fixture_read(int,void*out,size_t){
