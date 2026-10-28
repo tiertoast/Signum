@@ -378,8 +378,8 @@ int main(int argc, char** argv) {
             binding->requireCurrentModule(middleware.string());
         }
         const auto der = token.certificate(slot, certificateID);
-        // Bind to the exact certificate shown by the GUI, before any PIN read
-        // or private-key operation.
+        // Bind to the exact certificate shown by the GUI before authentication
+        // or any private-key operation. Input validation precedes sessions (S03).
         if (!expectedFingerprint.empty()) signum::requireExpectedCertificate(der, expectedFingerprint);
         const auto assessment = sg_certificate_assess(reinterpret_cast<const uint8_t*>(der.data()), der.size(), sg_certificate_now());
         if (assessment.status != SG_CERT_ELIGIBLE) {
