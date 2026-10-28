@@ -187,49 +187,33 @@ final class SigningJobTests: XCTestCase {
             XCTAssertEqual(mock.count(8), 0); try assertCleanFailure(job)
         }
     }
-    func testCLIApprovesSnapshotDigestAndCancellationCleansWithoutPIN() throws {
+    // Input is validated first (S03); cancellation must still retire the
+    // displayed snapshot before any Login/Sign, preserving consent semantics.
+    func testCLIApprovesSnapshotDigestAndCancellationCleansBeforeAuthentication() throws {
         try withJob { old, signer, source in
-            let mock = try MockModule(certificate: signer.der)
-            let process = Process()
-            process.executableURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumCLI")
-            let target = source.deletingLastPathComponent().appendingPathComponent("cli.p7m")
-            process.arguments = ["sign-cades", "7", "53", source.path, target.path, mock.path.path]
-            let input = Pipe(), output = Pipe(), diagnostics = Pipe()
-            process.standardInput = input; process.standardOutput = output; process.standardError = diagnostics
-            let fd = output.fileHandleForReading.fileDescriptor
-            XCTAssertEqual(fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK), 0)
-            try process.run()
-            defer { if process.isRunning { kill(process.processIdentifier, SIGKILL); try? FixtureProcess.wait(process) } }
-            var text = Data(), buffer = [UInt8](repeating: 0, count: 4096)
-            let deadline = ProcessInfo.processInfo.systemUptime + 4
-            while ProcessInfo.processInfo.systemUptime < deadline {
-                let count = Darwin.read(fd, &buffer, buffer.count)
-                if count > 0 { text.append(contentsOf: buffer.prefix(count)) }
-                if String(decoding: text, as: UTF8.self).contains("scrivi FIRMA") { break }
-                if !process.isRunning { break }
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            let description = String(decoding: text, as: UTF8.self)
-            XCTAssertTrue(description.contains(old.contentSHA256), description)
-            XCTAssertTrue(description.contains("scrivi FIRMA"), description)
-            let copyLine = try XCTUnwrap(description.components(separatedBy: "\n").first(where: { $0.hasPrefix("Copia privata da controllare: ") }))
-            let copy = URL(fileURLWithPath: String(copyLine.dropFirst("Copia privata da controllare: ".count)))
-            XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path))
-            try Data("Changed after CLI approval request".utf8).write(to: source)
-            try input.fileHandleForWriting.write(contentsOf: Data("ANNULLA\n".utf8))
-            try input.fileHandleForWriting.close()
-            let finish = ProcessInfo.processInfo.systemUptime + 3
-            while process.isRunning && ProcessInfo.processInfo.systemUptime < finish { Thread.sleep(forTimeInterval: 0.01) }
-            if process.isRunning { kill(process.processIdentifier, SIGKILL); XCTFail("CLI cancellation blocked") }
-            try FixtureProcess.wait(process)
-            let error = String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            XCTAssertEqual(process.terminationStatus, 1)
-            XCTAssertTrue(error.contains("annullata"), error)
-            XCTAssertFalse(error.contains("Token PIN"))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: copy.deletingLastPathComponent().path))
-            XCTAssertEqual(try old.verifiedBytes(), approved)
+            let mock=try MockModule(certificate:signer.der,audit:true)
+            let cli=Bundle(for:Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumCLI")
+            let target=source.deletingLastPathComponent().appendingPathComponent("cli.p7m")
+            var copy:URL?
+            let result=try S03CLITerminalFixture.run(arguments:[cli.path,"sign-cades","7","53",source.path,target.path,mock.path.path],root:mock.folder,onReview:{description in
+                XCTAssertTrue(description.contains(old.contentSHA256),description)
+                XCTAssertTrue(description.contains("scrivi FIRMA"),description)
+                let line=try XCTUnwrap(description.components(separatedBy:.newlines).first{$0.hasPrefix("Copia privata da controllare: ")})
+                let url=URL(fileURLWithPath:String(line.dropFirst("Copia privata da controllare: ".count)))
+                copy=url;XCTAssertTrue(FileManager.default.fileExists(atPath:url.path))
+                try Data("Changed after CLI approval request".utf8).write(to:source)
+                return "ANNULLA\n"
+            })
+            let displayedCopy=try XCTUnwrap(copy)
+            XCTAssertEqual(result.exit,1);XCTAssertTrue(result.error.contains("annullata"),result.error)
+            XCTAssertFalse(result.error.contains("Token PIN"))
+            XCTAssertTrue(result.protected);XCTAssertTrue(result.restored);XCTAssertTrue(result.clean)
+            XCTAssertFalse(FileManager.default.fileExists(atPath:target.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath:displayedCopy.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath:displayedCopy.deletingLastPathComponent().path))
+            XCTAssertEqual(try old.verifiedBytes(),approved)
+            let operations=try String(contentsOf:mock.folder.appendingPathComponent("operations")).split(separator:"\n")
+            XCTAssertFalse(operations.contains("8"));XCTAssertFalse(operations.contains("16"))
         }
     }
     func testPDFKitPreviewAndJobUseSameSnapshotAfterOriginalChanges() throws {
