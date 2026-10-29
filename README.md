@@ -1,7 +1,24 @@
-# Signum
+<div align="center">
+  <p><img src="docs/assets/signum-readme-icon.svg" alt="Signum — native macOS digital signatures" width="182" height="182"></p>
+  <h1>Signum</h1>
+  <p><strong>Digital signatures. Simply native.</strong></p>
+  <p>A focused, native macOS workspace for digital signing and verification.<br>
+  CAdES · PAdES · XAdES · ASiC</p>
+  <p>
+    <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
+    <a href="docs/ARCHITECTURE.md"><img alt="Built with SwiftUI and AppKit" src="https://img.shields.io/badge/built%20with-Swift%20%2B%20AppKit-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
+    <a href="docs/BUILDING.md"><img alt="Declared minimum macOS 13.0" src="https://img.shields.io/badge/platform-macOS%2013%2B-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
+    <a href="docs/RELEASE_NOTES.md"><img alt="Apple Silicon release" src="https://img.shields.io/badge/architecture-Apple%20Silicon-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
+  </p>
+  <p>
+    <a href="https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta"><img alt="Current release: 0.7.0 Beta Build 14" src="https://img.shields.io/badge/release-0.7.0%20Beta%20%7C%20Build%2014-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
+    <a href="docs/USAGE.md"><img alt="Compatible PKCS#11 hardware signing" src="https://img.shields.io/badge/hardware-PKCS%2311-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
+  </p>
+  <p><strong><a href="https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta">Download Signum 0.7.0 Beta — Build 14</a></strong><br>
+  <a href="docs/FEATURES.md">Features</a> · <a href="docs/USAGE.md">User guide</a> · <a href="docs/RELEASE_NOTES.md">Release notes</a></p>
+</div>
 
-**Digital signatures. Simply native.**
-
+---
 Signum is a native macOS application for signing documents with a smart card or
 USB token and verifying digital signatures. It brings CAdES, PAdES, XAdES and
 ASiC workflows into a focused document workspace, with local cryptographic
@@ -10,8 +27,7 @@ processing and clear, separate results for integrity, trust, revocation and time
 Built with SwiftUI and AppKit, Signum works with compatible PKCS#11 middleware
 rather than requiring a particular vendor's desktop signing application.
 
-**[Download Signum 0.7.0 Beta — Build 14](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta)**
-· Apple Silicon · declared minimum macOS 13.0 · [release notes](docs/RELEASE_NOTES.md)
+**Current distribution:** Apple Silicon · declared minimum macOS 13.0 · ad-hoc signed Beta (not notarized).
 
 ## Features
 
