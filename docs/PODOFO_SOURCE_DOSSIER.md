@@ -103,3 +103,20 @@ Impostazione conservativa e reversibile: directory predisposta senza archivi fit
 ## Controlli riutilizzabili
 
 `scripts/notices_contract.py` deriva la closure Mach-O e controlla versioni e notice contro hash locali approvati, includendo le componenti incorporate censite. `scripts/podofo_source_contract.py` verifica la coerenza di questo dossier con quella prova e con il metadata nativo. Modalità ordinaria: verde strutturale consentito con elenco esplicito dei pending. `--require-ready`: rosso finché archivio verificato, inventario patch, attestazione di corrispondenza, scelta dell'autore e istruzioni al destinatario mancano. I casi sintetici corretti/errati del verificatore sono separati dalle prove sui binari reali.
+
+## Aggiornamento Fase 5b — materiali mancanti, nessuna scelta automatica
+
+Ricerca dei nomi archivio PoDoFo nell'albero Signum-Stabilization (esclusi i
+database Git): nessun .tar/.tar.gz/.tar.xz/.tgz/.zip corrispondente presente.
+Il checkout originale e gli altri repository non sono stati cercati. Mancano:
+archivio1.1.2 SHA d6ffe6fc173ac6d6e5b00f5cb9db01990cab1bdf7cc03bdeffce3013bc9ec63a,
+albero effettivamente compilato, patch/diff, registri di build e corrispondenza
+con il binario; archivi e notice per-file degli incorporati, revisioni PDFium/
+numerics/font, elenco moduli FreeType realmente collegati.
+
+Il credito FreeType è ora esplicito in FreeType-acknowledgment.txt, incluso nel
+catalogo dei notice. Restano da decidere FTL/GPL per FreeType, MPL/LGPL per
+PoDoFo e il canale effettivo per i sorgenti coperti, con istruzioni accessibili
+ai destinatari. Nessun campo pending è promosso a verified. Non si sceglie una
+via legale né si rende pubblico materiale. Vedere SCHEMA_LICENSE_DOSSIER.md
+per XAdES/W3C/DSS: sono un perimetro separato dalla closure nativa.

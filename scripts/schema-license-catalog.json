@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "scope": "Local inventory only; no license inferred from DSS repository or another W3C schema; not legal approval",
+  "resources": [
+    {
+      "file": "Sources/SignumTrustAuthentication/Schemas/19612_additionaltypes_xsd.xsd",
+      "sha256": "03147f031770d38e735622d0e2f6b82b63cfc1aa80b4262cf2b54cd413cad4d8",
+      "origin": "ETSI TS119612 v2.4.1, declared commit812fe781d37ead5b0ad562f2874ef5f67fc3a4dd",
+      "licenseFile": "Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE",
+      "licenseSHA256": "d74b5c11a994434905178d2bb2accf881ef9955795dcd676432fbceefb8e36a6",
+      "status": "local-license-text-present",
+      "upstreamByteCorrespondence": "not independently attested in phase5b"
+    },
+    {
+      "file": "Sources/SignumTrustAuthentication/Schemas/19612_sie_xsd.xsd",
+      "sha256": "351806ddad1f3a10ba241f07ba04f72ae970e9df07f2528fed83659af4c58df2",
+      "origin": "ETSI TS119612 v2.4.1, declared commit812fe781d37ead5b0ad562f2874ef5f67fc3a4dd",
+      "licenseFile": "Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE",
+      "licenseSHA256": "d74b5c11a994434905178d2bb2accf881ef9955795dcd676432fbceefb8e36a6",
+      "status": "local-license-text-present",
+      "upstreamByteCorrespondence": "not independently attested in phase5b"
+    },
+    {
+      "file": "Sources/SignumTrustAuthentication/Schemas/19612_xsd.xsd",
+      "sha256": "772ce28e689fcecb827e97b6588b7e21e6ad251341b848578b23ef41d46a643b",
+      "origin": "ETSI TS119612 v2.4.1, declared commit812fe781d37ead5b0ad562f2874ef5f67fc3a4dd",
+      "licenseFile": "Sources/SignumTrustAuthentication/Schemas/ETSI-LICENSE",
+      "licenseSHA256": "d74b5c11a994434905178d2bb2accf881ef9955795dcd676432fbceefb8e36a6",
+      "status": "local-license-text-present",
+      "upstreamByteCorrespondence": "not independently attested in phase5b"
+    },
+    {
+      "file": "Sources/SignumTrustAuthentication/Schemas/validation.xsd",
+      "sha256": "045362ad783bb9764dc5dad60389fdcf79b35099ef95b6f5372fd2c4eaa03627",
+      "origin": "Signum import wrapper",
+      "licenseFile": "LICENSE",
+      "licenseSHA256": "b1d2870f1a00e4d7f56576e5f0870cba109e041f8af66866cf5b499478e654e7",
+      "status": "local-license-text-present",
+      "upstreamByteCorrespondence": "Signum-authored"
+    },
+    {
+      "file": "Sources/SignumTrustAuthentication/Schemas/xades.xsd",
+      "sha256": "e1d0b9b7d152aca05dafbbb108c76ca7f90f276cc0418f31ddbd86676b458a72",
+      "origin": "DSS declared commit9f3af8f2ca672b8948e0a3ee8687e53adf9f5c33, XAdES01903v132-202407.xsd",
+      "licenseFile": null,
+      "licenseSHA256": null,
+      "status": "unresolved-original-license-required",
+      "upstreamByteCorrespondence": "not independently attested in phase5b"
+    },
+    {
+      "file": "Sources/SignumTrustAuthentication/Schemas/xml.xsd",
+      "sha256": "aa70f96214a33ee9d006ec7603e263c866dcc39742c3469b9cbc4da947954177",
+      "origin": "W3C declared URI in Schemas/PROVENANCE.md",
+      "licenseFile": null,
+      "licenseSHA256": null,
+      "status": "unresolved-original-license-required",
+      "upstreamByteCorrespondence": "not independently attested in phase5b"
+    },
+    {
+      "file": "Sources/SignumTrustAuthentication/Schemas/xmldsig.xsd",
+      "sha256": "ad0bbf9b06c4d4d0973aa8f6adcf446d200baa477d2da1f0d2840413e89510f5",
+      "origin": "W3C declared URI in Schemas/PROVENANCE.md",
+      "licenseFile": null,
+      "licenseSHA256": null,
+      "status": "unresolved-original-license-required",
+      "upstreamByteCorrespondence": "not independently attested in phase5b"
+    }
+  ]
+}

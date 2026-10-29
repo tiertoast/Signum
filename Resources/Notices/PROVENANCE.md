@@ -8,3 +8,5 @@ These texts are copied verbatim from local inputs, without network retrieval. Th
 - The complete source archives and the distribution/source-access decision are separate requirements. A private Signum repository link alone is not a recipient source-access mechanism. See the PoDoFo dossier when available. FreeType product-specific acknowledgment is in FreeType-acknowledgment.txt and pinned by the catalog. S17 credit is explicit; the author's FTL/GPL selection and binary/source provenance remain pending in the distribution dossier.
 
 The catalog maps actual non-system Mach-O dependencies to these texts and rejects unknown libraries, version mismatches, missing files, referrals and changed notice bytes. It does not establish legal compliance, identify all upstream file-level licenses, or qualify the final app/DMG.
+
+Schema resource licensing is tracked separately in scripts/schema-license-catalog.json and docs/SCHEMA_LICENSE_DOSSIER.md. The three unresolved XAdES/W3C licenses are not covered by the native Mach-O notice audit. ETSI-TL.txt is an unchanged copy of the accompanying TL schema license.
