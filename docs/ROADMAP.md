@@ -1,7 +1,7 @@
 # Signum — Development roadmap
 
 **Digital signatures. Simply native.**  
-**Updated:** 22 October 2026 · **Platform focus:** native macOS/Apple Silicon · **Current baseline:** [v0.6.0-beta / Build 3](https://github.com/tiertoast/Signum/releases/tag/v0.6.0-beta).
+**Updated:** 29 October 2026 · **Platform focus:** native macOS/Apple Silicon · **Current Beta candidate:** [0.7.0 Beta / Build 14](SIGNUM_0.7_RELEASE_NOTES.md).
 
 This roadmap is a **plan, not a statement of delivered capabilities**. Completed release evidence remains in the linked engineering reports. The objective is a fast, vendor-independent and well-integrated native macOS signing experience, especially for document-heavy public-administration workflows. Avoid premature cross-platform complexity.
 
@@ -12,8 +12,8 @@ This roadmap is a **plan, not a statement of delivered capabilities**. Completed
 | **0.3** | Reliability foundation: PKCS#11 worker, signed-byte approval, safe outputs | Completed |
 | **0.4** | CAdES/PAdES, batches, graphical PDF signing, local integrity verification | [Released Beta Build 14](https://github.com/tiertoast/Signum/releases/tag/v0.4.0-beta.14) |
 | **0.5** | EU LOTL/TLs, X.509, OCSP/CRL, historical evidence, conservative eIDAS, signingTime toggle | **[Released Beta Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta)** |
-| **0.6** | Current-time eIDAS, XAdES, ASiC, CAdES interoperability and verification reports | **Implemented A–E.1; Build 3 manually accepted; Beta publication authorized** |
-| **0.7** | Native macOS GUI/UX redesign, Burgundy `#64313E` and cohesive format workflows | Planned |
+| **0.6** | Current-time eIDAS, XAdES, ASiC, CAdES interoperability and verification reports | [Released Beta Build 3](https://github.com/tiertoast/Signum/releases/tag/v0.6.0-beta) |
+| **0.7** | Native GUI/workspace, Finder/services, Devices, verification and stabilization | Implemented; verified Build 14 DMG for experimental Beta; M3–M6 OPEN, RC gate NOT PASSED |
 | **0.8** | Reliability, interoperability, compatibility and distribution preparation | Planned |
 | **0.9** | Optional TSA timestamp issuance and encryption/decryption | Deferred / low priority |
 | **1.0** | Stable, maintainable release with explicitly defined supported scope | Goal |
@@ -68,7 +68,20 @@ The 0.6 cycle should deliver useful formats without compromising 0.5 cryptograph
 
 ## 0.7 — Native macOS experience
 
-Redesign the workflow in SwiftUI/AppKit around document preview, signatures, signer identities, formats and trustworthy verification results. Preserve direct interaction, keyboard accessibility, useful error states and batch operations; avoid UI changes that blur approval or signature/document binding. The interface should remain recognizably native, lightweight and independent of external vendor panels.
+Implemented the SwiftUI/AppKit document workspace, signing inspector, native window/session ownership, Finder/services routing, cumulative verification and Devices presentation. Burgundy GUI and coherent format workflows are delivered in Build 14. Stabilization includes PDF revision coverage, conservative PAdES teardown, terminal PIN fidelity/wiping, cancellation and PKCS#11 count checks. Real administrative PIN/PUK operations remain disabled/unqualified.
+
+[0.7 release notes](SIGNUM_0.7_RELEASE_NOTES.md) identify the exact product revision and artifact. The author's local installation acceptance does not qualify other OS versions or hardware. The Beta publication decision is separate from automated `publicationQualified:false` evidence.
+
+| Open gate | State and next evidence |
+| --- | --- |
+| M3–M6 recurring timing/cancellation failures | **OPEN (e), deferred**; cause not isolated. [Issue #9](https://github.com/tiertoast/Signum/issues/9); retain raw failures and assertions, obtain discriminating timelines before fixes. |
+| Stability / RC | **NOT PASSED**; no complete fresh green campaign claimed. Beta is not RC or Stable. |
+| macOS 13/14 and clean Mac | **Not attested**; actual installation and relevant workflows required. Declared minimum 13.0 is metadata only. |
+| Hardware and middleware | Expand only through explicit device-specific acceptance; real PIN change/PUK remains disabled. |
+| Accessibility and manual UX | Residual unexecuted checks remain open; no blanket completion claim. |
+| Production distribution | Developer ID, hardened runtime, notarization, Gatekeeper and update policy remain open. |
+
+Historical build reports and Phase5b/6b checkpoints retain their original results. Phase7/8 source and packaging evidence supersede earlier technical prerequisite status only within their stated scope; they do not close the open gates above.
 
 ## 0.8 — Hardening and distribution
 

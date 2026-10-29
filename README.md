@@ -4,9 +4,28 @@
 
 Signum is a lightweight, native macOS application for local digital signatures and verification, built in Swift/SwiftUI with native cryptographic helpers. It is designed for everyday document workflows, including the Italian public administration, while avoiding dependence on any single token vendor's desktop software.
 
-> **Previous release (21 October 2026): [Signum 0.5.0 Beta — Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta).** The Beta was manually accepted on the development hardware and published as a GitHub pre-release. It is **ad-hoc signed, not Developer ID signed or notarized**, and remains an experimental Beta, not a certified universal eIDAS validation solution.
+> **Current Beta: Signum 0.7.0 — Build 14** ([release](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta)). Apple Silicon arm64, ad-hoc signed, no Developer ID or notarization. **M3–M6 remain open; the RC stability gate is NOT PASSED.** The repository and release assets remain private.
 
 For planned work, scope and milestone gates, see the **[development roadmap](docs/ROADMAP.md)**. For distribution and assurance gaps, see **[release readiness](docs/RELEASE_READINESS.md)**.
+
+## Signum 0.7.0 Beta — Build 14
+
+Native document workspace, signing inspector, Finder/services integration,
+cumulative verification and a redesigned Devices experience. Stabilization covers
+PDF revision coverage, conservative PAdES cleanup, session cancellation, exact CLI
+PIN bytes and PIN buffer lifecycle. Real PIN changes and PUK unblocking remain
+disabled and unqualified; the administrative foundation is synthetic only.
+
+The exact verified DMG is reused without rebuilding: product source
+`09316e046a4dd101ce74410a6eeccee6911d4783`, bundle `io.github.tiertoast.Signum`,
+version 0.7.0 / build 14. Declared macOS minimum 13.0 is not a runtime qualification
+on macOS 13/14. Clean-Mac and wider hardware/middleware acceptance remain open.
+The author's installation acceptance concerns the local Mac only.
+
+See [0.7 release notes](docs/SIGNUM_0.7_RELEASE_NOTES.md),
+[artifact evidence](docs/releases/0.7.0-beta/ArtifactManifest.json) and
+[open M3–M6 follow-up](https://github.com/tiertoast/Signum/issues/9).
+No Stable or RC promotion is claimed. Earlier releases and evidence remain intact.
 
 ## Signum 0.6.0 Beta — Build 3
 
@@ -23,13 +42,13 @@ Verification summaries and reports display each signer's personal Subject name,
 Italian personal codice fiscale when unambiguously present, and individual outcomes.
 Company identifiers are not presented as personal fiscal codes. Missing identity
 fields are explicitly unavailable; identity alone does not grant trust or QES.
-Burgundy accents apply to reports only; the GUI redesign remains planned for 0.7.
+In the historical 0.6 release Burgundy accents applied to reports only; the 0.7 GUI now adopts them.
 
 See [0.6 release notes and manual checklist](docs/SIGNUM_0.6_RELEASE_NOTES.md)
 and [Build 3 scope/provenance](docs/SIGNUM_0.6_BUILD3_RC.md). Profiles remain bounded:
 no XAdES-T/LT/LTA, ASiC CAdES, timestamp issuance, encryption or universal eIDAS claim.
 
-## Available in 0.5 Beta
+## Historical 0.5 Beta scope
 
 | Area | Current scope |
 | --- | --- |
@@ -59,7 +78,7 @@ The positive qualification policy validated so far is deliberately narrow: IT, A
 
 Worker isolation reduces the impact of middleware crashes/hangs on the UI; it is **not** a privilege sandbox against hostile third-party modules. Avoid putting PINs or private document contents in logs, command arguments or issues.
 
-## Beta validation
+## Historical 0.5 Beta validation
 
 The frozen 0.5-F campaign passed **564 Swift tests**, **81 PAdES native cases in Debug and Release each**, **58 PKCS#11 provider cases plus 2 loader contracts**, and **18 packaging contracts**, with no reported final failures or skips. A real two-signer CAdES file was checked without adding any untrusted QES claim. The user also confirmed successful local UI/token/document tests before publication. This is development acceptance, **not** independent regulatory certification or a compatibility guarantee for all middleware.
 
