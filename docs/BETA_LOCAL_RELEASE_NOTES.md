@@ -1,27 +1,17 @@
-# Signum 0.7.0 Beta — build14, candidato locale arm64
+# Signum 0.7.0 Beta — local packaging notes
 
-Digital signatures. Simply native.
+This document is input for future local packaging. For the published product,
+use the [current release notes](RELEASE_NOTES.md).
 
-Candidato tecnico locale con firma ad-hoc. Non è Developer ID, non è
-notarizzato e non costituisce una release pubblica o una qualificazione Stable.
-Minimo dichiarato macOS13.0; il solo valore Mach-O non prova l'esecuzione su
-macOS13 reale. Intel non è incluso.
+Build 14 targets Apple Silicon arm64 and declares macOS 13.0. Distribution is
+ad-hoc signed, without Developer ID or notarization. PKCS#11 middleware is
+installed separately. Included libraries, notices and source-access materials
+retain their own terms; Signum original code remains Apache-2.0.
 
-PoDoFo1.1.2 e FreeType2.13.3 provengono dalla nuova build controllata e verificata.
-Il bundle include notice e il kit sorgenti corrispondenti con le istruzioni in
-Contents/Resources/ThirdPartySources/SOURCE_ACCESS.md. PoDoFo sotto MPL2.0,
-FreeType sotto FTL, componenti autonome secondo i propri termini; Signum resta
-Apache2.0. Nessun accesso al repository privato è necessario per il kit coperto.
+A local build or startup/loader audit is not complete OS, device or functional
+qualification. M3–M6 remain open and the RC stability gate is not passed.
+Production distribution, clean-Mac, accessibility and broader compatibility
+acceptance remain separate. The app does not disable system protections.
 
-Il collaudo di packaging verifica risorse, loader, integrità, firma e avvio
-base. Non certifica tutte le operazioni funzionali o l'hardware reale. Non
-inserire PIN/PUK né avviare firme reali durante questo controllo automatico.
-L'eventuale middleware PKCS#11 rimane un'installazione esterna dell'operatore.
-
-M3–M6 restano aperti e rinviati; gate RC NON SUPERATO. I limiti già documentati,
-inclusi accessibilità e altri collaudi manuali non eseguiti, non sono promossi
-a successi. Nessuna nuova campagna di stabilità o stress è inclusa.
-
-Prima di pubblicare occorrono separati audit del candidato, collaudi pertinenti
-sul minimo OS/macchina pulita e decisione sul canale e sull'esperienza Gatekeeper.
-Nessuna protezione macOS viene disabilitata automaticamente.
+The already published DMG contains the earlier Italian packaging notes frozen
+inside that artifact. Updating this repository document does not change its bytes.

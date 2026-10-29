@@ -82,3 +82,5 @@ links to operational and provenance records kept at stable paths.
 - [SIGNUM 07 BUILD9 VERIFICATION](SIGNUM_07_BUILD9_VERIFICATION.md)
 
 Two historical reports remain at stable paths because source/tool documentation references them: [ASAN contract](../SIGNUM_0.4_C1_ASAN_GATE.md) and [reliability foundation, part 2](../0.3.3-reliability-foundation-part2.md).
+
+The [original 0.7 publication notes](SIGNUM_0.7_RELEASE_NOTES_ORIGINAL.md) are preserved byte-for-byte as historical evidence; the current English presentation is separate.
