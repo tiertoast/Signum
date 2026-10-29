@@ -13,9 +13,9 @@
   "linkage": "dynamic",
   "patchStatus": "unknown",
   "sourceCorrespondence": "unattested",
-  "selectedLicense": null,
-  "distributionRoute": null,
-  "recipientInstructions": null,
-  "sourceArchive": null,
-  "status": "NON VERIFICABILE: da reperire; author decisions pending"
+  "selectedLicense": "MPL-2.0",
+  "distributionRoute": "source-with-artifact",
+  "recipientInstructions": "See SOURCE_ACCESS.md alongside this dossier; the shipped corresponding source remains unqualified until patch/binary correspondence is attested.",
+  "sourceArchive": "podofo.tar.gz",
+  "status": "Author FTL/MPL decisions applied; expected upstream archives verified; patch inventory and binary/source correspondence remain UNATTESTED"
 }

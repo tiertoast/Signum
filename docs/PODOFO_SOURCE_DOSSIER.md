@@ -1,6 +1,6 @@
 # PoDoFo: dossier locale dei sorgenti e della ridistribuzione
 
-Stato S09: PARZIALE, NON CHIUSO. Fatti e rischi tecnici, senza conclusione legale. Nessuna via di licenza o distribuzione è stata scelta. Nessun sorgente è pubblicato o scaricato. Il solo pacchetto predisposto non permette ancora di ottenere i sorgenti corrispondenti.
+Stato corrente Fase6b: S09 PARZIALE. Scelte definitive MPL2.0 / FTL applicate; archivi attesi recuperati e verificati; consegna source-with-artifact predisposta. Patch e corrispondenza integrale dei binari restano non attestate. Vedere aggiornamento Fase6b in fondo e FREETYPE_DOSSIER.md. Le sezioni Fase4–6 seguenti conservano la ricostruzione storica; i relativi pending decisionali sono superati dal nuovo aggiornamento. Nessuna pubblicazione o ricompilazione.
 
 ## Fatti e provenienza
 
@@ -170,3 +170,52 @@ OpenSSL3.5.6, libxml2 2.15.4 e xmlsec1.3.12 rimangono quelli censiti nella
 recipe e nei notice. La nuova procedura riusa soltanto il prefix autorizzato,
 non li installa né li aggiorna. Gli hash attesi della recipe non sostituiscono
 la tracciabilità dei binari. Nessun pending è promosso ad attestato in Fase6.
+
+## Fase6b — decisioni applicate e materiali effettivamente recuperati
+
+**Stato corrente (supera i pending decisionali delle sezioni storiche):**
+PoDoFo1.1.2 sotto **MPL2.0**, FreeType2.13.3 sotto **FTL**, su decisione esplicita
+dell'autore. I termini autonomi degli incorporati restano conservati; Apache2.0
+principale invariata. Non si applica MPL ai tools GPL né FTL all'intero archivio.
+
+Archivio PoDoFo dal repository ufficiale:
+https://github.com/podofo/podofo/archive/refs/tags/1.1.2.tar.gz
+(endpoint codeload registrato in SOURCE_INVENTORY.json), **SHA256 esatto atteso**
+`d6ffe6fc173ac6d6e5b00f5cb9db01990cab1bdf7cc03bdeffce3013bc9ec63a`.
+Conservato intero in Resources/ThirdPartySources/podofo.tar.gz. COPYING.MPL
+SHA256 `fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85`
+identico al testo locale già distribuito; NOTICE originale conferma l'alternativa
+MPL per src/. Recuperati anche tutti i sorgenti vendorizzati presenti e i loro
+notice: PDFium, numerics, LiberaLean, Foxit, SASLprep, date, fmt, fast_float,
+utf8proc, utf8cpp, tcb-span; incluso conservativamente il testo Adobe AFDKO,
+senza dichiararne l'uso effettivo. Identità dei singoli snapshot fissata dagli
+hash dei membri nell'archivio verificato, senza inventare revisioni autonome.
+
+La fonte rivela termini autonomi aggiuntivi rispetto al vecchio inventario
+ridotto. NOTICE upstream completo e testi leggibili sono ora nel catalogo dei
+notice del bundle. SASLprep dichiara MIT nel proprio header SPDX: aggiunto il
+testo standard MIT dalla fonte SPDX registrata, con copyright originale. Il
+rinvio tcb-span a Boost è accompagnato dal grant Boost originale incluso nel
+vicino utf8cpp. utf8proc.c richiama un copyright nel file dati che non è presente
+in quel file dell'archivio: registrata la lacuna nell'inventario, senza attribuire
+automaticamente una versione della licenza Unicode. Verificarne provenienza e
+termini nel dossier del sorgente effettivamente compilato.
+
+**Confronto non eseguibile:** 141 header PoDoFo installati sono identici agli
+originali; podofo_config.h è generato. Otto testi licenza PoDoFo/FreeType
+confrontati sono identici. Configurazioni FreeType confrontate separatamente.
+Hash del binario PoDoFo esistente:
+`507715d29303a86b9ecf1618e9219d1cef47021534916dce46826dc9b33ddb96`.
+Hash di libfreetype.a esistente:
+`2068e8a4fdee1c76ac1b8bb41b6f895a861ff80209ff08f3b22af2373fe116e0`.
+Dettagli in Evidence/native-comparison.json. Questi riscontri NON provano i
+sorgenti privati di ogni oggetto compilato: **patchStatus unknown e
+sourceCorrespondence unattested restano aperti**. Nessuna ricostruzione.
+
+Modalità concreta predisposta: **source-with-artifact**, archivi originali e
+istruzioni in Resources/ThirdPartySources/SOURCE_ACCESS.md, copiati dalla recipe
+esistente dentro l'app. Il destinatario non dipende dal repository Signum
+privato. Prima di consegnare occorrono albero realmente compilato, patch/diff o
+prova documentata di diff vuoto, log originale toolchain/SDK/flag e collegamento
+ai binari. Il kit è quindi predisposto ma non ancora qualificato come sorgente
+corrispondente. Il gate rimane rosso su quelle due attestazioni mancanti.
