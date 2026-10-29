@@ -28,3 +28,18 @@ licenze specifiche e le decisioni dei dossier. Nessuna certificazione legale.
 pronta; `--require-ready` rifiuta le tre licenze non determinate. Non recupera
 file dalla rete. Il futuro audit del pacchetto dovrà controllare schema bundle,
 provenienza, testi e crediti reali, oltre alla closure Mach-O.
+
+## Fase6 — fonti pubbliche documentali
+
+XMLDSig: il testo completo della licenza19980720 richiamata esplicitamente
+dall'header è ora conservato in Resources/Notices/W3C-Software-1998.html,
+con hash nel catalogo. W3C-Schema-Changes.txt mantiene gli avvisi di modifica
+e la data del commit locale registrato. Nessun XSD è stato cambiato.
+
+Restano non qualificate due risorse, xades.xsd e xml.xsd: il file DSS al commit
+dichiarato è accessibile ma non espone una licenza specifica; xml.xsd servito
+oggi dall'URL W3C non coincide byte per byte col file locale. Queste sole
+consultazioni non chiudono applicabilità e provenienza. Non si trasferisce
+la licenza XMLDSig a xml.xsd o la licenza generale DSS a XAdES. Le precedenti
+indicazioni di tre lacune descrivono lo stato della Fase5b; lo stato corrente
+è il catalogo aggiornato, con due licenze ancora da documentare.

@@ -1,0 +1,17 @@
+XMLDSig schema used by Signum
+
+The retained schema header identifies Copyright2001 The Internet Society and
+W3C and the W3C Software License19980720. The full official notice is in
+W3C-Software-1998.html, retrieved from the exact header URI on2026-10-29:
+https://www.w3.org/Consortium/Legal/copyright-software-19980720
+
+Local changes documented in Signum: sibling-only schema imports, removal of
+the XMLDSig external DTD/internal entity declarations and expansion of its
+namespace entity to the literal URI. The current XMLDSig file was recorded
+in Signum commit4311901f5ff15630ad638bea65e04c63ebf56e0b on2026-10-20
+(14:53:17+02:00); this is the recorded local commit date, not an upstream date.
+No XSD content was modified in Phase6. Existing copyright headers are retained.
+
+This notice is specific to xmldsig.xsd. It does not assign this license to
+xml.xsd or the DSS-hosted XAdES schema. Their status remains explicit in the
+schema license catalog until resource-specific evidence is available.

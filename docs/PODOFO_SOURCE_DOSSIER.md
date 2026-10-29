@@ -120,3 +120,53 @@ PoDoFo e il canale effettivo per i sorgenti coperti, con istruzioni accessibili
 ai destinatari. Nessun campo pending è promosso a verified. Non si sceglie una
 via legale né si rende pubblico materiale. Vedere SCHEMA_LICENSE_DOSSIER.md
 per XAdES/W3C/DSS: sono un perimetro separato dalla closure nativa.
+
+## Fase 6 — raccomandazione all'autore e recupero documentale
+
+**Raccomandazione condizionata, non selezione:** FreeType sotto **FTL** e
+PoDoFo sotto **MPL 2.0**, dopo il recupero e l'attestazione dei materiali.
+`podofo.json.selectedLicense`, `distributionRoute` e il campo FreeType
+`licenseSelection` rimangono pendenti. Apache 2.0 principale invariata.
+
+FreeType: [documentazione ufficiale](https://freetype.org/license.html) e testi
+locali confermano la doppia via. FTL permette distribuzione binaria con il
+credito FreeType Team già presente; conservare il testo e gli avvisi, senza
+attribuire un anno inventato. In caso di sorgenti, mantenere FTL/copyright e
+indicare le modifiche. La formula di copyright preferita è incoraggiata, non
+obbligatoria. FTL non impone di ripubblicare tutto Signum sotto GPL. Restano da
+verificare le licenze autonome dei moduli realmente incorporati. GPL-2.0-or-later
+richiederebbe invece testo completo, scelta della versione applicabile e
+verifica degli obblighi sull'opera combinata: [Apache chiarisce](https://www.apache.org/licenses/GPL-compatibility.html) che Apache 2.0 non è compatibile con
+GPLv2-only; una via GPLv3 può essere valutata, senza dedurre che sia già scelta
+né che FTL sia compatibile con ogni alternativa GPL. L'attuale preflight non
+qualifica una via GPL FreeType senza ulteriore documentazione.
+
+PoDoFo: [COPYING.MPL upstream 1.1.2](https://github.com/podofo/podofo/blob/1.1.2/COPYING.MPL)
+e [FAQ ufficiale MPL](https://www.mozilla.org/en-US/MPL/2.0/FAQ/) sono stati
+consultati come documenti. La MPL consente un Larger Work con altri termini,
+con copyleft sui file coperti: mantenere avvisi e testi, rendere disponibili
+sorgenti corrispondenti e modifiche dei file coperti e dire ai destinatari
+come ottenerli (§§3.1–3.4). Per questa Beta suggerisco un archivio completo dei
+sorgenti coperti insieme all'artefatto, oppure un URL pubblico accessibile
+che identifichi esattamente versione/patch. Un'offerta scritta generica o un
+link al Signum privato non soddisfano automaticamente la MPL. I testi degli
+incorporati PDFium/numerics/font/FreeType mantengono efficacia autonoma.
+La via Library GPLv2-or-later resta possibile solo verificandone concretamente
+sorgenti, avvisi, modifica/debug e ricollegamento (§6), compresa l'eccezione
+OpenSSL applicabile. Il collegamento dinamico da solo non chiude tali obblighi.
+È un confronto documentale, non una valutazione legale definitiva.
+
+**Materiali esatti da fornire, senza ricostruzione automatica:**
+
+| Materiale / provenienza attesa | Destinazione proposta o riferimento | Perché manca |
+|---|---|---|
+| `podofo.tar.gz` originale usato, URL d'origine e data di acquisizione | `Resources/ThirdPartySources/podofo.tar.gz`, SHA256 `d6ffe6fc173ac6d6e5b00f5cb9db01990cab1bdf7cc03bdeffce3013bc9ec63a` | la recipe conserva nome/hash/versione, non l'URL; il tag pubblico non attesta l'archivio effettivo |
+| Albero compilato, diff completo dall'archivio, eventuali patch o attestazione documentata di diff vuoto | nuovo dossier sorgenti fornito dall'autore, poi riferimenti in `podofo.json` | assenza di un passo patch nella recipe non prova assenza di modifiche |
+| Registro build originale, toolchain/SDK/flag, hash prima/dopo install-name rewrite e binari del prefix | dossier esterno dell'autore, in sola lettura per il confronto | provare la catena sorgente/binario senza presumere riproducibilità bit per bit |
+| Sorgenti FreeType2.13.3, moduli realmente collegati e notice per-file; sorgenti/revisioni PDFium, numerics, LiberaLean e Foxit effettivamente incorporati | archivio PoDoFo effettivo e archivi originali delle dipendenze | revisioni autonome e scope non attestati; non scaricare snapshot arbitrari |
+| Decisione MPL/LGPL, FTL/GPL, modalità di accesso e istruzioni reali ai destinatari | `Resources/ThirdPartySources/podofo.json`, `scripts/third-party-notices.json` e istruzioni distribuite | decisione dell'autore e disponibilità effettiva, non automatizzabili con un flag |
+
+OpenSSL3.5.6, libxml2 2.15.4 e xmlsec1.3.12 rimangono quelli censiti nella
+recipe e nei notice. La nuova procedura riusa soltanto il prefix autorizzato,
+non li installa né li aggiorna. Gli hash attesi della recipe non sostituiscono
+la tracciabilità dei binari. Nessun pending è promosso ad attestato in Fase6.

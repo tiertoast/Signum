@@ -60,10 +60,11 @@
       "file": "Sources/SignumTrustAuthentication/Schemas/xmldsig.xsd",
       "sha256": "ad0bbf9b06c4d4d0973aa8f6adcf446d200baa477d2da1f0d2840413e89510f5",
       "origin": "W3C declared URI in Schemas/PROVENANCE.md",
-      "licenseFile": null,
-      "licenseSHA256": null,
-      "status": "unresolved-original-license-required",
-      "upstreamByteCorrespondence": "not independently attested in phase5b"
+      "licenseFile": "Resources/Notices/W3C-Software-1998.html",
+      "licenseSHA256": "d4eedcb04dc16687b6d56b49ed06e1b55f599b8bd8e518af9773d1b7d2cf5c76",
+      "status": "local-license-text-present",
+      "upstreamByteCorrespondence": "not independently attested in phase5b",
+      "licenseEvidence": "Explicit 1998 license URI in the retained XMLDSig header; full official text retrieved2026-10-29"
     }
   ]
 }
