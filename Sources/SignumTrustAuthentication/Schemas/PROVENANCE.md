@@ -23,3 +23,17 @@ The ETSI archive and historical 201601 XAdES endpoint returned HTTP 403 from
 this host. The official tagged ETSI repository and DSS-hosted XAdES revision
 were used instead. This is an interoperability proof, not certification of
 every XAdES-BASELINE-B serialization.
+
+Phase6b documentary verification (no XSD byte changes):
+The original XAdES bytes above are identical to ETSI
+https://forge.etsi.org/rep/esi/x19_13201_XAdES/raw/v1.3.1/1913201-XAdES01903v132.xsd
+at tag v1.3.1, commit01ab58e88086f1b4ec1549cf9905cc63a4b791f7.
+LICENSE from that same tag is retained in the distribution notices; only the
+XMLDSig import URL differs in Signum. W3C xml.xsd matches the dated2009/01
+snapshot after the stylesheet relative path, two documented example imports
+and terminal blank line changes recorded in the source evidence. Applicable
+license for xml.xsd remains unresolved; no license inferred from its XSL file.
+Full byte diffs and URLs/hashes are in Resources/ThirdPartySources/Evidence
+and SOURCE_INVENTORY.json in the enclosing app distribution. These changes
+were already present in local commit4311901f5ff15630ad638bea65e04c63ebf56e0b,
+2026-10-20; Phase6b only documents them.

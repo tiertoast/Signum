@@ -41,20 +41,21 @@
     {
       "file": "Sources/SignumTrustAuthentication/Schemas/xades.xsd",
       "sha256": "e1d0b9b7d152aca05dafbbb108c76ca7f90f276cc0418f31ddbd86676b458a72",
-      "origin": "DSS declared commit9f3af8f2ca672b8948e0a3ee8687e53adf9f5c33, XAdES01903v132-202407.xsd",
-      "licenseFile": null,
-      "licenseSHA256": null,
-      "status": "unresolved-original-license-required",
-      "upstreamByteCorrespondence": "not independently attested in phase5b"
+      "origin": "ETSI x19_13201_xades v1.3.1 commit01ab58e88086f1b4ec1549cf9905cc63a4b791f7; original bytes identical to pinned DSS copy",
+      "licenseFile": "Resources/Notices/ETSI-TL.txt",
+      "licenseSHA256": "d74b5c11a994434905178d2bb2accf881ef9955795dcd676432fbceefb8e36a6",
+      "status": "local-license-text-present",
+      "upstreamByteCorrespondence": "Verified original SHA457745286eaa292ae1aaa6e976e0f30eeceb0a37cc2301151576175e0ae1986c; only XMLDSig schemaLocation localized",
+      "licenseEvidence": "LICENSE retrieved from same ETSI tag as exact original XSD; no license inferred from DSS"
     },
     {
       "file": "Sources/SignumTrustAuthentication/Schemas/xml.xsd",
       "sha256": "aa70f96214a33ee9d006ec7603e263c866dcc39742c3469b9cbc4da947954177",
-      "origin": "W3C declared URI in Schemas/PROVENANCE.md",
+      "origin": "W3C 2009/01/xml.xsd snapshot and current2001/xml.xsd verified; applicable license statement still required",
       "licenseFile": null,
       "licenseSHA256": null,
       "status": "unresolved-original-license-required",
-      "upstreamByteCorrespondence": "not independently attested in phase5b"
+      "upstreamByteCorrespondence": "2001/xml.xsd reproduced exactly after two documented example schemaLocation replacements; dated2009/01 snapshot adds stylesheet relative-path difference and terminal blank line; see Evidence diffs"
     },
     {
       "file": "Sources/SignumTrustAuthentication/Schemas/xmldsig.xsd",
