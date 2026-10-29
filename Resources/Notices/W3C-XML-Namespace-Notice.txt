@@ -1,0 +1,25 @@
+Attribution for the dated2009/01 source document under the public-document default:
+Copyright © 2009 World Wide Web Consortium.
+https://www.w3.org/copyright/document-license-2023/
+
+Copyright © 2023 W3C®. This software or document includes material copied from
+or derived from XML namespace schema, https://www.w3.org/2001/xml.xsd.
+
+XML namespace schema: https://www.w3.org/2001/xml.xsd
+Dated predecessor: https://www.w3.org/2009/01/xml.xsd
+W3C Document License 2023:
+https://www.w3.org/copyright/document-license-2023/
+Full text: W3C-Document-2023.html in this directory.
+
+Documentary route: W3C's public-document default policy, and the explicit
+permission to distribute derivative works in software to facilitate
+implementation of technical specifications. This is not a claim that the
+XSD itself carries the stylesheet's Software License or an explicit per-file
+license header. No endorsement or official status is asserted for this copy.
+
+Changes present in Signum since commit4311901f5ff15630ad638bea65e04c63ebf56e0b,
+2026-10-20: the two schemaLocation URLs in documentation examples were changed
+to sibling xml.xsd. Compared with the dated2009/01 copy there are also the
+stylesheet relative-path adjustment and final blank line documented in the
+retained exact diff. The schema declarations were retained. This is software
+implementation material, not a republished modified technical specification.

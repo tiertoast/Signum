@@ -37,3 +37,12 @@ Full byte diffs and URLs/hashes are in Resources/ThirdPartySources/Evidence
 and SOURCE_INVENTORY.json in the enclosing app distribution. These changes
 were already present in local commit4311901f5ff15630ad638bea65e04c63ebf56e0b,
 2026-10-20; Phase6b only documents them.
+
+Phase7 documentary route, without XSD byte changes: xml.xsd is included as
+software implementation material under W3C's public-document default and the
+Document License2023 explicit permission for derivatives in software. Full
+license, original/current resource, policy evidence and required derivative
+notice are recorded in SchemaLicenseCatalog.json and the enclosing app's
+Notices/ThirdPartySources. This does not claim a per-file Software License
+header or inherit the stylesheet's license. Phase6b's unresolved status is
+historical; the detailed basis is docs/SCHEMA_LICENSE_DOSSIER.md in the source.

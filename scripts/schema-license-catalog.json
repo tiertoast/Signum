@@ -51,11 +51,17 @@
     {
       "file": "Sources/SignumTrustAuthentication/Schemas/xml.xsd",
       "sha256": "aa70f96214a33ee9d006ec7603e263c866dcc39742c3469b9cbc4da947954177",
-      "origin": "W3C 2009/01/xml.xsd snapshot and current2001/xml.xsd verified; applicable license statement still required",
-      "licenseFile": null,
-      "licenseSHA256": null,
-      "status": "unresolved-original-license-required",
-      "upstreamByteCorrespondence": "2001/xml.xsd reproduced exactly after two documented example schemaLocation replacements; dated2009/01 snapshot adds stylesheet relative-path difference and terminal blank line; see Evidence diffs"
+      "origin": "W3C current2001/xml.xsd retrieved with hash61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c; historical2009 snapshot retained",
+      "licenseFile": "Resources/Notices/W3C-Document-2023.html",
+      "licenseSHA256": "8f0bf5069b42a555680ae69bd89f7aaa3c998adcaf336d7a01c0d9fe2994f3c1",
+      "status": "local-license-text-present",
+      "upstreamByteCorrespondence": "2001/xml.xsd reproduced exactly after two documented example schemaLocation replacements; dated2009/01 snapshot adds stylesheet relative-path difference and terminal blank line; see Evidence diffs",
+      "licenseEvidence": "W3C public-document default policy plus Document License2023 explicit derivative-in-software implementation grant; original current XML document and exact two example-import changes recorded; required derivative notice in W3C-XML-Namespace-Notice.txt. This is NOT the stylesheet software license.",
+      "additionalNotices": {
+        "Resources/Notices/W3C-XML-Namespace-Notice.txt": "7506f645a9a616e0a0d4ff98a7d7158bc2fb757ff18a817e4a7248c8e407b3ea",
+        "Resources/ThirdPartySources/Evidence/W3C-IPR-policy.html": "5c35206143300fe80031753b0120e5518564ced6ec104741a64e3ff3cf4c110f",
+        "Resources/ThirdPartySources/Evidence/W3C-XML-namespace.html": "444ebf0a8ac33c2ff5b65148d3c11e0f4225b19870d455718bde31167386ad95"
+      }
     },
     {
       "file": "Sources/SignumTrustAuthentication/Schemas/xmldsig.xsd",

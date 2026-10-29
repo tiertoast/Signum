@@ -1,0 +1,17 @@
+{
+  "utf8proc.c": {
+    "upstreamSHA256": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+    "podofoSHA256": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+    "identical": true
+  },
+  "utf8proc.h": {
+    "upstreamSHA256": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+    "podofoSHA256": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+    "identical": true
+  },
+  "utf8proc_data.c": {
+    "upstreamSHA256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
+    "podofoSHA256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
+    "identical": true
+  }
+}

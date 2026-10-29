@@ -52,7 +52,8 @@
         "PoDoFo-utf8proc.txt": "8ed8603a3045db67e8e60874204d0434f1de0215af7aed827b44ddb84f252f2a",
         "PoDoFo-utf8cpp.txt": "025779cd615b102cac5356fd11bd00689a2842ab8dd002f03a9a3a657d9263cb",
         "PoDoFo-tcbspan.txt": "ed366a297406acca6a63ba72c091d93a00a739f837ed797caf87ae8f0ebb7e5f",
-        "PoDoFo-SASLprep.txt": "015be70642a5d59efe65f9bbcc91c3ca1c5536d892f5ccf83ff4862a5a83694b"
+        "PoDoFo-SASLprep.txt": "015be70642a5d59efe65f9bbcc91c3ca1c5536d892f5ccf83ff4862a5a83694b",
+        "PoDoFo-utf8proc-Upstream-License.md": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256"
       },
       "nativeKey": "podofo",
       "nativeVersion": "podofo-1.1.2",

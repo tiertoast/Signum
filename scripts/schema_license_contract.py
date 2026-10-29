@@ -8,7 +8,7 @@ def check(root,catalog,require_ready=False):
  listed=[r['file'] for r in catalog['resources']]
  if len(listed)!=len(set(listed)) or set(listed)!=actual:raise ValueError('Schema inventory differs from actual resources')
  for row in catalog['resources']:
-  for name,digest in [(row['file'],row['sha256']),(row.get('licenseFile'),row.get('licenseSHA256'))]:
+  for name,digest in [(row['file'],row['sha256']),(row.get('licenseFile'),row.get('licenseSHA256'))]+list(row.get('additionalNotices',{}).items()):
    if name is None:continue
    path=(root/name).resolve()
    if root not in path.parents or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=digest:raise ValueError('Resource/license missing or hash changed: '+name)

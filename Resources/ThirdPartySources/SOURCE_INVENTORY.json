@@ -456,14 +456,90 @@
   ],
   "binarySourceCorrespondence": "unattested; matching versions, headers, archive metadata and notices are partial evidence only",
   "missing": [
-    "Original compiled private source tree and patch diff",
-    "Original build log/toolchain/SDK and provenance connecting existing binaries",
-    "Explicit W3C license statement applicable to xml.xsd; stylesheet license is not transferred"
+    "Original old compiled private source tree and patch diff (superseded only after new controlled build)",
+    "New controlled native build execution and verification"
   ],
   "unicodeDataNoticeEvidence": {
     "bytes": 2360214,
     "sha256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
     "containsCopyright": false,
-    "status": "Source utf8proc.c refers to data-file copyright; do not infer a new Unicode license from current website"
+    "status": "Source utf8proc.c refers to data-file copyright; do not infer a new Unicode license from current website",
+    "phase7Resolution": "Exact byte match of data and library source with official utf8proc2.11.3; LICENSE.md of that exact release expressly covers utf8proc_data.c"
+  },
+  "phase7": {
+    "retrievals": [
+      {
+        "file": "utf8proc.tar.gz",
+        "url": "https://codeload.github.com/JuliaStrings/utf8proc/tar.gz/refs/tags/v2.11.3",
+        "resolvedURL": "https://codeload.github.com/JuliaStrings/utf8proc/tar.gz/refs/tags/v2.11.3",
+        "contentType": "application/x-gzip",
+        "sha256": "abfed50b6d4da51345713661370290f4f4747263ee73dc90356299dfc7990c78",
+        "bytes": 202535
+      },
+      {
+        "file": "xml-xsd11.xsd",
+        "url": "https://www.w3.org/TR/xmlschema11-1/xml.xsd",
+        "error": "HTTP Error 404: Not Found"
+      },
+      {
+        "file": "xml-xsd10.xsd",
+        "url": "https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/xml.xsd",
+        "error": "HTTP Error 404: Not Found"
+      },
+      {
+        "file": "w3c-document-2023.html",
+        "url": "https://www.w3.org/copyright/document-license-2023/",
+        "resolvedURL": "https://www.w3.org/copyright/document-license-2023/",
+        "contentType": "text/html; charset=UTF-8",
+        "sha256": "8f0bf5069b42a555680ae69bd89f7aaa3c998adcaf336d7a01c0d9fe2994f3c1",
+        "bytes": 28063
+      },
+      {
+        "file": "w3c-ipr.html",
+        "url": "https://www.w3.org/copyright/intellectual-rights/",
+        "resolvedURL": "https://www.w3.org/copyright/intellectual-rights/",
+        "contentType": "text/html; charset=UTF-8",
+        "sha256": "5c35206143300fe80031753b0120e5518564ced6ec104741a64e3ff3cf4c110f",
+        "bytes": 44125
+      },
+      {
+        "file": "xml-current.xsd",
+        "url": "https://www.w3.org/2001/xml.xsd",
+        "resolvedURL": "https://www.w3.org/2001/xml.xsd",
+        "contentType": "application/xml",
+        "sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c",
+        "bytes": 8836
+      },
+      {
+        "file": "w3c-namespace.html",
+        "url": "https://www.w3.org/XML/1998/namespace.html",
+        "resolvedURL": "https://www.w3.org/XML/1998/namespace.html",
+        "contentType": "application/xhtml+xml; charset=utf-8",
+        "sha256": "444ebf0a8ac33c2ff5b65148d3c11e0f4225b19870d455718bde31167386ad95",
+        "bytes": 7878
+      }
+    ],
+    "utf8procExactMatch": {
+      "utf8proc.c": {
+        "upstreamSHA256": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+        "podofoSHA256": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+        "identical": true
+      },
+      "utf8proc.h": {
+        "upstreamSHA256": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+        "podofoSHA256": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+        "identical": true
+      },
+      "utf8proc_data.c": {
+        "upstreamSHA256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
+        "podofoSHA256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
+        "identical": true
+      }
+    },
+    "utf8procLicense": {
+      "file": "Resources/Notices/PoDoFo-utf8proc-Upstream-License.md",
+      "sha256": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256"
+    },
+    "xmlLicenseRoute": "W3C-Document-2023 default public document and explicit derivative-in-software grant; not a per-file software license header"
   }
 }
