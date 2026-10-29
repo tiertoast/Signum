@@ -257,6 +257,7 @@ def summarize(records):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--case-file', type=Path, default=CASE_FILE)
     parser.add_argument('--configuration', choices=['debug', 'release'])
     parser.add_argument('--condition', choices=['idle', 'cpu'])
     parser.add_argument('--selection', choices=['failed-methods', 'failed-classes', 'pertinent', 'full'])
@@ -294,7 +295,7 @@ def main():
                PKG_CONFIG_LIBDIR=str(prefix/'lib/pkgconfig'), PYTHONDONTWRITEBYTECODE='1',
                SIGNUM_TEST_PADES_HELPER=str(args.helper.resolve()), SIGNUM_TEST_XMLSEC=str(args.xmlsec.resolve()),
                SIGNUM_TEST_PYTHON=args.python, SIGNUM_TEST_POPPLER=str(args.poppler.resolve()), NSUnbufferedIO='YES')
-    cases = json.loads(CASE_FILE.read_text())
+    cases = json.loads(args.case_file.read_text())
     command = [args.swift, 'test', '-c', args.configuration, '--scratch-path', str(scratch), '--jobs', '4',
                '--triple', args.triple, '-Xlinker', '-rpath', '-Xlinker', str(prefix/'lib')]
     (output/'catalog-tmp').mkdir()

@@ -83,8 +83,9 @@ final class S03PINFidelityTests: XCTestCase {
                 if done: status=value;break
             if status is None:
                 os.kill(pid,signal.SIGKILL);_,status=os.waitpid(pid,0)
-            restored=termios.tcgetattr(fd)==initial
-            print(json.dumps({'sent':sent,'protected':protected,'restored':restored,'clean':len(payload)<8 or payload not in output,'failed':os.waitstatus_to_exitcode(status)!=0,'reason':next((line for line in output.decode('utf-8','replace').splitlines() if line.startswith('Signum error:')),'').replace(payload.decode('utf-8','replace') or 'unused','[redacted]'),'pinError':b'PIN' in output and (b'rifiut' in output or b'represent' in output or b'Invalid' in output)}))
+            final_attributes=termios.tcgetattr(fd)
+            restored=final_attributes==initial
+            print(json.dumps({'initialLflag':initial[3],'finalLflag':final_attributes[3],'sent':sent,'protected':protected,'restored':restored,'clean':len(payload)<8 or payload not in output,'failed':os.waitstatus_to_exitcode(status)!=0,'reason':next((line for line in output.decode('utf-8','replace').splitlines() if line.startswith('Signum error:')),'').replace(payload.decode('utf-8','replace') or 'unused','[redacted]'),'pinError':b'PIN' in output and (b'rifiut' in output or b'represent' in output or b'Invalid' in output)}))
         finally: os.close(fd)
         """#.utf8).write(to:script)
         let p=Process();p.executableURL=URL(fileURLWithPath:"/usr/bin/python3");p.arguments=[script.path]
@@ -117,7 +118,8 @@ final class S03PINFidelityTests: XCTestCase {
             let args=[helper,source.path,f.root.appendingPathComponent("out-\(index).pdf").path,f.module.path,"7","01","--job-id",UUID().uuidString,"--snapshot-id",UUID().uuidString,"--expected-document-sha256",DocumentSnapshot.digest(bytes),"--expected-cert-sha256",DocumentSnapshot.digest(f.signer.der),"--verified-output-v3"]
             let r=try terminal(args,input:input,root:f.root)
             XCTAssertEqual(r["sent"] as? Bool,true);XCTAssertEqual(r["protected"] as? Bool,true)
-            XCTAssertEqual(r["restored"] as? Bool,true);XCTAssertEqual(r["clean"] as? Bool,true)
+            XCTAssertEqual(r["restored"] as? Bool,true,"PTY restore case \(index), initial=\(String(describing:r["initialLflag"])), final=\(String(describing:r["finalLflag"]))")
+            XCTAssertEqual(r["clean"] as? Bool,true,"PTY output hygiene case \(index)")
             assertAudit(f,input:input,valid:permittedTerminal(input))
         }
     }
