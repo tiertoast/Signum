@@ -19,6 +19,7 @@
 </div>
 
 ---
+
 Signum is a native macOS application for signing documents with a smart card or
 USB token and verifying digital signatures. It brings CAdES, PAdES, XAdES and
 ASiC workflows into a focused document workspace, with local cryptographic
