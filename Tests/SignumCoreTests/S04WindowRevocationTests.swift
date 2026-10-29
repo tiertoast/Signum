@@ -206,7 +206,13 @@ import Darwin
                 await fulfillment(of:[reached],timeout:8)
                 let pid=try XCTUnwrap((try? String(contentsOf:f.mock.folder.appendingPathComponent("operations.pid"))).flatMap(Int32.init))
                 let observedOperation = f.batch.activeOperation
-                if native { await close(route,f) } else { f.batch.cancelAll() }
+                if native { await close(route,f) } else {
+                    f.batch.cancelAll()
+                    // A completed drain is a valid interleaving of the native close fence.
+                    try await task.value
+                    XCTAssertNil(f.batch.activeOperation, "Fixture proves the completed operation was retired")
+                    XCTAssertTrue(observedOperation?.isCancellationRequested == true, "Fixture proves cancellation reached the original operation")
+                }
                 XCTAssertTrue(f.batch.activeOperation?.isCancellationRequested == true, "S-STAB route=\(route.rawValue), current=\(String(describing:f.batch.activeOperation?.isCancellationRequested)), retained=\(String(describing:observedOperation?.isCancellationRequested)), retainedState=\(String(describing:observedOperation?.state))")
                 if f.batch.activeOperation?.isCancellationRequested != true { f.batch.cancelAll() }
                 try await task.value
