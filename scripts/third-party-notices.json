@@ -60,10 +60,12 @@
       "libraryPatterns": [],
       "notices": {
         "FreeType-license.txt": "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b",
-        "FreeType-FTL.txt": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1"
+        "FreeType-FTL.txt": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1",
+        "FreeType-acknowledgment.txt": "e2a3d342d30b7356c1b1aa4327b99d04825ba1747ae3be5e7383768d31d741c1"
       },
       "nativeKey": "freetype",
-      "nativeVersion": "freetype-2.13.3"
+      "nativeVersion": "freetype-2.13.3",
+      "licenseSelection": "pending-author; FTL conditions and alternative described in original FreeType-license.txt"
     },
     "pdfium": {
       "libraryPatterns": [],
