@@ -94,9 +94,10 @@ def main():
                 code = active.wait(timeout=seconds + 1.5)
         finally:
             stop()
-            text = log.read_text(errors='replace') if log.exists() else ''
+            data = log.read_bytes() if log.exists() else b''
+            text = data.decode(errors='replace')
             row = dict(label=label, command=actual, exit=code, seconds=time.monotonic() - begin,
-                       log=str(log), sha256=hashlib.sha256(text.encode()).hexdigest())
+                       log=str(log), sha256=hashlib.sha256(data).hexdigest())
             for raw in re.findall(r'\{"cases":[^\n]+', text):
                 result = json.loads(raw)
                 row['scalarCases'] = result
@@ -112,11 +113,24 @@ def main():
                 row['failedTestNames'].extend(re.findall(r'^\s*\d+\s+-\s+(\S+)\s+\(', text, re.M))
             summary['failedTests'].extend(row['failedTestNames'])
             diagnostic = bool(re.search(r'ERROR: AddressSanitizer|WARNING: ThreadSanitizer', text))
-            row['passed'] = code == 0 and not diagnostic
+            coverage_ok = True
+            if label.endswith('-ctest'):
+                expected_targets = 1 if label.startswith(('asan-', 'tsan-')) else 3
+                scalar = row.get('scalarCases', {})
+                coverage_ok = (row.get('ctestTargets') == expected_targets and
+                               scalar.get('cases') == 18 and scalar.get('passed') == 18 and
+                               scalar.get('failed') == [])
+            if label == 'python-contracts':
+                coverage_ok = row.get('pythonTests', 0) >= 16
+            row['coverageValid'] = coverage_ok
+            row['passed'] = code == 0 and not diagnostic and coverage_ok
             summary['commands'].append(row)
             if row['passed']:
                 log.unlink()  # Detailed success logs are deliberately not retained.
                 row['log'] = None
+                if label.endswith('-ctest'):
+                    for detail in (output / ('native-' + label.removesuffix('-ctest')) / 'Testing').rglob('*.log'):
+                        detail.unlink()
         if not row['passed']:
             raise RuntimeError('Check failed: ' + label)
         return text
