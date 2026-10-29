@@ -54,6 +54,13 @@ class ManualAndDMGGuards(unittest.TestCase):
    summary=json.loads((output/'summary.json').read_text())
    self.assertEqual(summary['status'],'blocked');self.assertFalse(summary['publicationQualified'])
    self.assertEqual([f.name for f in output.iterdir()],['summary.json'])
+ def test_real_preflight_accepts_its_owned_new_summary_directory(self):
+  with tempfile.TemporaryDirectory(dir='/private/tmp') as folder:
+   root=Path(folder);prefix=root/'prefix';prefix.mkdir();(prefix/'signum-native-build.json').write_text(json.dumps({'recipe':1,'architecture':'arm64','deploymentTarget':'13.0'}))
+   with patch.object(self.manual.recipe,'distribution_prerequisites',return_value={'ready':False,'blockers':['license missing']}),patch.object(self.manual.platform,'system',return_value='Darwin'),patch.object(self.manual.platform,'machine',return_value='arm64'),patch.object(self.manual.os,'access',return_value=True),patch.object(self.manual.subprocess,'check_output',side_effect=['','frozen-commit']):
+    code=self.manual.main(['--native-prefix',str(prefix),'--cmake','/synthetic/cmake','--output-root',str(root/'new'),'--build-number','1','--bundle-id','test.Signum','--trust-probe','exclude'])
+   summary=json.loads((root/'new/summary.json').read_text())
+   self.assertEqual(code,1);self.assertEqual(summary['prerequisites']['blockers'],['license missing']);self.assertEqual(summary['prerequisites']['sourceCommit'],'frozen-commit')
  def test_child_timeout_is_bounded_and_logs_are_retained(self):
   import sys,time
   with tempfile.TemporaryDirectory(dir='/private/tmp') as folder:

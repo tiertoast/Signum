@@ -24,7 +24,7 @@ def preflight(args):
     blockers = checks['blockers']
     try:
         checks['metadata'] = recipe.public_beta_metadata(args.build_number, args.bundle_id)
-        recipe.external_workspace(args.output_root)
+        # main() already exclusively created the validated output root.
         native = json.loads((args.native_prefix / 'signum-native-build.json').read_text())
         if native.get('recipe') != 1 or native.get('architecture') != 'arm64':
             blockers.append('Native recipe 1 / arm64 required')
