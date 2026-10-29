@@ -127,7 +127,8 @@ def app_audit(app,prefix,tmp):
         load=run(['/usr/bin/otool','-l',binary]);beta.enforce_minimum([beta.minimum(load)],'13.0')
         if any(not beta.system(p) for p in beta.rpaths(load)):raise ValueError('Unexpected non-system rpath')
         binary_result[str(binary.relative_to(app))]={'sha256':profile.sha(binary),'architecture':'arm64','minimumOS':list(beta.minimum(load))}
-    report={'status':'verified-app','metadata':expected,'nativeProvenance':source,'schemas':schema_audit(resources),
+    report={'status':'verified-app','metadata':expected,'sourceCommit':manifest['sourceCommit'],
+            'buildManifestSHA256':profile.sha(resources/'BuildManifest.json'),'nativeProvenance':source,'schemas':schema_audit(resources),
             'binaries':binary_result,'components':proof['components'],'noticeFiles':len(proof['notices']),
             'oldPrefixReferences':0,'signing':'adhoc','publicationQualified':False}
     before=tree(app);report['startup']=launch(app,tmp)
@@ -168,7 +169,9 @@ def dmg_audit(app,dmg,app_report,tmp):
         if mount.is_dir() and not os.path.ismount(mount):mount.rmdir()
     return {'status':'verified-local-beta','publicationQualified':False,'dmg':{'file':dmg.name,'sha256':digest,'bytes':dmg.stat().st_size,'readOnlyMountedAudit':True},
             'appAudit':app_report.name,'appAuditSHA256':profile.sha(app_report),'nativeProvenance':expected['nativeProvenance'],
-            'metadata':expected['metadata'],'startup':expected['startup'],'binaries':expected['binaries']}
+            'sourceCommit':expected['sourceCommit'],'buildManifestSHA256':expected['buildManifestSHA256'],
+            'metadata':expected['metadata'],'startup':expected['startup'],'binaries':expected['binaries'],
+            'schemas':expected['schemas'],'noticeFiles':expected['noticeFiles'],'oldPrefixReferences':expected['oldPrefixReferences']}
 
 
 def interrupted(signum,frame):raise InterruptedError('Candidate audit interrupted: '+str(signum))
