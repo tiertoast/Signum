@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Signum — README brand icon</title>
+  <desc>Signum's refined white signature mark on the project's burgundy background.</desc>
+  <rect x="24" y="24" width="976" height="976" rx="232" fill="#64313E"/>
+  
+  <g transform="translate(253 138) scale(0.82)"><path d="M 419 319
+C 505 296 565 233 503 129
+C 443 40 287 50 217 182
+C 157 296 250 389 357 480
+C 473 575 332 745 193 741
+C 60 737 49 583 215 528
+C 314 497 448 500 549 543" fill="none" stroke="#fff" stroke-width="65" stroke-linecap="round" stroke-linejoin="round"/></g>
+</svg>
