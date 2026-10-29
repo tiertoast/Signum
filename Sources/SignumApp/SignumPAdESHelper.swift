@@ -128,7 +128,13 @@ enum SignumPAdESHelper {
             destination: output, timeout: timeout, expectedJobID: job.id, expectedProtocolVersion: job.providerContext == nil ? 4 : 5,
             maximumInput: appearance == nil ? 512 : PAdESAppearanceRenderer.maximumPDFBytes+69,
             isCancelled: { operation?.isCancellationRequested ?? false })
-        try PAdESHelperProcess.requirePublished(outcome)
+        do { try PAdESHelperProcess.requirePublished(outcome) }
+        catch {
+            if case SignumError.outputUncertain = error { operation?.transition(to: .outcomeUncertain) }
+            else if (error as? SupervisedProcess.Failure) == .cancelled { operation?.transition(to: .cancelled) }
+            else { operation?.transition(to: .failed) }
+            throw error
+        }
         operation?.transition(to: .verifying); operation?.recordPublished()
     }
 }

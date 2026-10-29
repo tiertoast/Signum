@@ -1,0 +1,28 @@
+{
+  "productCommit": "09316e046a4dd101ce74410a6eeccee6911d4783",
+  "channel": "experimental-beta",
+  "rcGate": "NOT PASSED",
+  "openMethods": [
+    "M3",
+    "M4",
+    "M5",
+    "M6"
+  ],
+  "issue": "https://github.com/tiertoast/Signum/issues/9",
+  "artifactBytes": 22766204,
+  "sha256": {
+    "ArtifactManifest.json": "150a1642cf5e0b288ef6103aa00011226c7812969e6f0ad3d820ac79a713e86e",
+    "AppAudit.json": "591114dbdc87594300f90927f5a3b3c4778238ceb32a0f2c73403026f68b9850",
+    "summary.json": "1d0bea710f0c787139f5830574ce035a35e7afde5ec91d1dcae27cb6522b8ca6",
+    "Signum.app.SHA256SUMS": "ad830e90bffee6e681f2d4bb7863f3103f400198d7759ccaded8e11fd550ac25",
+    "Signum.app.symlinks.json": "68074f47470fa0570ae5ed94f3fc304ac16745ed28b6d3f749b46da405b4adca",
+    "Signum-0.7.0-beta-arm64.dmg": "cc5add5dab9163e44465a2b6161532ec6e5f1d5c5ed6aef98250935e9f80c2b9",
+    "Signum-0.7.0-beta-arm64.dmg.sha256": "3fd72cce08952aaa4f08165ad085128823f16892e3db7e5c37d47d3e0ae20480",
+    "BuildManifest.json": "ced960c3f63937f2c7ccba4799aa0925a139f411bf7d0af88ad8f6776d799676"
+  },
+  "publicationDecision": "Explicit author request, 2026-10-29; publish only after merge and uploaded asset verification; no Stable or RC promotion.",
+  "runtimeOS13Attested": false,
+  "cleanMacAttested": false,
+  "newHardwareTests": false,
+  "rebuiltForPublication": false
+}

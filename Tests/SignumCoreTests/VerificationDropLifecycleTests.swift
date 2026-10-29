@@ -39,7 +39,7 @@ final class ControlledDrop: @unchecked Sendable {
         drop.send(1,"late");drop.fire()
         XCTAssertEqual(result.map(\.lastPathComponent),["first","third"])
     }
-    func testNewDropAndPickerSupersedeOldAcquisition() async throws {
+    func testNewDropAndPickerAppendWithoutDiscardingOldAcquisition() async throws {
         for picker in [false,true] {
             let workspace = VerificationWorkspace(), ready = expectation(description:"old drop registered"), old = ControlledDrop(1,ready:ready)
             let first = workspace.acquire(using:{await old.resolve()},verifier:verifier)
@@ -53,7 +53,7 @@ final class ControlledDrop: @unchecked Sendable {
                 await fulfillment(of:[nextReady],timeout:2);next.send(0,"new-drop");await latest.value
             }
             old.send(0,"stale");await first.value
-            XCTAssertEqual(workspace.rows.map(\.name),[picker ? "picker" : "new-drop"])
+            XCTAssertEqual(workspace.rows.map(\.name),[picker ? "picker" : "new-drop", "stale"])
             XCTAssertFalse(workspace.busy);XCTAssertFalse(workspace.acquiring)
         }
     }
@@ -73,16 +73,20 @@ final class ControlledDrop: @unchecked Sendable {
             XCTAssertEqual(workspace.rows.map(\.name),["recovered"]);XCTAssertNotNil(workspace.rows[0].report)
         }
     }
-    func testLateVerificationCannotReplaceNewSelection() async throws {
+    func testAdditionDuringVerificationQueuesWithoutReplacingAnyRow() async throws {
         let workspace = VerificationWorkspace(), entered = expectation(description:"old verifier entered"), release = DispatchSemaphore(value:0)
         let old = workspace.start([URL(fileURLWithPath:"/synthetic/old")]) { url,_ in
             entered.fulfill();_ = release.wait(timeout:.now()+3)
             return .init(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.unknown,signatures:[],documentState:"unsupported",issue:"",previewPDF:nil,originalContent:nil)
         }
         await fulfillment(of:[entered],timeout:2)
-        await workspace.start([URL(fileURLWithPath:"/synthetic/new")],using:verifier).value
-        release.signal();await old.value
-        XCTAssertEqual(workspace.rows.map(\.name),["new"]);XCTAssertFalse(workspace.busy)
+        let selected = workspace.selectedDocument
+        let new = workspace.start([URL(fileURLWithPath:"/synthetic/new")],using:verifier)
+        XCTAssertEqual(workspace.rows.map(\.name),["old","new"])
+        XCTAssertEqual(workspace.selectedDocument,selected)
+        XCTAssertNil(workspace.rows[1].report);XCTAssertFalse(workspace.rows[1].started)
+        release.signal();await old.value;await new.value
+        XCTAssertTrue(workspace.rows.allSatisfy { $0.report != nil });XCTAssertFalse(workspace.busy)
     }
     func testCancellationResolvesNativeProviderWithoutWaitingForItsCallback() async throws {
         let deferred = DeferredDrop(), entered = expectation(description:"provider entered"), resolved = expectation(description:"cancelled drop resolved")

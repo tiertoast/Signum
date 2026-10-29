@@ -1,10 +1,36 @@
 # Signum — Release-readiness gates
 
-**Status:** 21 October 2026 · [v0.5.0-beta / Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta), available as a private GitHub pre-release. This document concerns **technical and distribution readiness**, not authorization to describe every signed document as a legally qualified QES.
+## Current 0.7 Beta status — 29 October 2026
+
+The verified Build 14 DMG is being prepared for an explicitly authorized experimental
+GitHub prerelease. [0.7 release notes](SIGNUM_0.7_RELEASE_NOTES.md) and
+[artifact evidence](releases/0.7.0-beta/ArtifactManifest.json) are authoritative for
+this candidate. The old 0.5 table below remains historical evidence.
+
+- Product source `09316e046a4dd101ce74410a6eeccee6911d4783`; later release commits
+  change documentation only. Exact DMG reused, not rebuilt.
+- Four Phase8 packaging steps passed; launch/loader and readonly volume audit
+  attest the candidate, not all functional or hardware workflows. DMG audit
+  repeated for publication; source/notice kit remains in the checked bundle.
+- **M3–M6 OPEN (e), deferred; stability/RC gate NOT PASSED.**
+  [Issue #9](https://github.com/tiertoast/Signum/issues/9) retains the required follow-up.
+- `publicationQualified:false` remains unchanged in the historical evidence.
+  The author's Beta distribution decision accepts the stated experimental limits;
+  no automated production qualification, Stable designation or RC pass is inferred.
+- macOS 13/14 runtime, clean-Mac deployment, wider hardware/middleware,
+  accessibility/manual residuals and production signing/Gatekeeper gates stay open.
+  Local installation acceptance is not an OS/device matrix.
+- PIN change and PUK unblocking remain disabled/unqualified on real devices.
+  Existing 0.6 format subsets remain bounded; see its release notes for scope.
+- Ad-hoc signature only: no Developer ID/notarization. The app may be blocked by
+  Gatekeeper; no automatic weakening of macOS protection is provided.
+- Repository visibility stays private; previous releases/tags remain intact.
+
+**Historical 0.5 status:** 21 October 2026 · [v0.5.0-beta / Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta), available as a private GitHub pre-release. This document concerns **technical and distribution readiness**, not authorization to describe every signed document as a legally qualified QES.
 
 Earlier Alpha/Beta Foundation evidence is retained in [its historical report](SIGNUM_BETA_FOUNDATION_REPORT.md) and [the PR #2 review record](PR2_REVIEW_CORRECTIONS.md). The authoritative 0.5 validation record is the [0.5-F engineering report](SIGNUM_0.5F_BUILD7.md) and [results JSON](SIGNUM_0.5F_RESULTS.json).
 
-## Validated in 0.5
+## Historical evidence validated in 0.5
 
 | Area | Evidence / boundary |
 | --- | --- |

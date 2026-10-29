@@ -46,27 +46,49 @@ public struct CompleteSignatureValidationResult: Equatable, Sendable {
 /// attach a result for another document. No new revocation or timestamp verifier.
 public struct SignatureQualificationService: Sendable {
     private let evidence: SignatureEvidenceValidationService
-    public init(cache: RevocationEvidenceCache? = nil) { evidence = .init(cache:cache) }
+    private let cache: RevocationEvidenceCache?
+    private let transport: any RevocationTransport
+    private let monotonicClock: @Sendable () -> TimeInterval
+    public init(cache: RevocationEvidenceCache? = nil) {
+        self.init(cache: cache, transport: SystemRevocationTransport())
+    }
+    init(cache: RevocationEvidenceCache? = nil, transport: any RevocationTransport,
+         monotonicClock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.cache = cache; self.transport = transport; self.monotonicClock = monotonicClock
+        evidence = .init(cache: cache, transport: transport)
+    }
     public func validate(_ report: VerificationReport, authenticatedLists: [InterpretedTrustCatalog], mode: RevocationMode = .offline,
                          observedAt: Date = Date(), evaluationMode: SignatureEvaluationMode = .historical, isCancelled: @escaping @Sendable () -> Bool = { false }) async -> [CompleteSignatureValidationResult] {
-        let start = ProcessInfo.processInfo.systemUptime
-        let assessments = await evidence.validate(report,authenticatedLists:authenticatedLists,mode:mode,observedAt:observedAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
+        let start = monotonicClock()
+        let session = RevocationSession(cache: cache, transport: transport, advancesClock: mode == .online)
+        var assessmentAt = observedAt
+        var assessments = await evidence.validate(report,authenticatedLists:authenticatedLists,mode:mode,observedAt:observedAt,
+            evaluationMode:evaluationMode,isCancelled:isCancelled,session:session)
+        if mode == .online, await session.requests > 0, !isCancelled(), !Task.isCancelled {
+            // Acquisition is not the assessment. Freeze a later observation and
+            // reauthenticate raw DER, paths, responder validity and TL at that instant.
+            // No extra network requests, clock-skew allowance or future acceptance.
+            assessmentAt = observedAt.addingTimeInterval(max(0, monotonicClock() - start))
+            let replay = RevocationSession(cache: cache, transport: transport, localEvidence: await session.fetchedEvidence, advancesClock: false)
+            assessments = await evidence.validate(report,authenticatedLists:authenticatedLists,mode:.offline,observedAt:assessmentAt,
+                evaluationMode:evaluationMode,isCancelled:isCancelled,session:replay)
+        }
         var results = [CompleteSignatureValidationResult]()
         for signature in report.signatures {
             guard !isCancelled(), !Task.isCancelled, let c = assessments.first(where: { $0.signatureID == signature.id }) else { break }
             // One fixed observation instant binds current path, revocation and qualification.
-            let q = Self.assess(signature,evidence:c,lists:authenticatedLists,mode:mode,observedAt:observedAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
-            let path = signature.signerDER.map { CertificatePathValidator.evaluate(signer:$0,intermediates:signature.embeddedCertificateDERs,authenticatedLists:authenticatedLists,now:observedAt,isCancelled:isCancelled) } ?? .unavailable("Certificato DER assente.",now:observedAt)
+            let q = Self.assess(signature,evidence:c,lists:authenticatedLists,mode:mode,observedAt:assessmentAt,evaluationMode:evaluationMode,isCancelled:isCancelled)
+            let path = signature.signerDER.map { CertificatePathValidator.evaluate(signer:$0,intermediates:signature.embeddedCertificateDERs,authenticatedLists:authenticatedLists,now:assessmentAt,isCancelled:isCancelled) } ?? .unavailable("Certificato DER assente.",now:assessmentAt)
             results.append(.init(signatureID:signature.id,path:path,evidence:c,qualification:q))
         }
         guard !isCancelled(), !Task.isCancelled else { return [] }
         // A finite assessment may cross a list expiration; never publish a stale positive.
-        let finalClock = observedAt.addingTimeInterval(ProcessInfo.processInfo.systemUptime - start)
+        let finalClock = observedAt.addingTimeInterval(max(0, monotonicClock() - start))
         return results.map { value in
             let expired = authenticatedLists.contains { $0.document.nextUpdate <= finalClock } ||
                 (value.qualification.evaluationMode == .currentTime && value.evidence.revocation.certificates.contains { ($0.nextUpdate ?? .distantPast) <= finalClock })
             guard expired else { return value }
-            return .init(signatureID:value.signatureID,path:value.path,evidence:value.evidence,qualification:.init(signatureID:value.signatureID,state:.indeterminate,qualifiedCertificate:.indeterminate,qscd:.indeterminate,evaluatedAt:nil,service:nil,reason:"Trusted List o evidenza di revoca scaduta durante la verifica.",statements:value.qualification.statements,evaluationMode:value.qualification.evaluationMode,verificationDate:observedAt))
+            return .init(signatureID:value.signatureID,path:value.path,evidence:value.evidence,qualification:.init(signatureID:value.signatureID,state:.indeterminate,qualifiedCertificate:.indeterminate,qscd:.indeterminate,evaluatedAt:nil,service:nil,reason:"Trusted List o evidenza di revoca scaduta durante la verifica.",statements:value.qualification.statements,evaluationMode:value.qualification.evaluationMode,verificationDate:assessmentAt))
         }
     }
     static func assess(_ signature: SignatureVerificationResult, evidence: SignatureEvidenceValidationResult, lists inputLists: [InterpretedTrustCatalog],

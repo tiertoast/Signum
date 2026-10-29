@@ -1,3 +1,4 @@
+#include "SignumSecurePIN.h"
 #include "SigningProviderContext.h"
 #include <optional>
 #include "PAdESInput.h"
@@ -119,11 +120,22 @@ static std::vector<uint8_t> parse_hex(const std::string& hex) {
 struct PKCS11 {
     SGContext* context = nullptr;
     std::array<char, 512> error{};
-    explicit PKCS11(const char* path) {
+    bool& cleanupConfirmed;
+    std::vector<uint8_t>& ownedPIN;
+    explicit PKCS11(const char* path, bool& cleanup, std::vector<uint8_t>& pin) : cleanupConfirmed(cleanup), ownedPIN(pin) {
         if (sg_open(path, &context, error.data(), error.size()) != 0)
             throw std::runtime_error(error.data());
+        cleanupConfirmed = false;
     }
-    ~PKCS11() { sg_close(context); }
+    bool closeChecked() noexcept {
+        wipe_pin(ownedPIN); // Before any potentially blocking vendor teardown.
+        if (!context) return cleanupConfirmed;
+        const bool sessionUnconfirmed = std::strstr(error.data(), "C_CloseSession") != nullptr;
+        auto* consumed = context; context = nullptr; // sg_close_checked always consumes it.
+        cleanupConfirmed = sg_close_checked(consumed, error.data(), error.size()) == 0 && !sessionUnconfirmed;
+        return cleanupConfirmed;
+    }
+    ~PKCS11() { (void)closeChecked(); }
     PKCS11(const PKCS11&) = delete;
     PKCS11& operator=(const PKCS11&) = delete;
 
@@ -258,10 +270,16 @@ int main(int argc, char** argv) {
         std::cerr << "Snapshot protocol v3 requires job, snapshot and both approved SHA-256 fingerprints\n";
         return 2;
     }
+    bool cleanupConfirmed = true, documentVerified = false, documentPublished = false, cleanupOnlyFailure = false;
+    const char* primaryPhase = "preflight";
     auto respond = [&](const char* outcome, const char* reason) {
         // UUID syntax has been validated; all other fields are fixed literals.
         const auto status = std::string("{\"version\":") + (boundProtocol ? "5" : "4") + ",\"jobID\":\"" + jobID +
-            "\",\"outcome\":\"" + outcome + "\",\"reason\":\"" + reason + "\"}";
+            "\",\"outcome\":\"" + outcome + "\",\"reason\":\"" + reason +
+            "\",\"cleanupConfirmed\":" + (cleanupConfirmed ? "true" : "false") +
+            ",\"documentVerified\":" + (documentVerified ? "true" : "false") +
+            ",\"documentPublished\":" + (documentPublished ? "true" : "false") +
+            ",\"primaryFailure\":\"" + (cleanupOnlyFailure ? "none" : primaryPhase) + "\"}";
         size_t sent = 0;
         while (sent < status.size()) {
             auto n = write(reply, status.data() + sent, status.size() - sent);
@@ -314,11 +332,32 @@ int main(int argc, char** argv) {
                 outputDirectoryWire.find(':', colon + 1) != std::string::npos) throw std::runtime_error("Invalid output directory identity");
             outputIdentity = signum::OutputDirectoryIdentity{std::stoll(outputDirectoryWire.substr(0, colon)), std::stoull(outputDirectoryWire.substr(colon + 1))};
         }
-        signum::TransactionalOutput transaction(output.string(), {}, outputIdentity);
+        std::function<bool()> finishCleanup;
+        signum::OutputOperations outputOperations;
+        outputOperations.beforePublish = [&] {
+            // The transactional writer has verified the actual readback and closed
+            // its descriptor. Teardown must be confirmed before the atomic commit.
+            documentVerified = true;
+            if (!finishCleanup || !finishCleanup()) {
+                cleanupOnlyFailure = true;
+                throw std::runtime_error("Chiusura PKCS#11 non confermata");
+            }
+        };
+        signum::TransactionalOutput transaction(output.string(), outputOperations, outputIdentity);
         // PoDoFo operates on the bounded source bytes, never on a public or
         // re-opened temporary pathname. The input is never opened for writing.
         charbuff pdfBytes(std::string(reinterpret_cast<const char*>(source.data()), source.size()));
 
+        std::vector<uint8_t> pin;
+        struct PINScope { std::vector<uint8_t>& value; ~PINScope() { wipe_pin(value); } } pinScope{pin};
+        if (pinFromPipe) {
+            pin = signum::readPAdESPIN(STDIN_FILENO);
+        } else {
+            std::unique_ptr<SGSecurePIN, decltype(&sg_secure_pin_destroy)> owned(sg_secure_pin_create(), sg_secure_pin_destroy);
+            if (!owned || sg_secure_pin_read_terminal(owned.get(), 120) != 0)
+                throw std::runtime_error("PIN rifiutato: 1-64 byte UTF-8 senza NUL/CR/LF; conferma Ctrl-J. Nessuna sessione aperta.");
+            pin.assign(sg_secure_pin_bytes(owned.get()), sg_secure_pin_bytes(owned.get()) + sg_secure_pin_length(owned.get()));
+        }
         std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(
             sg_token_lease_acquire(middleware.c_str(), slot, 0, 10000), sg_token_lease_release);
         if (!lease) {
@@ -326,7 +365,8 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Dispositivo occupato o coordinamento non disponibile; nessun PIN inviato al provider");
         }
         if (binding) binding->requireCurrentModule(middleware.string());
-        PKCS11 token(middleware.c_str());
+        PKCS11 token(middleware.c_str(), cleanupConfirmed, pin);
+        finishCleanup = [&] { return token.closeChecked(); };
         if (binding) {
             std::array<SGToken,256> tokens{}; size_t count = 0, unavailable = 0; std::array<char,512> error{};
             signum::SigningProviderContext::require(sg_tokens(token.context, tokens.data(), tokens.size(), &count, &unavailable, error.data(), error.size()) == 0 && count <= tokens.size());
@@ -338,8 +378,8 @@ int main(int argc, char** argv) {
             binding->requireCurrentModule(middleware.string());
         }
         const auto der = token.certificate(slot, certificateID);
-        // Bind to the exact certificate shown by the GUI, before any PIN read
-        // or private-key operation.
+        // Bind to the exact certificate shown by the GUI before authentication
+        // or any private-key operation. Input validation precedes sessions (S03).
         if (!expectedFingerprint.empty()) signum::requireExpectedCertificate(der, expectedFingerprint);
         const auto assessment = sg_certificate_assess(reinterpret_cast<const uint8_t*>(der.data()), der.size(), sg_certificate_now());
         if (assessment.status != SG_CERT_ELIGIBLE) {
@@ -347,15 +387,6 @@ int main(int argc, char** argv) {
             for (unsigned bit = 0; bit < 32; ++bit)
                 if (assessment.reasons & (1u << bit)) reason += std::string(sg_certificate_reason_message(1u << bit)) + " ";
             throw std::runtime_error(reason);
-        }
-        std::vector<uint8_t> pin;
-        if (pinFromPipe) {
-            pin = signum::readPAdESPIN(STDIN_FILENO);
-        } else {
-            char* userPIN = ::getpass("Token PIN (not echoed): ");
-            if (!userPIN || !*userPIN) throw std::runtime_error("PIN missing");
-            pin.assign(userPIN, userPIN + std::strlen(userPIN));
-            wipe_secret(userPIN, std::strlen(userPIN));
         }
 
         std::string appearanceName, appearancePDF;
@@ -421,6 +452,7 @@ int main(int argc, char** argv) {
                     signedHash.resize(static_cast<size_t>((assessment.public_key_bits + 7) / 8));
                     return;
                 }
+                primaryPhase = "signing";
                 authenticationMayHaveStarted = true; // Before any possible Login; never reset on error.
                 token.sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash);
             };
@@ -431,8 +463,11 @@ int main(int argc, char** argv) {
             throw;
         }
         wipe_pin(pin);
+        primaryPhase = "verification";
         transaction.write(signum::Bytes(pdfBytes.begin(), pdfBytes.end()));
         transaction.verifyAndPublish(source, der);
+        documentPublished = true;
+        primaryPhase = "none";
         if (statusProtocol) return respond("published", "none");
         std::cout << "PAdES integrity verified and output published: " << output << "\n"
                   << "Certificate trust and eIDAS qualification NOT checked.\n";
@@ -440,9 +475,14 @@ int main(int argc, char** argv) {
     } catch (const std::exception& error) {
         // Stack unwinding/cleanup has finished before acknowledging a rejection.
         // Crash, hang or a lost/truncated response carries no such proof.
-        if (statusProtocol) return respond(authenticationMayHaveStarted ? "uncertain" : "rejectedBeforeAuthentication",
-                                           authenticationMayHaveStarted ? "interrupted" : rejectionReason);
-        std::cerr << "PAdES proof of concept failed: " << error.what() << "\n";
+        if (statusProtocol) {
+            if (!cleanupConfirmed) return respond("uncertain", cleanupOnlyFailure ? "cleanupUnconfirmed" : "primaryAndCleanupUnconfirmed");
+            return respond(authenticationMayHaveStarted ? "uncertain" : "rejectedBeforeAuthentication",
+                           authenticationMayHaveStarted ? "interrupted" : rejectionReason);
+        }
+        std::cerr << "PAdES proof of concept failed: " << error.what();
+        if (!cleanupConfirmed) std::cerr << "; chiusura del dispositivo non confermata";
+        std::cerr << "\n";
         return 1;
     }
 }

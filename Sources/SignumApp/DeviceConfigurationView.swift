@@ -10,11 +10,13 @@ struct DeviceConfigurationView: View {
     let selectedRouteID: String?
     @Binding var manualPath: String
     let locked: Bool
-    let search: () -> Void, browse: () -> Void, loadManual: () -> Void
+    let manualLocked: Bool
+    let browse: () -> Void, loadManual: () -> Void
     let remove: (String) -> Void, selectRoute: (String) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Configura dispositivo").font(.title2)
+            ManualModulePicker(manualPath: $manualPath, locked: manualLocked, browse: browse, loadManual: loadManual)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Collega il dispositivo. Se il software non è rilevato, potrebbe essere necessario installare quello del produttore. Signum non scarica né installa driver.")
@@ -28,15 +30,8 @@ struct DeviceConfigurationView: View {
                             }
                         }
                     }
-                    Button("Cerca nuovamente") { search() }.disabled(locked)
                     DisclosureGroup("Impostazioni avanzate") {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Modulo PKCS#11 manuale: viene eseguito solo premendo Carica manuale. Scegli esclusivamente software di cui ti fidi; i percorsi salvati non vengono caricati all’apertura. Cerca nuovamente ripete la ricerca dei candidati noti e dei moduli autorizzati con Carica manuale in questa finestra.").font(.caption)
-                            HStack {
-                                TextField("Percorso assoluto .dylib / .so", text: $manualPath).textFieldStyle(.roundedBorder)
-                                Button("Scegli…") { browse() }
-                            }
-                            Button("Carica manuale") { loadManual() }.disabled(!MiddlewarePreferences.valid(manualPath))
                             ForEach(savedPaths, id: \.self) { path in
                                 HStack {
                                     Button(path) { manualPath = path }.lineLimit(2).textSelection(.enabled)
@@ -78,6 +73,30 @@ struct DeviceConfigurationView: View {
             }
             HStack { Spacer(); Button("Chiudi") { dismiss() } }
         }.padding(20).frame(width: 660, height: 560)
+    }
+}
+
+/// Always available independently of discovery results. Only an explicit load
+/// executes a module; configured paths continue to be managed by the existing pane.
+struct ManualModulePicker: View {
+    @Binding var manualPath: String
+    let locked: Bool
+    let browse: () -> Void
+    let loadManual: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Modulo PKCS#11 manuale").font(.headline)
+            Text("Scegli il modulo del produttore e premi Carica manuale. I percorsi salvati non vengono caricati all’apertura.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("Percorso assoluto .dylib / .so", text: $manualPath)
+                    .textFieldStyle(.roundedBorder).accessibilityIdentifier("signum.manual-module-path")
+                Button("Scegli…", action: browse).accessibilityIdentifier("signum.choose-manual-module")
+            }
+            Button("Carica manuale", action: loadManual)
+                .disabled(!MiddlewarePreferences.valid(manualPath))
+                .accessibilityIdentifier("signum.load-manual-module")
+        }.disabled(locked)
     }
 }
 #endif

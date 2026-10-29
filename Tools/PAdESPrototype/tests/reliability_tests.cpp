@@ -658,7 +658,7 @@ int main(int argc, char** argv) {
             expect(fs::is_empty(f.path), "Abandoned staging not recovered");
         });
         for (int scenario = 0; scenario < 7; ++scenario) test(scenario == 0
-            ? "standalone helper rejects malformed mock certificate before reading PIN"
+            ? "standalone helper rejects malformed mock certificate before authentication"
             : "helper snapshot failure before PIN, scenario " + std::to_string(scenario), [&] {
             expect(argc == 4 && std::string(argv[1]) == "--helper-integration", "Pass helper and synthetic provider paths to this suite");
             Folder f(fs::absolute(argv[0]).parent_path());
@@ -689,8 +689,15 @@ int main(int argc, char** argv) {
             pid_t pid; const int spawned = posix_spawn(&pid, executable.c_str(), &actions, nullptr, args.data(), environ);
             posix_spawn_file_actions_destroy(&actions); close(channel[0]); close(diagnostics);
             if (spawned) { close(channel[1]); throw std::runtime_error("Cannot spawn helper fixture"); }
-            // Keep stdin's writer open without writing credentials. A helper
-            // that attempts to read a PIN will block and fail this deadline.
+            // S03 validates PIN framing before any provider session. Only the
+            // malformed-certificate scenario needs a provider read: supply a
+            // valid synthetic frame, still requiring rejection before Login.
+            // Source/protocol failures must continue to reject without a PIN.
+            if (scenario == 0) {
+                const char synthetic[] = "synthetic-fixture\n";
+                expect(write(channel[1], synthetic, sizeof(synthetic) - 1) == sizeof(synthetic) - 1,
+                       "Cannot write synthetic PIN frame");
+            }
             int status = 0; pid_t result = 0;
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
             while ((result = waitpid(pid, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline)
@@ -746,7 +753,9 @@ int main(int argc, char** argv) {
                 "--expected-document-sha256", sha256(source), "--expected-cert-sha256", sha256(Bytes(signer.der.begin(), signer.der.end())), "--verified-output-v4"};
             std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(nullptr, sg_token_lease_release);
             if (busy) { lease.reset(sg_token_lease_acquire(module.c_str(), 7, 0, 0)); expect(lease != nullptr, "Cannot hold fixture token"); }
-            auto pid = spawnFixture(args, f.path / "helper.log", busy ? "" : "synthetic-fixture\n");
+            // A valid frame is required to reach lease acquisition (S03).
+            // Empty stdin must now reject before the provider rather than block.
+            auto pid = spawnFixture(args, f.path / "helper.log", "synthetic-fixture\n");
             if (busy) {
                 usleep(150000);
                 expect(!fs::exists(f.path / "operations") && !fs::exists(output), "Blocked helper accessed provider or output");

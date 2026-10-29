@@ -6,17 +6,17 @@ import CProcessCoordination
 
 /// Runs only behind the worker's parent-death/core-dump/vendor-output hardening.
 enum BatchWorkerServer {
-    private static func readFrame(until limit: Double = .infinity, idle: Double = 60) throws -> Data? {
+    private static func readFrame(until limit: Double = .infinity, idle: Double = 60, descriptor inputFD: Int32 = STDIN_FILENO) throws -> Data? {
         var result = Data(), expected = 4, payload = false
         let deadline = min(limit, sg_batch_monotonic_now() + idle)
         while result.count < expected {
-            var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+            var descriptor = pollfd(fd: inputFD, events: Int16(POLLIN), revents: 0)
             let count = poll(&descriptor, 1, 100)
             if count < 0 && errno == EINTR { continue }
             guard count >= 0, sg_batch_monotonic_now() < deadline else { throw SupervisedProcess.Failure.timeout }
             if count == 0 { continue }
             var chunk = [UInt8](repeating: 0, count: min(8192, expected-result.count))
-            let n = Darwin.read(STDIN_FILENO, &chunk, chunk.count)
+            let n = Darwin.read(inputFD, &chunk, chunk.count)
             defer { _ = chunk.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) } }
             if n == 0 && result.isEmpty { return nil }
             if n < 0 && errno == EINTR { continue }
@@ -45,7 +45,8 @@ enum BatchWorkerServer {
         let inspected = try MiddlewareFileSecurity.inspect(start.provider, automatic: start.automatic)
         guard inspected.canonicalPath == start.provider, inspected.identity == start.moduleIdentity else { throw MiddlewareFileSecurity.Failure.changed }
     }
-    static func serve(reply: Int32) -> Int32 {
+    static func serve(reply: Int32, inputDescriptor: Int32 = STDIN_FILENO,
+                      onPINErasure: ((UnsafeBufferPointer<UInt8>) -> Void)? = nil) -> Int32 {
         var module: PKCS11Module?
         var lease: OpaquePointer?
         var securePIN: WorkerBatchPINContext?
@@ -55,12 +56,12 @@ enum BatchWorkerServer {
             if let lease { sg_token_lease_release(lease) }
         }
         do {
-            guard var frame = try readFrame() else { return 2 }
+            guard var frame = try readFrame(descriptor: inputDescriptor) else { return 2 }
             var start: BatchWorkerStart
             do { defer { frame.resetBytes(in: 0..<frame.count) }; start = try JSONDecoder().decode(BatchWorkerStart.self, from: frame) }
             guard start.valid else { return 2 }
             if start.version == 3 {
-                do { securePIN = try WorkerBatchPINContext(lifetime: start.lifetime) }
+                do { securePIN = try WorkerBatchPINContext(lifetime: start.lifetime, inputDescriptor: inputDescriptor, onErasure: onPINErasure) }
                 catch WorkerBatchPINContext.Failure.memoryUnavailable {
                     try write(.init(version: 2, batchID: start.batchID, jobID: start.jobs[0].id, index: 0,
                         signature: nil, reusable: false, closed: true, succeeded: false, failureKind: "pinMemoryUnavailable"), to: reply)
@@ -98,7 +99,7 @@ enum BatchWorkerServer {
             try write(.init(version: 2, batchID: start.batchID, jobID: start.jobs[0].id, index: 0,
                 signature: first.0, reusable: true, closed: false, succeeded: true), to: reply)
             var next = 1
-            while let data = try readFrame(until: deadline, idle: start.idle) {
+            while let data = try readFrame(until: deadline, idle: start.idle, descriptor: inputDescriptor) {
                 guard sg_batch_monotonic_now() < deadline,
                       let command = try? JSONDecoder().decode(BatchWorkerCommand.self, from: data),
                       command.version == 2, command.batchID == start.batchID, command.index == next else { return 2 }

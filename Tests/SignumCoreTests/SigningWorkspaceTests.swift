@@ -53,6 +53,154 @@ import CoreGraphics
         let folder = try FixtureFiles.directory("signing-workspace",evidence:true)
         try bytes.write(to: folder.appendingPathComponent(name + ".png"))
     }
+    func testBuild8SignerWithObservedDeviceRendersInBothAppearances() async throws {
+        try await fixture { _, defaults, batch, _, _, der in
+            let original = DeviceSelectionTests().provider(der: der)
+            let token = SignumToken(slot: 7, label: "Synthetic DigitalDNA", manufacturer: "Synthetic", model: "DigitalDNA", reader: "Synthetic reader")
+            let observed = DiscoveredMiddleware(id: original.id, definition: original.definition, origin: original.origin,
+                candidatePath: original.candidatePath, inspection: original.inspection, status: .ready,
+                tokens: [.init(token: token, certificates: original.tokens[0].certificates, certificateState: .readable)], version: nil, unavailableSlots: 0)
+            var devices = DeviceSelection(); let request = devices.beginDiscovery()
+            devices.acceptCompleteFixture([observed], request: request)
+            let route = try XCTUnwrap(devices.selectedRoute)
+            var provider = ProviderSelection(); provider.select(route: route)
+            let previous = NSApp.appearance
+            defer { NSApp.appearance = previous }
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                NSApp.appearance = NSAppearance(named: appearance)
+                let view = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                    automaticallyDiscover: false, defaults: defaults)
+                try await render(view, name: "build8-signer-" + (appearance == .aqua ? "Light" : "Dark")) { _ in
+                    XCTAssertEqual(SigningRouteLabel.title(route), route.title + " — DigitalDNA")
+                    XCTAssertEqual(view.devices.selectedRouteID, route.id)
+                    XCTAssertFalse(batch.isApproved)
+                }
+            }
+        }
+    }
+
+    func testAvailabilityExplainsMissingInputCertificateAndPDFConsentWithoutApproving() async throws {
+        try await fixture { root, defaults, batch, devices, provider, _ in
+            let empty = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                automaticallyDiscover: false, defaults: defaults)
+            XCTAssertEqual(empty.signingAvailability, "Aggiungi un documento per iniziare")
+            let file = root.appendingPathComponent("synthetic.txt")
+            try Data("Synthetic input".utf8).write(to: file)
+            await batch.addDocuments([file], format: .cades)
+            let missing = SignumWindow(batch: batch, automaticallyDiscover: false, defaults: defaults)
+            XCTAssertEqual(missing.signingAvailability, "Seleziona un certificato per firmare")
+            let workspace = SigningWorkspaceSelection(snapshot: batch.documents[0].snapshot, format: .pades)
+            let pdfConsent = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                automaticallyDiscover: false, defaults: defaults, workspace: workspace)
+            XCTAssertEqual(pdfConsent.signingAvailability, "Controlla e conferma l’anteprima di ogni PDF")
+            XCTAssertFalse(batch.isApproved); XCTAssertFalse(batch.isFrozen)
+        }
+    }
+
+    func testSettingsReturnToTheirOriginAndRejectOpeningWhileLocked() {
+        for origin in [SignumSection.sign, .verify, .devices] {
+            var navigation = SignumNavigation(section: origin)
+            navigation.openSettings(blocked: true)
+            XCTAssertEqual(navigation.section, origin)
+            navigation.openSettings(blocked: false)
+            XCTAssertEqual(navigation.section, .settings)
+            navigation.openSettings(blocked: false) // Repeated Command-comma must not lose origin.
+            navigation.back()
+            XCTAssertEqual(navigation.section, origin)
+        }
+    }
+
+    func testPublicDiscoveryDoesNotLockDocumentNavigationOrAllowPrematureConsent() async throws {
+        try await fixture { _, defaults, batch, _, _, _ in
+            var searching = DeviceSelection(); _ = searching.beginDiscovery()
+            let view = SignumWindow(batch: batch, initialDevices: searching, automaticallyDiscover: false, defaults: defaults)
+            XCTAssertFalse(view.interfaceLocked)
+            XCTAssertFalse(view.canApproveBatch)
+            XCTAssertNil(view.reviewContext)
+        }
+    }
+
+    func testDisplayedDestinationIncludesOutputFilenameAndApprovedCollisionName() async throws {
+        try await fixture { root, defaults, batch, _, _, der in
+            let file = root.appendingPathComponent("original.txt")
+            try Data("Synthetic destination".utf8).write(to: file)
+            await batch.addDocuments([file], format: .cadesDetached)
+            let first = batch.documents[0]
+            let view = SignumWindow(batch: batch, selectedSnapshot: first.snapshot, automaticallyDiscover: false, defaults: defaults)
+            XCTAssertEqual(view.displayedDestination(for: first).url?.path, first.snapshot.originalURL.deletingLastPathComponent().appendingPathComponent("original.txt-detached.p7s").path)
+            XCTAssertFalse(view.displayedDestination(for: first).final)
+            try batch.setFormat(.cades, for: first.id)
+            XCTAssertEqual(view.displayedDestination(for: batch.documents[0]).url?.lastPathComponent, "original.txt.p7m")
+            let occupied = root.appendingPathComponent("original.txt.p7m")
+            try Data("Existing output".utf8).write(to: occupied)
+            let plan = try await batch.prepareApproval(provider: "/synthetic/provider.dylib", slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
+            try batch.confirm(plan)
+            let shown = view.displayedDestination(for: batch.documents[0])
+            XCTAssertTrue(shown.final)
+            XCTAssertEqual(shown.url, plan.jobs[0].destination)
+            XCTAssertEqual(shown.url?.lastPathComponent, "original (2).txt.p7m")
+            XCTAssertEqual(try Data(contentsOf: occupied), Data("Existing output".utf8))
+            XCTAssertFalse(batch.isRunning)
+        }
+    }
+
+    func testAddingLaterDocumentsKeepsSelectedSnapshotAndPerDocumentConfiguration() async throws {
+        try await fixture { root, defaults, batch, _, _, _ in
+            let first = root.appendingPathComponent("first.txt"), second = root.appendingPathComponent("second.txt")
+            try Data("first synthetic file".utf8).write(to: first)
+            try Data("second synthetic file".utf8).write(to: second)
+            await batch.addDocuments([first], format: .cadesDetached)
+            let id = batch.documents[0].id, snapshot = batch.documents[0].snapshot
+            let workspace = SigningWorkspaceSelection(snapshot: snapshot, format: .cadesDetached)
+            let generation = workspace.generation
+            let view = SignumWindow(batch: batch, automaticallyDiscover: false, defaults: defaults, workspace: workspace)
+            view.addDocuments([second]) // Same path as toolbar and adjacent + button.
+            let deadline = Date().addingTimeInterval(5)
+            while batch.documents.count != 2 && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+            XCTAssertEqual(batch.documents.count, 2)
+            XCTAssertEqual(batch.documents[0].id, id)
+            XCTAssertTrue(batch.documents[0].snapshot === snapshot)
+            XCTAssertEqual(batch.documents[0].format, .cadesDetached)
+            XCTAssertEqual(batch.documents[1].format, .cadesDetached, "Automatic follows the selected document; existing configuration is preserved")
+            XCTAssertTrue(workspace.snapshot === snapshot); XCTAssertEqual(workspace.generation, generation)
+            XCTAssertFalse(batch.isApproved)
+        }
+    }
+
+    func test07SectionsAndExpandedOptionsRenderAtMinimumSizeInBothAppearances() async throws {
+        try await fixture { _, defaults, batch, devices, provider, _ in
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                for section in SignumSection.allCases {
+                    let frame = NSRect(x: 0, y: 0, width: 980, height: 650)
+                    let window = NSWindow(contentRect: frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    let previousAppearance = NSApp.appearance
+                    NSApp.appearance = NSAppearance(named: appearance)
+                    defer { NSApp.appearance = previousAppearance }
+                    window.appearance = NSAppearance(named: appearance)
+                    let view = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
+                        automaticallyDiscover: false, defaults: defaults, initialSection: section)
+                    let host = NSHostingView(rootView: view.environment(\.colorScheme, appearance == .darkAqua ? .dark : .light))
+                    host.wantsLayer = true
+                    host.frame = frame; window.contentView = host; window.orderFront(nil)
+                    defer { window.close() }
+                    try await Task.sleep(nanoseconds: 150_000_000)
+                    host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+                    // NavigationSplitView installs its titlebar after presentation.
+                    // Resize the content once that native toolbar is installed.
+                    window.setContentSize(frame.size)
+                    host.layoutSubtreeIfNeeded()
+                    XCTAssertEqual(host.bounds.width, 980, accuracy: 1)
+                    XCTAssertEqual(host.bounds.height, 650, accuracy: 1)
+                    XCTAssertFalse(descendants(host).compactMap { $0 as? NSSplitView }.isEmpty,
+                                   "Native sidebar must remain present")
+                    XCTAssertFalse(batch.isApproved); XCTAssertFalse(batch.isRunning)
+                }
+            }
+        }
+    }
+
     func testPINIsReachableWithoutScrollingThirtyTwoDocuments() async throws {
         try await fixture { root, defaults, batch, devices, provider, der in
             let files = try (1...32).map { number -> URL in
@@ -116,14 +264,16 @@ import CoreGraphics
                 certificate: .init(label: "Synthetic", identifier: Data([1])), der: der)
             try batch.confirm(plan)
             try await batch.authorizeNext(pin: "synthetic-ui") { _, _, _ in throw SignumError.module("Synthetic error details") }
+            let receipts = SigningSessionResults()
             try await render(SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
-                automaticallyDiscover: false, defaults: defaults), name: "compact-error") { host in
+                automaticallyDiscover: false, defaults: defaults, sessionResults: receipts), name: "compact-error") { host in
                 XCTAssertTrue(descendants(host).contains { $0 is NSScrollView })
                 XCTAssertFalse(descendants(host).contains { $0 is NSSecureTextField })
             }
-            XCTAssertEqual(batch.documents[0].state, .failed)
-            XCTAssertTrue(batch.documents[0].result.contains("Synthetic error details"))
-            XCTAssertEqual(BatchWorkspaceSummary.summary(batch.documents.map(\.state)), "0 firmati · 1 non riuscito")
+            XCTAssertFalse(batch.isFrozen)
+            XCTAssertTrue(batch.documents.isEmpty)
+            XCTAssertEqual(receipts.receipts.first?.state, .failed)
+            XCTAssertTrue(receipts.receipts.first?.detail.contains("Synthetic error details") == true)
             XCTAssertFalse(FileManager.default.fileExists(atPath: plan.jobs[0].destination.path))
         }
     }

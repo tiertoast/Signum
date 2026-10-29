@@ -43,14 +43,20 @@ do {
         let now = Date()
         let lotl = try LOTLPivotChain.authenticate(current: Data(contentsOf: URL(fileURLWithPath: args[2])), pivotsOldestFirst: [], now: now)
         show(try TLAuthenticator.authenticateNational(Data(contentsOf: URL(fileURLWithPath: args[4])), country: args[3], lotl: lotl, now: now))
-    } else if (args.count == 4 || args.count == 5 && args[4] == "--online"), args[1] == "evidence" {
+    } else if args.count >= 4, args[1] == "evidence" {
+        let flags = Array(args.dropFirst(4))
+        guard Set(flags).count == flags.count, flags.allSatisfy({ ["--online", "--current-time"].contains($0) }) else {
+            throw TLAuthenticationError.rejected("usage: evidence CACHE.json FILE [--online] [--current-time]")
+        }
         let cache = URL(fileURLWithPath: args[2])
         let view = try? await TLRefreshService(cacheURL: cache).cached()
         let report = try SignumVerificationService.verify(file: URL(fileURLWithPath: args[3]))
         let service = SignatureQualificationService(cache: RevocationEvidenceCache(directory: cache.deletingLastPathComponent().appendingPathComponent("Revocation")))
-        let values = await service.validate(report,authenticatedLists: view?.currentItaly.map { [$0] } ?? [],mode: args.count == 5 ? .online : .offline)
+        let values = await service.validate(report,authenticatedLists: view?.currentItaly.map { [$0] } ?? [],mode: flags.contains("--online") ? .online : .offline,
+            evaluationMode: flags.contains("--current-time") ? .currentTime : .historical)
         for complete in values {
             let value = complete.evidence
+            print("evaluationMode=\(complete.qualification.evaluationMode.rawValue) verificationDate=\(complete.qualification.verificationDate?.ISO8601Format() ?? "none") evaluatedAt=\(complete.qualification.evaluatedAt?.ISO8601Format() ?? "none")")
             print("integrity=\(report.signatures.first { $0.id == complete.signatureID }?.integrity.rawValue ?? "unknown") chain=\(complete.path.state.rawValue) chainReason=\(complete.path.reason)")
             print("qualification=\(complete.qualification.state.rawValue) qscd=\(complete.qualification.qscd.rawValue) qualificationReason=\(complete.qualification.reason)")
             print("signature=\(value.signatureID) revocation=\(value.revocation.state.rawValue) time=\(value.time.state.rawValue)")

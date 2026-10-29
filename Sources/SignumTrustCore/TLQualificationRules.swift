@@ -41,7 +41,7 @@ public enum TLQualificationRules {
         return false
     }
     private static func evaluateImpl(_ extensions: [TLServiceExtension], material: (any TLQualificationMaterial)?) -> Set<String>? {
-        var output = Set<String>()
+        var output = Set<String>(), purposes = Set<String>()
         for ext in extensions {
             guard ext.namespace == tl, ext.name == "Extension", ext.children.count == 1,
                   ["true","false","1","0"].contains(ext.attributes["Critical"] ?? "") else { return nil }
@@ -63,9 +63,11 @@ public enum TLQualificationRules {
                 }
             } else if child.namespace == tl && child.name == "AdditionalServiceInformation" {
                 guard child.children.count == 1, child.children[0].namespace == tl, child.children[0].name == "URI",
-                      child.children[0].text == prefix+"ForeSignatures" else { return nil }
+                      ["ForeSignatures", "ForeSeals"].map({ prefix + $0 }).contains(child.children[0].text) else { return nil }
+                purposes.insert(child.children[0].text)
             } else if ["true","1"].contains(ext.attributes["Critical"] ?? "") { return nil }
         }
+        guard purposes.isEmpty || purposes.contains(prefix + "ForeSignatures") else { return nil }
         return inconsistent(output) ? nil : output
     }
     public static func criteriaResult<M: TLQualificationMaterial>(_ node: TLServiceExtension, material: M) -> TLCriterionMatch {

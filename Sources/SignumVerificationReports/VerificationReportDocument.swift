@@ -111,7 +111,10 @@ public struct VerificationReportDocument: Sendable {
         }
         var overview=[field("Documento",self.documentName),field("Formato",format),field("Impronta SHA-256",sha256),
                       field("Data della verifica",Self.date(verificationDate)),field("Firme rilevate",String(report.signatures.count)),
-                      field("Esito crittografico",report.summary)]
+                      field(report.format == .pades ? "Esito crittografico delle firme" : "Esito crittografico",report.format == .pades ? report.integrity.description : report.summary)]
+        let documentOutcome = report.documentOutcome
+        overview.append(field(documentOutcome.title, documentOutcome.value))
+        if report.format == .pades { overview.append(field("Copertura della revisione corrente", report.revisionCoverageDescription)) }
         if let digest=report.detachedContentSHA256 {overview.append(field("Contenuto separato SHA-256",digest))}
         if !report.issue.isEmpty {overview.append(field("Motivazione del documento",report.issue))}
         fields=overview
@@ -125,6 +128,15 @@ public struct VerificationReportDocument: Sendable {
                 field("Subject del certificato",signature.certificate?.subject ?? "Certificato non disponibile"),
                 field("Emittente",signature.certificate?.issuer ?? "Non disponibile"),
                 field("Certificato SHA-256",signature.certificate?.sha256 ?? "Non disponibile"),field("Algoritmo",signature.algorithm)]
+            let policy = CertificatePolicyPresentation(certificate: signature.signerDER)
+            identityFields.append(field("Raccomandazioni AgID", policy.summary))
+            identityFields.append(field("Riferimento AgID", CertificatePolicyPresentation.reference))
+            if !policy.available { identityFields.append(field("CertificatePolicies", "Non disponibili o non interpretabili")) }
+            for p in policy.policies {
+                identityFields.append(field("CertificatePolicies OID", p.oid))
+                for notice in p.notices { identityFields.append(field("userNotice / explicitText — OID " + p.oid, notice)) }
+                for cps in p.cps { identityFields.append(field("CPS — OID " + p.oid, cps)) }
+            }
             if let parent=signature.counterSignatureOf {
                 let matches=report.signatures.filter{$0.evidence?.signatureKey==parent && $0.cmsLayer==signature.cmsLayer && $0.signedRevisionEnd==signature.signedRevisionEnd}
                 let index=matches.count==1 ? report.signatures.firstIndex{$0.id==matches[0].id}.map{String($0+1)}:nil
@@ -137,7 +149,8 @@ public struct VerificationReportDocument: Sendable {
             if report.format == .cades {identityFields.append(field("Livello CMS",String(signature.cmsLayer)))}
             if let path=signature.cmsSignerPath,!path.isEmpty {identityFields.append(field("Percorso SignerInfo",path))}
             if let revision=signature.signedRevisionEnd {identityFields.append(field("Revisione firmata","Byte 0..."+String(revision)))}
-            if signature.laterChanges {identityFields.append(field("Modifiche successive","Presenti; accettabilità non valutata"))}
+            if report.format == .pades { identityFields.append(field("Copertura della firma", report.signatureCoverageDescription(signature))) }
+            if signature.laterChanges {identityFields.append(field("Modifiche successive","Presenti; accettabilità DocMDP/FieldMDP non valutata"))}
             identityFields.append(field("Data dichiarata (signingTime)",Self.declaredDate(signature.declaredTime)))
             let missing="Risultato non presente nello snapshot della sessione; valutazione non completata o non disponibile."
             var outcomes=[outcome("Integrità crittografica",signature.integrity.description,signature.reason.isEmpty ? "Esito crittografico restituito dal motore Signum; attendibilità del certificato valutata separatamente.":signature.reason)]
@@ -147,6 +160,10 @@ public struct VerificationReportDocument: Sendable {
                 let pathState: String
                 switch path.state {case .verified:pathState="Percorso verificato";case .invalid:pathState="Percorso non valido";case .notVerifiable:pathState="Percorso non verificabile"}
                 outcomes.append(outcome("Attendibilità X.509",pathState,path.reason))
+                if let qc = value.qualification.statements {
+                    details.append(field("QCStatements", "QCCompliance: \(qc.compliance); QCSSCD: \(qc.sscd); QCTypes: " + qc.types.joined(separator: ", ")))
+                    details.append(field("QCStatements — altri dati", String(describing: qc)))
+                }
                 let revocation=value.evidence.revocation
                 let revocationState: String
                 switch revocation.state {case .good:revocationState="Non revocato - evidenza verificata";case .revoked:revocationState="Revocato";case .indeterminate:revocationState="Indeterminata"}

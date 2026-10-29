@@ -256,6 +256,7 @@ final class UnifiedVerificationTests: XCTestCase {
             return try SignumVerificationService.verify(data:bytes,name:url.lastPathComponent,helper:engine)
         }
         XCTAssertEqual(workspace.rows.count,2);XCTAssertFalse(workspace.rows[0].issue.isEmpty);XCTAssertEqual(workspace.rows[1].report?.integrity,.absent)
+        let completedReport = workspace.rows[1].report?.id
         let task = Task { await workspace.verify(urls) { _,control in
             let deadline = ProcessInfo.processInfo.systemUptime+5
             while !control.isCancellationRequested, ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval:0.001) }
@@ -264,7 +265,10 @@ final class UnifiedVerificationTests: XCTestCase {
         let waitDeadline = ProcessInfo.processInfo.systemUptime+5
         while !workspace.busy, ProcessInfo.processInfo.systemUptime < waitDeadline { await Task.yield() }
         XCTAssertTrue(workspace.busy, "Timed out waiting for async fixture");workspace.cancel();await task.value
-        XCTAssertFalse(workspace.busy);XCTAssertTrue(workspace.rows.allSatisfy{!$0.issue.isEmpty})
+        XCTAssertFalse(workspace.busy)
+        XCTAssertEqual(workspace.rows.count,4)
+        XCTAssertEqual(workspace.rows[1].report?.id,completedReport)
+        XCTAssertTrue(workspace.rows.suffix(2).allSatisfy{!$0.issue.isEmpty})
         await workspace.verify((0..<33).map{URL(fileURLWithPath:"/synthetic/\($0)")})
         XCTAssertFalse(workspace.issue.isEmpty)
     }

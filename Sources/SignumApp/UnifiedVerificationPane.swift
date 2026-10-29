@@ -19,86 +19,146 @@ enum VerificationDropLoader {
 @MainActor final class VerificationWorkspace: ObservableObject {
     struct Row: Identifiable {
         let id = UUID()
-        let name: String
+        let sourceURL: URL
+        var name: String { sourceURL.lastPathComponent }
         var report: VerificationReport?
         var verificationDate: Date?
         var paths: [Int: CertificatePathResult] = [:]
         var validations: [Int: CompleteSignatureValidationResult] = [:]
         var issue = ""
+        var started = false
+        var finished = false
     }
     private let catalog: (any TrustedListCatalogProviding)?
     private let validationClock: @Sendable () -> Date
     init(catalog: (any TrustedListCatalogProviding)? = nil, validationClock: @escaping @Sendable () -> Date = { Date() }) { self.catalog = catalog; self.validationClock = validationClock }
     @Published private(set) var rows: [Row] = []
+    @Published var selectedDocument: UUID?
     @Published private(set) var busy = false
     @Published private(set) var acquiring = false
     @Published private(set) var issue = ""
     private var request = UUID()
     private var operation: SigningOperation?
-    private var acquisition: Task<Void,Never>?
-    private var verification: Task<Void,Never>?
+    private var tasks: [UUID: Task<Void,Never>] = [:]
+    private var acquisitionCount = 0
+    private var tail: Task<Void,Never>?
+    private var tailID: UUID?
     typealias Verifier = @Sendable (URL, SigningOperation) throws -> VerificationReport
     private static let defaultVerifier: Verifier = { url, control in
         try SignumVerificationService.verify(file: url, isCancelled: { control.isCancellationRequested })
     }
+    private func updateActivity() { busy = !tasks.isEmpty; acquiring = acquisitionCount > 0 }
+    /// Explicit cancellation stops this generation, preserving completed results.
+    /// Late acquisitions/verifiers cannot append or mutate a newer generation.
     func cancel() {
-        request = UUID(); acquisition?.cancel(); acquisition = nil
-        verification?.cancel(); verification = nil; operation?.requestCancellation(); operation = nil
-        busy = false; acquiring = false
-        for index in rows.indices where rows[index].report == nil { rows[index].issue = "Verifica annullata." }
-    }
-    func reset() { cancel(); rows = []; issue = "" }
-    @discardableResult func acquire(using load: @escaping @MainActor () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
-        cancel(); let id = request
-        busy = true; acquiring = true; issue = ""; rows = []
-        let task = Task { @MainActor in
-            let files = await load()
-            guard request == id, !Task.isCancelled else { return }
-            acquiring = false
-            await perform(files, request: id, using: verifier ?? Self.defaultVerifier)
-            if request == id { acquisition = nil }
+        request = UUID()
+        tasks.values.forEach { $0.cancel() }; tasks = [:]; tail = nil; tailID = nil
+        operation?.requestCancellation(); operation = nil; acquisitionCount = 0
+        updateActivity()
+        for index in rows.indices where !rows[index].finished {
+            rows[index].issue = "Verifica annullata."
+            rows[index].verificationDate = nil
+            rows[index].finished = true
         }
-        acquisition = task
+    }
+    func reset() { cancel(); rows = []; selectedDocument = nil; issue = "" }
+    @discardableResult func remove(_ id: UUID) -> Bool {
+        guard !busy, !acquiring, let index = rows.firstIndex(where: { $0.id == id }) else { return false }
+        rows.remove(at: index)
+        if selectedDocument == id || !rows.contains(where: { $0.id == selectedDocument }) {
+            selectedDocument = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
+        }
+        return true
+    }
+    @discardableResult func acquire(using load: @escaping @MainActor () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
+        guard acquisitionCount < 32 else {
+            issue = "Troppe acquisizioni in attesa. Attendi il completamento o annulla."
+            return Task {}
+        }
+        let generation = request, id = UUID()
+        acquisitionCount += 1
+        let task = Task { @MainActor in
+            var loading = true
+            defer {
+                if request == generation {
+                    if loading { acquisitionCount -= 1 }
+                    tasks[id] = nil; updateActivity()
+                }
+            }
+            let files = await load()
+            guard request == generation, !Task.isCancelled else { return }
+            acquisitionCount -= 1; loading = false
+            let work = start(files, using: verifier)
+            updateActivity()
+            await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+        }
+        tasks[id] = task; updateActivity()
         return task
     }
+    /// Every entry has its own UUID and verifier closure (including detached
+    /// original). Serial tasks append; only cancel/reset invalidate a generation.
     @discardableResult func start(_ files: [URL], using verifier: Verifier? = nil) -> Task<Void,Never> {
-        cancel(); let id = request; busy = true
-        let task = Task { @MainActor in
-            await perform(files, request: id, using: verifier ?? Self.defaultVerifier)
-            if request == id { verification = nil }
+        var seen = Set<String>()
+        let urls = files.filter { $0.isFileURL && seen.insert($0.standardizedFileURL.path).inserted }
+        guard !urls.isEmpty, urls.count <= 32, rows.count + urls.count <= 32 else {
+            issue = "Massimo 32 documenti nella sessione. Seleziona file locali disponibili; rimuovi documenti o riprova l’acquisizione."
+            return Task {}
         }
-        verification = task
+        issue = ""
+        let entries = urls.map { Row(sourceURL: $0) }
+        rows.append(contentsOf: entries)
+        if !rows.contains(where: { $0.id == selectedDocument }) { selectedDocument = entries.first?.id }
+        let generation = request, id = UUID(), previous = tail
+        let task = Task { @MainActor in
+            defer {
+                if request == generation {
+                    if Task.isCancelled {
+                        for entry in entries {
+                            if let index = rows.firstIndex(where: { $0.id == entry.id }), !rows[index].finished {
+                                rows[index].issue = "Verifica annullata."; rows[index].verificationDate = nil; rows[index].finished = true
+                            }
+                        }
+                    }
+                    tasks[id] = nil
+                    if tailID == id { tail = nil; tailID = nil }
+                    updateActivity()
+                }
+            }
+            await previous?.value
+            guard request == generation, !Task.isCancelled else { return }
+            await perform(entries, request: generation, using: verifier ?? Self.defaultVerifier)
+        }
+        tasks[id] = task; tail = task; tailID = id; updateActivity()
         return task
     }
     func verify(_ files: [URL], using verifier: Verifier? = nil) async {
-        cancel(); let id = request; busy = true
-        await perform(files, request: id, using: verifier ?? Self.defaultVerifier)
+        let task = start(files, using: verifier)
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
     }
-    private func perform(_ files: [URL], request id: UUID, using verifier: @escaping Verifier) async {
+    private func perform(_ entries: [Row], request id: UUID, using verifier: @escaping Verifier) async {
         guard request == id, !Task.isCancelled else { return }
-        defer { if request == id { busy = false; operation = nil } }
-        var seen = Set<String>()
-        let urls = files.filter { $0.isFileURL && seen.insert($0.standardizedFileURL.path).inserted }
-        guard !urls.isEmpty, urls.count <= 32 else { issue = "Seleziona da 1 a 32 documenti locali. Acquisizione scaduta o non disponibile: riprova."; return }
-        let control = SigningOperation(); operation = control; issue = ""
-        rows = urls.map { Row(name: $0.lastPathComponent) }
-        var retainedPreviewBytes = 0
+        let control = SigningOperation(); operation = control
+        defer { if request == id { operation = nil } }
         let european = catalog as? any EuropeanCatalogProviding
         let list = european == nil ? try? await catalog?.currentCatalog() : nil
         guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
-        for (index, url) in urls.enumerated() {
+        for entry in entries {
             guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
-            let work = Task.detached(priority: .userInitiated) { Result { try verifier(url, control) } }
+            guard let pendingIndex = rows.firstIndex(where: { $0.id == entry.id }) else { continue }
+            rows[pendingIndex].started = true
+            let work = Task.detached(priority: .userInitiated) { Result { try verifier(entry.sourceURL, control) } }
             let result = await withTaskCancellationHandler(operation: { await work.value },
                 onCancel: { control.requestCancellation(); work.cancel() })
-            guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+            guard request == id, !Task.isCancelled, !control.isCancellationRequested,
+                  let index = rows.firstIndex(where: { $0.id == entry.id }) else { return }
             switch result {
             case .success(var report):
                 let count = report.originalContent?.count ?? report.previewPDF?.count ?? 0
-                if count > SigningResourceLimits.maximumSessionBytes - retainedPreviewBytes {
+                let retained = rows.reduce(0) { $0 + ($1.report?.originalContent?.count ?? $1.report?.previewPDF?.count ?? 0) }
+                if count > SigningResourceLimits.maximumSessionBytes - retained {
                     report = report.withoutPreview()
                     rows[index].issue = "Contenuto non conservato: limite memoria della sessione. Il risultato di verifica è disponibile."
-                } else { retainedPreviewBytes += count }
+                }
                 rows[index].report = report
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
                 let assessmentReport = report
@@ -119,122 +179,222 @@ enum VerificationDropLoader {
                 }
                 let values = await withTaskCancellationHandler(operation: { await assessment.value }, onCancel: { assessment.cancel() })
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+                rows[index].verificationDate = values.first?.qualification.verificationDate ?? observedAt
                 rows[index].paths = Dictionary(values.map { ($0.signatureID,$0.path) },uniquingKeysWith:{ a,_ in a })
                 rows[index].validations = Dictionary(values.map { ($0.signatureID,$0) },uniquingKeysWith:{ a,_ in a })
             case .failure(let error): rows[index].issue = error.localizedDescription
             }
+            rows[index].finished = true
         }
     }
 }
 
 struct UnifiedVerificationPane: View {
     @StateObject private var workspace: VerificationWorkspace
-    init(catalog: (any TrustedListCatalogProviding)? = nil) { _workspace = StateObject(wrappedValue: VerificationWorkspace(catalog: catalog)) }
+    init(catalog: (any TrustedListCatalogProviding)? = nil, workspace: VerificationWorkspace? = nil) { _workspace = StateObject(wrappedValue: workspace ?? VerificationWorkspace(catalog: catalog)) }
     @State private var targeted = false
     @State private var preview: VerificationReport?
     @State private var extractionIssue = ""
     @State private var exporting = false
+    @State private var selectedSignature: Int?
+    @State private var detailsExpanded = false
+    private var selectedRow: VerificationWorkspace.Row? {
+        workspace.rows.first { $0.id == workspace.selectedDocument } ?? workspace.rows.first
+    }
     var body: some View {
-        GroupBox("Verifica") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("Apri o trascina documenti da verificare")
-                        Text("Riconoscimento automatico CAdES/PAdES · nessun token o PIN · massimo 132 MiB per file")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Verifica .p7s e originale…",action:chooseDetached).disabled(workspace.busy)
-                    Button("Apri documenti…", action: choose).disabled(workspace.busy && !workspace.acquiring)
-                    if workspace.busy { ProgressView().controlSize(.small); Button("Annulla") { workspace.cancel() } }
-                }
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).stroke(targeted ? Color.accentColor : Color.secondary.opacity(0.4), style: StrokeStyle(dash: [5,4])))
-                .onDrop(of: [UTType.fileURL.identifier], isTargeted: $targeted, perform: drop)
-                if workspace.acquiring { Text("Acquisizione documenti…").font(.caption) }
-                if !workspace.issue.isEmpty { Text(workspace.issue).font(.caption) }
-                if !extractionIssue.isEmpty { Text(extractionIssue).font(.caption) }
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(workspace.rows) { row in
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(row.name).font(.headline).lineLimit(2)
-                                if let report = row.report {
-                                    Text("\(format(report.format)) · \(report.signatures.count) firme")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                    if let hash=report.detachedContentSHA256 { Text("Contenuto separato · SHA-256: "+hash).font(.caption).textSelection(.enabled) }
-                                    Text(report.summary)
-                                    ForEach(report.signatures) { signature in
-                                        Text("Firma \(signature.id + 1) · " + (signature.signerIdentity?.personalName ?? "Non disponibile")).fontWeight(.medium)
-                                        Text("Codice Fiscale: " + (signature.signerIdentity?.fiscalCode ?? "Non disponibile")).font(.caption)
-                                        Text("Integrità: " + signature.integrity.description).font(.caption)
-                                        Text(signature.reason.isEmpty ? (signature.integrity == .verified ? "Firma e riferimenti del contenuto verificati dal motore crittografico nativo." : "Il motore crittografico non ha confermato l’integrità di questa firma.") : signature.reason).font(.caption)
-                                        if let path = row.paths[signature.id] {
-                                            Text("Firma \(signature.id + 1) · " + pathLabel(path.state)).fontWeight(.medium)
-                                            if let service = path.service {
-                                                Text((path.state == .verified ? "Prestatore: " : "Servizio candidato: ") + service.provider + " · " + service.country + " · " + service.service).font(.caption)
-                                            }
-                                            Text(path.reason).font(.caption)
-                                        } else { Text("Catena X.509: in attesa di valutazione").font(.caption) }
-                                        if let value = row.validations[signature.id] { evidenceResults(value).font(.caption) }
+        VStack(spacing: 0) {
+            if workspace.rows.isEmpty { emptyState }
+            else {
+                documentList
+                Divider()
+                if let row = selectedRow {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            if let report = row.report {
+                                check(VerificationPresentation.document(report))
+                                if report.format == .pades, !report.signatures.isEmpty {
+                                    Text(report.revisionCoverageDescription).font(.callout).textSelection(.enabled)
+                                }
+                                if report.signatures.count > 1 {
+                                    Picker("Firma", selection: Binding(get: { selectedSignature ?? report.signatures.first!.id }, set: { selectedSignature = $0; detailsExpanded = false })) {
+                                        ForEach(report.signatures) { signature in
+                                            Text("\(signature.counterSignatureOf == nil ? "Firma" : "Controfirma") \(signature.id + 1) · \(signature.signerIdentity?.personalName ?? "Identità non disponibile")").tag(signature.id)
+                                        }
+                                    }.pickerStyle(.menu).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                if let signature = report.signatures.first(where: { $0.id == selectedSignature }) ?? report.signatures.first {
+                                    signatureSummary(signature, row: row, report: report)
+                                    DisclosureGroup("Dettagli", isExpanded: $detailsExpanded) {
+                                        technicalDetails(row, report: report, signature: signature)
+                                            .padding(.top, 12)
                                     }
-                                    if report.signatures.contains(where: \.laterChanges) {
-                                        Text("Modifiche successive presenti · accettabilità non valutata").font(.caption)
-                                    }
-                                    if !report.issue.isEmpty { Text(report.issue).font(.caption) }
-                                    DisclosureGroup("Dettagli") {
-                                        VStack(alignment: .leading, spacing: 7) {
-                                            Text("SHA-256: " + report.sha256).textSelection(.enabled)
-                                            ForEach(report.signatures) { signature in
-                                                VStack(alignment: .leading, spacing: 3) {
-                                                    Text("Firma \(signature.id+1) · " + signature.integrity.description)
-                                                    Text("Nome e cognome: " + (signature.signerIdentity?.personalName ?? "Non disponibile"))
-                                                    Text("Codice Fiscale: " + (signature.signerIdentity?.fiscalCode ?? "Non disponibile"))
-                                                    if let cert = signature.certificate {
-                                                        Text(cert.subject); Text("Emittente: " + cert.issuer)
-                                                        Text("Certificato SHA-256: " + cert.sha256).textSelection(.enabled)
-                                                    } else { Text("Certificato non disponibile") }
-                                                    if let path = row.paths[signature.id] {
-                                                        Text("Catena X.509: " + pathLabel(path.state)).fontWeight(.medium)
-                                                        if let service = path.service { Text("Prestatore: \(service.provider) · \(service.country)\nServizio: \(service.service)\nTL: \(service.listSequence) · stato: \(service.status)") }
-                                                        Text(path.reason)
-                                                        Text("Valutata al: " + path.evaluatedAt.formatted(date: .abbreviated, time: .shortened))
-                                                        ForEach(Array(path.path.enumerated()), id: \.offset) { i, certificate in
-                                                            Text("\(i + 1). \(certificate.subject) · \(certificate.sha256)").textSelection(.enabled)
-                                                        }
-                                                    } else { Text("Catena X.509: in attesa di valutazione") }
-                                                    if let value = row.validations[signature.id] { evidenceResults(value) }
-                                                    Text("Algoritmo: " + signature.algorithm)
-                                                    if !signature.declaredTime.isEmpty { Text("Data dichiarata, non qualificata: " + signature.declaredTime) }
-                                                    if let end = signature.signedRevisionEnd { Text("Revisione firmata: byte 0…\(end) · " + (signature.laterChanges ? "byte successivi presenti" : "nessun byte successivo")) }
-                                                    if let parent=signature.counterSignatureOf { Text("Controfirma della SignatureValue SHA-256: "+parent).textSelection(.enabled) }
-                                                    if let path=signature.cmsSignerPath,!path.isEmpty { Text("Percorso firmatario CMS: "+path) }
-                                                    if report.format == .cades { Text("Livello CMS \(signature.cmsLayer)") }
-                                                    if !signature.reason.isEmpty { Text(signature.reason) }
-                                                }
-                                            }
-                                            if report.format == .pades { Text(VerificationReport.revisionScope) }
-                                        }.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    Menu("Esporta rapporto") {
-                                        Button("PDF…") { exportReport(row,format:.pdf) }
-                                        Button("Testo (.txt)…") { exportReport(row,format:.text) }
-                                    }.disabled(exporting || workspace.busy || row.verificationDate == nil)
-                                    if report.previewPDF != nil { Button("Anteprima PDF in sola lettura") { preview = report } }
-                                    if report.originalContent != nil { Button("Estrai originale…") { extract(report) }.disabled(exporting || workspace.busy) }
-                                } else if row.issue.isEmpty { Text(workspace.busy ? "In attesa di verifica…" : "Nessun risultato").font(.caption) }
-                                if !row.issue.isEmpty { Text(row.issue).font(.caption) }
-                                Divider()
+                                } else {
+                                    Label(report.summary, systemImage: "questionmark.document").font(.title3)
+                                    Text(report.issue.isEmpty ? "Nessuna firma supportata rilevata." : report.issue).foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Label(workspace.busy ? "Verifica in corso…" : "Verifica non disponibile", systemImage: "doc.text.magnifyingglass")
                             }
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(minHeight: 180)
-                Text("Gli esiti sono indipendenti. Informazioni mancanti producono una qualificazione indeterminata; non si attesta la conservazione a lungo termine o l’accettabilità delle modifiche successive.").font(.caption).foregroundStyle(.secondary)
-                Text("XAdES: profilo Baseline-B enveloped, una firma RSA-SHA256. Nessun file estratto viene salvato automaticamente.").font(.caption).foregroundStyle(.secondary)
-            }.padding(5)
+                            if !row.issue.isEmpty { Label(row.issue, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary) }
+                        }.frame(maxWidth: 780, alignment: .leading).padding(28).frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    actions(row)
+                }
+            }
+            if !workspace.issue.isEmpty { Text(workspace.issue).font(.callout).padding(10) }
+            if !extractionIssue.isEmpty { Text(extractionIssue).font(.callout).padding(10) }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: $targeted, perform: drop)
+        .background(targeted ? Color.accentColor.opacity(0.06) : Color.clear)
         .sheet(item: $preview) { report in VerificationPDFPreview(report: report) }
-        .onDisappear { workspace.cancel() }
+        .onChange(of: workspace.rows.map(\.id)) { ids in
+            if !ids.contains(where: { $0 == workspace.selectedDocument }) { workspace.selectedDocument = ids.first; selectedSignature = nil; detailsExpanded = false }
+        }
+        .onChange(of: workspace.selectedDocument) { _ in selectedSignature = nil; detailsExpanded = false }
+    }
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text.magnifyingglass").font(.system(size: 44, weight: .light)).foregroundStyle(.secondary)
+            Text("Le tue firme, in chiaro").font(.title2).fontWeight(.semibold)
+            Text("Trascina qui i documenti da verificare\no selezionali dal Mac.").multilineTextAlignment(.center).foregroundStyle(.secondary)
+            Button("Apri documenti…", action: choose).controlSize(.large)
+            Button("Firma separata P7S e originale…", action: chooseDetached).buttonStyle(.link)
+            if workspace.busy {
+                ProgressView(workspace.acquiring ? "Acquisizione documenti…" : "Verifica in corso…")
+                Button("Annulla") { workspace.cancel() }
+            }
+        }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    private var documentList: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Documenti").font(.headline)
+                Spacer()
+                if workspace.busy { ProgressView().controlSize(.small); Button("Annulla") { workspace.cancel() } }
+                Button(action: choose) { Image(systemName: "plus").accessibilityLabel("Apri documenti da verificare") }
+                    .buttonStyle(.borderless)
+                Button("P7S e originale…", action: chooseDetached)
+            }.padding(.horizontal, 20).padding(.vertical, 10)
+            List(selection: $workspace.selectedDocument) {
+                ForEach(workspace.rows) { row in
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.text")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.name).lineLimit(1).truncationMode(.middle)
+                            if workspace.rows.filter({ $0.name == row.name }).count > 1 {
+                                Text(row.sourceURL.deletingLastPathComponent().path).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            }
+                        }.help(row.sourceURL.path)
+                        Spacer()
+                        if let report = row.report {
+                            let outcome = VerificationPresentation.documentList(report)
+                            Text(outcome.value).font(.caption)
+                                .foregroundStyle(outcome.tone == .positive ? Color.green : outcome.tone == .negative ? Color.red : Color.secondary)
+                                .lineLimit(1).help(outcome.value).accessibilityLabel(outcome.accessibilityLabel)
+                        } else {
+                            Text(workspace.busy && !row.finished ? (row.started ? "In verifica…" : "In coda…") : "Non disponibile")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        SessionRemovalButton(name: row.name, disabled: workspace.busy || exporting) {
+                            if workspace.remove(row.id) { extractionIssue = "" }
+                        }
+                    }.accessibilityElement(children: .contain)
+                        .accessibilityAction(named: Text("Rimuovi dalla sessione")) {
+                            guard !exporting else { return }
+                            withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .default) {
+                                if workspace.remove(row.id) { extractionIssue = "" }
+                            }
+                        }.tag(row.id).padding(.vertical, 3)
+                }
+            }.listStyle(.plain).frame(height: min(144, CGFloat(workspace.rows.count * 36 + 8)))
+        }
+    }
+    private func check(_ value: VerificationCheck) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Image(systemName: value.symbol).foregroundStyle(value.tone == .positive ? Color.green : value.tone == .negative ? Color.red : Color.secondary)
+                .accessibilityHidden(true)
+            Text(value.title).foregroundStyle(.secondary).frame(width: 170, alignment: .leading)
+            Text(value.value).frame(maxWidth: .infinity, alignment: .leading)
+        }.font(.body).accessibilityElement(children: .ignore).accessibilityLabel(value.accessibilityLabel)
+    }
+    private func signatureSummary(_ signature: SignatureVerificationResult, row: VerificationWorkspace.Row, report: VerificationReport) -> some View {
+        let value = row.validations[signature.id]
+        let path = row.paths[signature.id]
+        let policy = CertificatePolicyPresentation(certificate: signature.signerDER)
+        return VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(signature.counterSignatureOf == nil ? "Firmato da" : "Controfirmato da").foregroundStyle(.secondary)
+                Text(signature.signerIdentity?.personalName ?? "Identità non disponibile").font(.title).fontWeight(.semibold).textSelection(.enabled)
+                if let fiscal = signature.signerIdentity?.fiscalCode { Text("Codice fiscale: " + fiscal).foregroundStyle(.secondary).textSelection(.enabled) }
+                if let service = path?.service, path?.state == .verified {
+                    Text("Certificatore: " + VerificationPresentation.providerName(service.provider)).help("Trusted List autenticata: " + service.provider)
+                } else if let issuer = signature.certificate?.issuer {
+                    Text("Emittente dichiarato nel certificato: " + issuer).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                check(VerificationPresentation.signatureIntegrity(signature))
+                if report.format == .pades {
+                    Text(report.signatureCoverageDescription(signature)).font(.callout).textSelection(.enabled)
+                }
+                check(VerificationPresentation.provider(path))
+                check(VerificationPresentation.revocation(value?.evidence.revocation.state))
+                check(VerificationPresentation.qualification(value?.qualification))
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Data della firma").font(.headline)
+                Text("Data di firma dichiarata: " + VerificationPresentation.declaredDate(signature.declaredTime)).textSelection(.enabled)
+                check(VerificationPresentation.timestamp(signature, time: value?.evidence.time))
+                if value?.evidence.time.state == .proven, let date = value?.evidence.time.provenTime {
+                    Text("La firma esisteva entro " + VerificationPresentation.localDate(date) + ". La marca dimostra questo limite temporale, non l’istante esatto di apposizione.").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    Text("La data di firma è dichiarata dal firmatario e non è comprovata da una marca temporale.").font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            Text(policy.summary).font(.callout).foregroundStyle(.secondary)
+        }
+    }
+    @ViewBuilder private func technicalDetails(_ row: VerificationWorkspace.Row, report: VerificationReport, signature: SignatureVerificationResult) -> some View {
+        if let snapshot = try? VerificationReportDocument(report: report, validations: Array(row.validations.values), verificationDate: row.verificationDate ?? Date()) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(snapshot.fields.enumerated()), id: \.offset) { _, field in detail(field.label, field.value) }
+                if let index = report.signatures.firstIndex(where: { $0.id == signature.id }), snapshot.signers.indices.contains(index) {
+                    let signer = snapshot.signers[index]
+                    ForEach(Array(signer.fields.enumerated()), id: \.offset) { _, field in detail(field.label, field.value) }
+                    ForEach(Array(signer.outcomes.enumerated()), id: \.offset) { _, outcome in detail(outcome.label, outcome.state + " · " + outcome.reason) }
+                    ForEach(Array(signer.details.enumerated()), id: \.offset) { _, field in detail(field.label, field.value) }
+                }
+                if let value = row.validations[signature.id] { evidenceResults(value) }
+                ForEach(Array(snapshot.notes.enumerated()), id: \.offset) { _, note in Text(note).foregroundStyle(.secondary) }
+                Text("XAdES: profilo Baseline-B enveloped, una firma RSA-SHA256. Nessun file estratto viene salvato automaticamente.").foregroundStyle(.secondary)
+            }.font(.caption).textSelection(.enabled)
+        } else {
+            Text("Dettagli completi in preparazione. " + report.summary).font(.callout)
+            Text("SHA-256: " + report.sha256).font(.caption).textSelection(.enabled)
+            if let value = row.validations[signature.id] { evidenceResults(value).font(.caption) }
+        }
+    }
+    private func detail(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) { Text(label).fontWeight(.medium); Text(value).foregroundStyle(.secondary) }
+    }
+    @ViewBuilder private func actions(_ row: VerificationWorkspace.Row) -> some View {
+        Divider()
+        HStack(spacing: 16) {
+            if let report = row.report {
+                Menu("Esporta rapporto") {
+                    Button("PDF…") { exportReport(row, format: .pdf) }
+                    Button("Testo (.txt)…") { exportReport(row, format: .text) }
+                }.disabled(exporting || workspace.busy || row.verificationDate == nil)
+                if report.previewPDF != nil { Button("Anteprima PDF") { preview = report } }
+                if report.originalContent != nil {
+                    Button("Estrai originale…") { extract(report) }.disabled(exporting || workspace.busy || report.integrity != .verified)
+                }
+            }
+            Spacer(minLength: 0)
+        }.padding(.horizontal, 20).padding(.vertical, 12)
     }
     @ViewBuilder private func evidenceResults(_ value: CompleteSignatureValidationResult) -> some View {
         Text("Revoca: " + (value.evidence.revocation.state == .good ? "verificata, non revocato" : value.evidence.revocation.state == .revoked ? "revocato" : "indeterminata"))
@@ -261,17 +421,16 @@ struct UnifiedVerificationPane: View {
         switch format { case .cades: return "CAdES / CMS"; case .pades: return "PDF / PAdES"; case .xml: return "XML / XAdES"; case .asic: return "ASiC / XAdES"; case .unknown: return "Sconosciuto" }
     }
     private func chooseDetached() {
-        let signature=NSOpenPanel();signature.title="Seleziona la firma detached .p7s";signature.allowsMultipleSelection=false;signature.canChooseDirectories=false
+        let signature=NSOpenPanel();signature.title="Seleziona la firma detached .p7s";signature.allowsMultipleSelection=false;signature.canChooseDirectories=false;signature.canChooseFiles=true;signature.allowedContentTypes=[];signature.allowsOtherFileTypes=true
         guard signature.runModal() == .OK,let cms=signature.url else {return}
-        let original=NSOpenPanel();original.title="Seleziona il documento originale della firma";original.allowsMultipleSelection=false;original.canChooseDirectories=false
+        let original=NSOpenPanel();original.title="Seleziona il documento originale della firma";original.allowsMultipleSelection=false;original.canChooseDirectories=false;original.canChooseFiles=true;original.allowedContentTypes=[];original.allowsOtherFileTypes=true
         guard original.runModal() == .OK,let content=original.url else {return}
         workspace.start([cms],using:{ signature,control in
             try SignumVerificationService.verifyDetached(signature:signature,content:content,isCancelled:{control.isCancellationRequested})
         })
     }
     private func choose() {
-        workspace.cancel()
-        let chooser = NSOpenPanel(); chooser.allowsMultipleSelection = true; chooser.canChooseDirectories = false
+        let chooser = NSOpenPanel(); chooser.allowsMultipleSelection = true; chooser.canChooseDirectories = false; chooser.canChooseFiles = true; chooser.allowedContentTypes = []; chooser.allowsOtherFileTypes = true
         if chooser.runModal() == .OK { start(chooser.urls) }
     }
     private func exportReport(_ row: VerificationWorkspace.Row,format: VerificationReportExporter.Format) {

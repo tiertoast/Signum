@@ -11,6 +11,8 @@ public enum PAdESHelperProcess {
     private struct Status: Decodable {
         let version: Int, jobID: UUID
         let outcome: String, reason: String
+        let cleanupConfirmed, documentVerified, documentPublished: Bool?
+        let primaryFailure: String?
     }
     public static func requirePublished(_ outcome: Outcome) throws {
         switch outcome {
@@ -37,13 +39,21 @@ public enum PAdESHelperProcess {
                       status.version == expectedProtocolVersion, status.jobID == expectedJobID else {
                     return .uncertain("Risposta del motore assente o non vincolata al job. Non ripetere automaticamente la firma.")
                 }
+                if status.cleanupConfirmed == false {
+                    let document = status.documentPublished == true ? "Documento pubblicato: conservalo e verificane l’integrità. "
+                        : status.documentVerified == true ? "Integrità del PDF verificata; documento non pubblicato. " : "Documento non pubblicato o non verificato. "
+                    let primary = status.reason == "primaryAndCleanupUnconfirmed"
+                        ? (status.primaryFailure == "verification" ? "Errore principale durante la verifica del PDF. " : "Errore principale durante la firma o la preparazione. ") : ""
+                    return .uncertain(primary + document + "Chiusura del dispositivo non confermata. Verifica l’esito prima di continuare; non ripetere automaticamente il PIN.")
+                }
                 if status.outcome == "rejectedBeforeAuthentication", ["busy", "coordination", "preflight"].contains(status.reason), !exists() {
                     return .failed(status.reason == "busy"
                         ? "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al provider."
                         : "Firma rifiutata prima dell'autenticazione. Nessun PIN inviato al provider.")
                 }
-                guard status.outcome == "published", status.reason == "none" else {
-                    return .uncertain("Operazione interrotta o stato non confermato. Conservare eventuali output e non ripetere automaticamente il PIN.")
+                guard status.outcome == "published", status.reason == "none", status.cleanupConfirmed == true,
+                      status.documentVerified == true, status.documentPublished == true else {
+                    return .uncertain("Chiusura o pubblicazione del motore non confermata. Conservare eventuali output e non ripetere automaticamente il PIN.")
                 }
             }
             var info = stat()

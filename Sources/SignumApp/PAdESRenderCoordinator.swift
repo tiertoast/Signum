@@ -20,6 +20,13 @@ import SignumCore
     private var cancellation: SigningOperation?
     private var pending: Request?
     private var generation = UUID()
+    private var suspended = false
+    func suspend() { suspended = true; cancel() }
+    func resume() { suspended = false }
+    private var idleObservers: [() -> Void] = []
+    func whenIdle(_ receive: @escaping () -> Void) {
+        if isIdle { receive() } else { idleObservers.append(receive) }
+    }
     private(set) var started = 0
     private(set) var discarded = 0
     private(set) var published = 0
@@ -33,6 +40,7 @@ import SignumCore
     func submit(_ configuration:PAdESAppearanceConfiguration, der:Data, crop:CGRect, pageRotation:Int? = nil,
                 previous:RenderedPAdESAppearance? = nil,
                 receive:@escaping (Result<RenderedPAdESAppearance,Error>)->Void) {
+        guard !suspended else { return }
         let request = Request(id:UUID(),configuration:configuration,der:der,crop:crop,
                               pageRotation:pageRotation,previous:previous,receive:receive)
         generation = request.id
@@ -68,6 +76,7 @@ import SignumCore
                 self.published += 1; request.receive(result)
             } else { self.discarded += 1 }
             if let next = self.pending { self.pending = nil; self.start(next) }
+            if self.isIdle { let callbacks = self.idleObservers; self.idleObservers = []; callbacks.forEach { $0() } }
         }
     }
 }

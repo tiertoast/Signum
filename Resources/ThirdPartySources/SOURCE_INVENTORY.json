@@ -1,0 +1,545 @@
+{
+  "phase": "6b",
+  "retrievedAtUTC": "2026-10-29T16:24:04.603067+00:00",
+  "downloads": [
+    {
+      "file": "podofo.tar.gz",
+      "url": "https://codeload.github.com/podofo/podofo/tar.gz/refs/tags/1.1.2",
+      "resolvedURL": "https://codeload.github.com/podofo/podofo/tar.gz/refs/tags/1.1.2",
+      "contentType": "application/x-gzip",
+      "bytes": 4390554,
+      "sha256": "d6ffe6fc173ac6d6e5b00f5cb9db01990cab1bdf7cc03bdeffce3013bc9ec63a"
+    },
+    {
+      "file": "freetype.tar.xz",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
+      "resolvedURL": "https://mirror.accum.se/mirror/gnu.org/savannah/freetype/freetype-2.13.3.tar.xz",
+      "contentType": "application/x-xz",
+      "bytes": 2617564,
+      "sha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289"
+    },
+    {
+      "file": "xml-2009.xsd",
+      "url": "https://www.w3.org/2009/01/xml.xsd",
+      "resolvedURL": "https://www.w3.org/2009/01/xml.xsd",
+      "contentType": "text/xml",
+      "bytes": 8838,
+      "sha256": "cc701736c42cc64126fad063bb95f94484b5de3b5f808a86ea098b0957aff829"
+    },
+    {
+      "file": "xml-current.xsd",
+      "url": "https://www.w3.org/2001/xml.xsd",
+      "resolvedURL": "https://www.w3.org/2001/xml.xsd",
+      "contentType": "application/xml",
+      "bytes": 8836,
+      "sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c"
+    },
+    {
+      "file": "xades-dss.xsd",
+      "url": "https://raw.githubusercontent.com/esig/dss/9f3af8f2ca672b8948e0a3ee8687e53adf9f5c33/specs-xades/src/main/resources/xsd/XAdES01903v132-202407.xsd",
+      "resolvedURL": "https://raw.githubusercontent.com/esig/dss/9f3af8f2ca672b8948e0a3ee8687e53adf9f5c33/specs-xades/src/main/resources/xsd/XAdES01903v132-202407.xsd",
+      "contentType": "text/plain; charset=utf-8",
+      "bytes": 23562,
+      "sha256": "457745286eaa292ae1aaa6e976e0f30eeceb0a37cc2301151576175e0ae1986c"
+    },
+    {
+      "file": "xades-etsi.xsd",
+      "url": "https://uri.etsi.org/01903/v1.3.2/XAdES01903v132-202407.xsd",
+      "error": "HTTP Error 404: Not Found"
+    },
+    {
+      "file": "w3c-ipr.html",
+      "url": "https://www.w3.org/copyright/intellectual-rights/",
+      "resolvedURL": "https://www.w3.org/copyright/intellectual-rights/",
+      "contentType": "text/html; charset=UTF-8",
+      "bytes": 44125,
+      "sha256": "5c35206143300fe80031753b0120e5518564ced6ec104741a64e3ff3cf4c110f"
+    },
+    {
+      "file": "w3c-software-2002.html",
+      "url": "https://www.w3.org/copyright/software-license-2002/",
+      "resolvedURL": "https://www.w3.org/copyright/software-license-2002/",
+      "contentType": "text/html; charset=UTF-8",
+      "bytes": 28003,
+      "sha256": "8ee6eafd819f99fe11dd91eb657a4b2dd3f38f2c35b1f6ba30e66170139bc597"
+    },
+    {
+      "file": "xades-etsi-v131.xsd",
+      "url": "https://forge.etsi.org/rep/esi/x19_13201_XAdES/raw/v1.3.1/1913201-XAdES01903v132.xsd",
+      "resolvedURL": "https://forge.etsi.org/rep/esi/x19_13201_xades/-/raw/v1.3.1/1913201-XAdES01903v132.xsd",
+      "contentType": "text/plain; charset=utf-8",
+      "bytes": 23562,
+      "sha256": "457745286eaa292ae1aaa6e976e0f30eeceb0a37cc2301151576175e0ae1986c"
+    },
+    {
+      "file": "xades-etsi-LICENSE",
+      "url": "https://forge.etsi.org/rep/esi/x19_13201_XAdES/raw/v1.3.1/LICENSE",
+      "resolvedURL": "https://forge.etsi.org/rep/esi/x19_13201_xades/-/raw/v1.3.1/LICENSE",
+      "contentType": "text/plain; charset=utf-8",
+      "bytes": 1476,
+      "sha256": "d74b5c11a994434905178d2bb2accf881ef9955795dcd676432fbceefb8e36a6"
+    },
+    {
+      "file": "xades-etsi-tree.html",
+      "url": "https://forge.etsi.org/rep/esi/x19_13201_XAdES/tree/v1.3.1",
+      "resolvedURL": "https://forge.etsi.org/rep/esi/x19_13201_xades/-/tree/v1.3.1",
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 48368,
+      "sha256": "939ef3c88431cf0714607c783f194727690f83eb035864f9d2ac85e5dccc6553"
+    },
+    {
+      "file": "w3c-old-document.html",
+      "url": "https://www.w3.org/Consortium/Legal/2002/copyright-documents-20021231",
+      "resolvedURL": "https://www.w3.org/copyright/document-license-2002/",
+      "contentType": "text/html; charset=UTF-8",
+      "bytes": 28509,
+      "sha256": "b3f87d7d7c549af66f9169294f2888520d0054f1af153333108c7fa3b748a26e"
+    },
+    {
+      "file": "w3c-schema-doc.html",
+      "url": "https://www.w3.org/TR/xmlschema-1/",
+      "resolvedURL": "https://www.w3.org/TR/xmlschema-1/",
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 903817,
+      "sha256": "92bfd116316332b1153941436430afbdb2040e036d5fb2d21d4c8fba36a7765a"
+    },
+    {
+      "file": "w3c-xsd.xsl",
+      "url": "https://www.w3.org/2008/09/xsd.xsl",
+      "resolvedURL": "https://www.w3.org/2008/09/xsd.xsl",
+      "contentType": "application/xslt+xml",
+      "bytes": 31910,
+      "sha256": "3e3d682d9bdc671d96171f16c8083d7357e98150ce043acaf2e1ee6518d4386d"
+    },
+    {
+      "file": "etsi-tag.json",
+      "url": "https://forge.etsi.org/rep/api/v4/projects/esi%2Fx19_13201_xades/repository/tags/v1.3.1",
+      "resolvedURL": "https://forge.etsi.org/rep/api/v4/projects/esi%2Fx19_13201_xades/repository/tags/v1.3.1",
+      "contentType": "application/json",
+      "bytes": 794,
+      "sha256": "401d6db2b01a4acb1c31f6ed4a5f6a393656c7872566f82ea93ec701bbd98726"
+    },
+    {
+      "file": "w3c-namespace.html",
+      "url": "https://www.w3.org/XML/1998/namespace.html",
+      "resolvedURL": "https://www.w3.org/XML/1998/namespace.html",
+      "contentType": "application/xhtml+xml; charset=utf-8",
+      "bytes": 7878,
+      "sha256": "444ebf0a8ac33c2ff5b65148d3c11e0f4225b19870d455718bde31167386ad95"
+    },
+    {
+      "file": "MIT.txt",
+      "url": "https://spdx.org/licenses/MIT.txt",
+      "resolvedURL": "https://spdx.org/licenses/MIT.txt",
+      "bytes": 1077,
+      "sha256": "c3b1b78bc8bd3ea13aa4bc9778442d16560270afa235006d816e5e88cef24db4"
+    }
+  ],
+  "sourceSnapshots": [
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "src/podofo/private/LiberaLean/",
+      "files": {
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanMono-Bold.ipp": "6f4ed629fc4a187849287496414294a4dae9990f543dbeb1d667b396f4eae823",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanMono-BoldItalic.ipp": "6f4ed629fc4a187849287496414294a4dae9990f543dbeb1d667b396f4eae823",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanMono-Italic.ipp": "6f4ed629fc4a187849287496414294a4dae9990f543dbeb1d667b396f4eae823",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanMono-Regular.ipp": "6f4ed629fc4a187849287496414294a4dae9990f543dbeb1d667b396f4eae823",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSans-Bold.ipp": "e2ae3a68a3798c3276d016158fff0af385f66fe7e51a1cce3fa1890f3a447738",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSans-BoldItalic.ipp": "e2ae3a68a3798c3276d016158fff0af385f66fe7e51a1cce3fa1890f3a447738",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSans-Italic.ipp": "e2ae3a68a3798c3276d016158fff0af385f66fe7e51a1cce3fa1890f3a447738",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSans-Regular.ipp": "e2ae3a68a3798c3276d016158fff0af385f66fe7e51a1cce3fa1890f3a447738",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSerif-Bold.ipp": "6f4ed629fc4a187849287496414294a4dae9990f543dbeb1d667b396f4eae823",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSerif-BoldItalic.ipp": "eaaaad5ecd87b5bf2f4b1abb3b16767d3a3291928b8ef42be235ad54d6e31a70",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSerif-Italic.ipp": "feb4e819aeeabdba101e7fd46eec01b4c9355ae3b8a6fccf15018ec237e04cb3",
+        "src/podofo/private/LiberaLean/Encodings/LiberaLeanSerif-Regular.ipp": "336cb6024dc097fe9fe3955cab8276965312a3db38f28c2cf19f7dbacdeffa24",
+        "src/podofo/private/LiberaLean/LICENSE.txt": "bccafaa2299349adf986cf073b47708a88a27840a3332b91c23da40a48a448d0",
+        "src/podofo/private/LiberaLean/LiberaLeanMono-Bold.ipp": "3ac0fa70715a271aad2e6dc5c16325345f6c124d44fc49b55e804daf32a0bb80",
+        "src/podofo/private/LiberaLean/LiberaLeanMono-BoldItalic.ipp": "aff38003abbe916cc4177f911c504d806919551f43baaf20cc8e076e01f11d3d",
+        "src/podofo/private/LiberaLean/LiberaLeanMono-Italic.ipp": "36bb242ce6601cfbc8fc02e679a1ba18117464566c75ab3fb9d790b6fa3ce02a",
+        "src/podofo/private/LiberaLean/LiberaLeanMono-Regular.ipp": "344ed9bfed3dcd45123d09a281e74449244f08ef10869a915201bbfd703e1df3",
+        "src/podofo/private/LiberaLean/LiberaLeanSans-Bold.ipp": "8bb8163f8c6d2d5f360e161851859fa7e487ede97062b1e581e8180d5b1e649f",
+        "src/podofo/private/LiberaLean/LiberaLeanSans-BoldItalic.ipp": "e92b8ba9bcba793afbb76ea0813870a225d8c25271f7ed51e2fe25e430555f6b",
+        "src/podofo/private/LiberaLean/LiberaLeanSans-Italic.ipp": "80e215c1b4c7ba0c87ac45d944fcec5d3ac202686d369adfb6976971c671047a",
+        "src/podofo/private/LiberaLean/LiberaLeanSans-Regular.ipp": "172bfcf5fb65563ac736d19f494f221f0f2371b3addbd6b496f2a76b75beed70",
+        "src/podofo/private/LiberaLean/LiberaLeanSerif-Bold.ipp": "8d64e2726782a10a8b8bc48472a5cb4c9ada89d628234af97262e8da3b346c69",
+        "src/podofo/private/LiberaLean/LiberaLeanSerif-BoldItalic.ipp": "49289ee092d4be225a6a94c29ab0523ed244a3ffe701be8e46276c9c9c418a86",
+        "src/podofo/private/LiberaLean/LiberaLeanSerif-Italic.ipp": "40717bceb3db541339ff6c13c06e85fbf9f1e0cb113aa3aa8d13b90c46d0f1e7",
+        "src/podofo/private/LiberaLean/LiberaLeanSerif-Regular.ipp": "41e327d4c381ae52882e7011e872f8e4b296e6828fd6254446ad8f52b5f4e11a",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanMono-Bold.ipp": "9f9aef24f297aa99a7f9eb200db3edfcd56c254f37063033e74a3dc7e6f8ccdf",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanMono-BoldItalic.ipp": "d561bf45c03649e18829b566ebcc111062fd1557033ded23142d50bda57dab7f",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanMono-Italic.ipp": "d561bf45c03649e18829b566ebcc111062fd1557033ded23142d50bda57dab7f",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanMono-Regular.ipp": "9f9aef24f297aa99a7f9eb200db3edfcd56c254f37063033e74a3dc7e6f8ccdf",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSans-Bold.ipp": "db3d090699e7214727c4a209a06ea1ed558a28bba1e0bbdd191cb7eb979cb30c",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSans-BoldItalic.ipp": "c5543525d0651eee3cb1c23fb90512d010cab5d7dde5bad2eb2909e739dd2fe0",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSans-Italic.ipp": "054c8dd9198966232bbd430dd8c5ea150d2bfb5b32bb6f9e514b090f1271675f",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSans-Regular.ipp": "055fbb8358c69da3653c5bd120245778372efbf356a12ebea167340d21752715",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSerif-Bold.ipp": "f4b733cee3ab34e7a5071dd3c0fbe22ef440610eff1d55a67c191d098ecdc313",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSerif-BoldItalic.ipp": "a5c805d962e4b96c850e54127feac4fbd86ec1942c3a6824f76e54cf7c337682",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSerif-Italic.ipp": "767c2bc394ea3d8210ad355e892ad0740e75cf388b9f75d93d8ef3db3e4ef33f",
+        "src/podofo/private/LiberaLean/Metrics/LiberaLeanSerif-Regular.ipp": "9ade4b9b2e4234de93f7169b654d597463615f9b3800bd371bf2767bb37d23c3",
+        "src/podofo/private/LiberaLean/README.txt": "27d5c27f2cecb38841759be097a9bdd6ecffe7f2a25da582a68bb7de89515fe9"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "src/podofo/private/FoxitFonts/",
+      "files": {
+        "src/podofo/private/FoxitFonts/COPYING.txt": "fda5758046282a46e78e519b1c8aa4cc986072e9ce8e91d52a2ad61946abda4f",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitDingbats.ipp": "2945aa4dd08d559bbebf3eb483f3a9175f330449d9f4b71315f29a9cface0e44",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitFixed.ipp": "9bed44e87d6497b8bc67642f83d94c8d2b16c5a54b7b8c2bd4c9dc3209014b3e",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitFixedBold.ipp": "1d8ce7b9e0bc85e28173b8bb8b643bdc68da2129131fb5ed286f9ccc17aeeb36",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitFixedBoldItalic.ipp": "9bed44e87d6497b8bc67642f83d94c8d2b16c5a54b7b8c2bd4c9dc3209014b3e",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitFixedItalic.ipp": "abd09f7827945cc5c7d2282b4ada32712b3beb309a82862a63733f1e6af192a0",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSans.ipp": "d97dbc0e95c13936e02d0920e17a801388f8a1747a894be5aa35cf7a8adb5ba3",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSansBold.ipp": "c4ba5437bebc92051805456b1232c8bbd864a35461d71de8185b8f2647433ccc",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSansBoldItalic.ipp": "c4ba5437bebc92051805456b1232c8bbd864a35461d71de8185b8f2647433ccc",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSansItalic.ipp": "d97dbc0e95c13936e02d0920e17a801388f8a1747a894be5aa35cf7a8adb5ba3",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSerif.ipp": "e41cd9cfac9c331264197294d9d481645e1433468e38a5a9155ba482c2770040",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSerifBold.ipp": "e41cd9cfac9c331264197294d9d481645e1433468e38a5a9155ba482c2770040",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSerifBoldItalic.ipp": "e41cd9cfac9c331264197294d9d481645e1433468e38a5a9155ba482c2770040",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSerifItalic.ipp": "e41cd9cfac9c331264197294d9d481645e1433468e38a5a9155ba482c2770040",
+        "src/podofo/private/FoxitFonts/Encodings/FoxitSymbol.ipp": "567a68e785acd8105e6049baa2ec6197fe591bde9f9e0e04e0adbc4bdd777d99",
+        "src/podofo/private/FoxitFonts/FoxitDingbats.ipp": "9c8e6ecf7493dce0c3d64cfdc0a93738d61a7b8c611cd2397e55c3c3903cf0f1",
+        "src/podofo/private/FoxitFonts/FoxitFixed.ipp": "e58fd8599a73c49e65157b4d2654fba887fb2ad0354020bddcae1763d5549e5a",
+        "src/podofo/private/FoxitFonts/FoxitFixedBold.ipp": "b74028e7333f533527dfdfcce0ea7a268a1040908ac6f16868c0307f6573e568",
+        "src/podofo/private/FoxitFonts/FoxitFixedBoldItalic.ipp": "25890f0707c89976ef0aec214dcab2b15495eb46eeae35d945911189a8d0571f",
+        "src/podofo/private/FoxitFonts/FoxitFixedItalic.ipp": "50ab49ea9b6ac10407b0abc76602c85f27461714afd593d894664fd763dd7816",
+        "src/podofo/private/FoxitFonts/FoxitSans.ipp": "6bdc39d572017a8fe56179a2946500af3e1d0fb6a90de116362088a6bf8186b6",
+        "src/podofo/private/FoxitFonts/FoxitSansBold.ipp": "5dd5efa63892f16eda2e204d690ac8e082376af77ae19bd1947d8ff967111cb2",
+        "src/podofo/private/FoxitFonts/FoxitSansBoldItalic.ipp": "dbabc9ad5fa40402948dad6f0b8a07ca99f27e7a71213086abc5ffa7dbb8ecb7",
+        "src/podofo/private/FoxitFonts/FoxitSansItalic.ipp": "017c4d312d3dfc9a6f6b3c026549b9ef5dfa261ff0c716a923817ed832a1a391",
+        "src/podofo/private/FoxitFonts/FoxitSerif.ipp": "ecd33012695ddc0e66b63e0247d34c0aa2fdda6be93d6753094436fe72a0bb2d",
+        "src/podofo/private/FoxitFonts/FoxitSerifBold.ipp": "e4ab970088eb124f9dc61cb7eb34bd43f0f29e7551b06ed54cf0e0f28a3ebd02",
+        "src/podofo/private/FoxitFonts/FoxitSerifBoldItalic.ipp": "587e2459fbaa9af41560f28a7ffef0c4e88ab2ebe728ce15c4c414eb829611a5",
+        "src/podofo/private/FoxitFonts/FoxitSerifItalic.ipp": "b84e8d6c09dbdf24ba2c55553c0f25cd9313ac4a0a2135b7203384587d3d7a0e",
+        "src/podofo/private/FoxitFonts/FoxitSymbol.ipp": "c2e98fa7f000a483ee3b3f8ed91ade057c74757c1e8f537e76243f3cbf137779",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitDingbats.ipp": "0a30d5a8eb2790abd6f87e942d762feca77caf3ffed3031965ad19484da7bfe3",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitFixed.ipp": "8786ee66304330a40040f73c506aab4661ecd6fe971fbb75e5bfff2c1201aa4b",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitFixedBold.ipp": "8786ee66304330a40040f73c506aab4661ecd6fe971fbb75e5bfff2c1201aa4b",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitFixedBoldItalic.ipp": "8786ee66304330a40040f73c506aab4661ecd6fe971fbb75e5bfff2c1201aa4b",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitFixedItalic.ipp": "8786ee66304330a40040f73c506aab4661ecd6fe971fbb75e5bfff2c1201aa4b",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSans.ipp": "bfcf7df05161ab41c2c05dbe4aab14d9331d17fa06a991e5f3aff33b8ae95494",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSansBold.ipp": "2345164f8a1482cc0f854fab0ec0b5a160c6a07bae7a75ae9eb38df4ac11a848",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSansBoldItalic.ipp": "e6a8832c86b6d8bee79e19b00ac48217c4a9d1d34bb5cc9afe398cffda1008c2",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSansItalic.ipp": "0ac43fa915bc7d7551fdd0d9b150d5b12ad75876ff27cf2c38f33611bd3291e9",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSerif.ipp": "3b3be08119bec20497de1a86f7bc0fb4f87923f537b8d90a58258cc68be4c22f",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSerifBold.ipp": "325d1337f429a0958a621b879f2940e29a434019e76034de55ae5ed6dafcd58e",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSerifBoldItalic.ipp": "5ad4becfa67bea9d4ce8cc46bd6ab565a98643de46f665c59cf05c44d00a2285",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSerifItalic.ipp": "46fe933dc9a4e7e2d9748ba17220ce30ea97205c392336cdc0e663df933dbb3c",
+        "src/podofo/private/FoxitFonts/Metrics/FoxitSymbol.ipp": "7c29d2c14dd8029c565b9613a0f0637aeb797bed1e8a4d13896b4accbcf27c92"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "3rdparty/chromium/pdfium/",
+      "files": {
+        "3rdparty/chromium/pdfium/LICENSE": "1fe9dea718fbd75cf149adaf4d8a22a4335604d964ddb76d1b45383dec8668c9",
+        "3rdparty/chromium/pdfium/core/fxcodec/fax/faxmodule.cpp": "d6b5c0f3d5aff7d77fc5df9b272b9ac100e412f0757a06b7ccc50e1282feb071",
+        "3rdparty/chromium/pdfium/core/fxcodec/fax/faxmodule.h": "6cd8142e458d31caa97d7ef205a030a5a190db5a97dd84fa95f4bc5c007855e9",
+        "3rdparty/chromium/pdfium/core/fxcodec/scanlinedecoder.cpp": "0bf350aae819d7fe5317c3b01ce12c90a6067747937b7d49238755efe7bd6cbc",
+        "3rdparty/chromium/pdfium/core/fxcodec/scanlinedecoder.h": "3bf2a2054f1c2569e86f047e09cd6643ed1a5b39e3ed7b4ba348608fbda1af99",
+        "3rdparty/chromium/pdfium/core/fxcrt/pauseindicator_iface.h": "164271ab182a226ff04f33a9b951fa778c1800c14aac65d60c512783d6cc0bd0",
+        "3rdparty/chromium/pdfium/pdfium_shim.h": "d6979d9adc0630bbd4e987f383c1140672ba4f963692087273d51209d7a22387",
+        "3rdparty/chromium/pdfium/third_party/base/span.h": "1c71e20522b988a92c1ed9bf4c4df3065f089e0af2fd4b5b48f743f4ba0bed36"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "3rdparty/chromium/numerics/",
+      "files": {
+        "3rdparty/chromium/numerics/BUILD.gn": "b26ad5acab5600a95178cca79ce088869ded64ba5dd8b88eacc6294d11578694",
+        "3rdparty/chromium/numerics/DEPS": "5040e16c1796fedb1c5145b294f71d90489a171f5a949f3e909522e7381b2ed2",
+        "3rdparty/chromium/numerics/DIR_METADATA": "fd69911578b6533c9dbba1da6c1f1051699ace09afe7dc36371f1559a03dc243",
+        "3rdparty/chromium/numerics/LICENSE": "c7e67a125a4b8c77b3cb7c982401857109d5f3c551c10d4db30c9e7ed7cc333c",
+        "3rdparty/chromium/numerics/OWNERS": "c16329b11975092436e4afe03da8c5c1bad1427f0e56144cb744d1d343fa09d8",
+        "3rdparty/chromium/numerics/README.md": "7a820de0f00f084edbf15921069fe622693f592ecbbc9fc76762030e690a0ed7",
+        "3rdparty/chromium/numerics/build_config.h": "b3e1f066a6e5260d34c4d3aa0c21aef538b4adee67b38082dccb1ffc910ccc64",
+        "3rdparty/chromium/numerics/checked_math.h": "860042cefbc1699e9b52e822dc8aaee2fb118614b246376190f0181962a5d112",
+        "3rdparty/chromium/numerics/checked_math_impl.h": "bb52e5a1a470c53f551163c3f8cc5c294452724966b2557c6134c50af57ec2cb",
+        "3rdparty/chromium/numerics/clamped_math.h": "76d5f0e8ca9c46a655760f4c015a5d0ebc644734a184f690edfa37fb6bb7dd0f",
+        "3rdparty/chromium/numerics/clamped_math_impl.h": "8fb952fca6ae8d689e98324a166d95ad62c75d4a65c387d8905b72df42d819f3",
+        "3rdparty/chromium/numerics/math_constants.h": "f352fe77b2cbc90a059bea0e9c4acedd9c6dcc832d1ce30ead4a21d14f94a4ea",
+        "3rdparty/chromium/numerics/ostream_operators.h": "001fb0de0e142963c0ff7802c7eb524be404ac5c2cf136f2d70cd0f3686b8afa",
+        "3rdparty/chromium/numerics/ranges.h": "48208286eedebc95ad4c22404f4966b2eebbc208a8db27d0698042ab5d38eb3b",
+        "3rdparty/chromium/numerics/safe_conversions.h": "3aa1944516458e3e480364cb620fcf3dbcf1c5e3221451fcdd7746cad3b75a9e",
+        "3rdparty/chromium/numerics/safe_conversions_arm_impl.h": "a3af75eda852eef4e1d081eb4a7ea2fcd6622ed02c6cd8d67f2f8a241ed75007",
+        "3rdparty/chromium/numerics/safe_conversions_impl.h": "6050c4696e805a27343d70eb34f3a184d5abca7e86080102a037d4a9d1e95798",
+        "3rdparty/chromium/numerics/safe_math.h": "734142574ae4fe6f3453b6237a6a1845866721033abef976ac9bd9bdfb0a12d6",
+        "3rdparty/chromium/numerics/safe_math_arm_impl.h": "6d04f96f3210362d3e1d893694e09a1ad38a0c41b69565741356ac3d1de82d9a",
+        "3rdparty/chromium/numerics/safe_math_clang_gcc_impl.h": "7a6c264eeaa366ccc9a56595bf58aad5b55a19b828498962be53e8b19807b226",
+        "3rdparty/chromium/numerics/safe_math_shared_impl.h": "c474727fa45bcc8d4e1a45a13dded900a78730fd112666388a1e3e8bcf9cd3e2"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "3rdparty/date/",
+      "files": {
+        "3rdparty/date/date/date.h": "bb1e68b8f17f900508e151844221050cbbdf33f39d160410c9bc8fbd6a612ae7"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "3rdparty/fmtlib/",
+      "files": {
+        "3rdparty/fmtlib/fmt/args.h": "ce9705a22f68469891cba708b3c4ae459edb3f41c8a83f891e93013d485190f8",
+        "3rdparty/fmtlib/fmt/base.h": "888315df369b34360880a89998ce24191e7c1b2b0606666ec8fddb31f0cae2fb",
+        "3rdparty/fmtlib/fmt/chrono.h": "a2e569b0f671e89e7691cdd8653d4f695da25174d9c203a2434ce62ed34a2b40",
+        "3rdparty/fmtlib/fmt/color.h": "80db3364b9f5b8247f4012d05d1353be1d0aed7c1b5bd65bdcd2817d50b64e7c",
+        "3rdparty/fmtlib/fmt/compile.h": "91b48c183ab0d2e0f433bee1b690036d478f0ae1d6fa79259c24d3eed5fbc011",
+        "3rdparty/fmtlib/fmt/core.h": "eb71f8be534cb6e0806dd583b8487d4160e5338c59ff3d76986ca08f16ce3e30",
+        "3rdparty/fmtlib/fmt/fmt-c.h": "4f5dff96d81d9c0f861125b34ae03e55e4f392866384da0fb4670876377cf9a1",
+        "3rdparty/fmtlib/fmt/format-inl.h": "1940025f2299de8df375fb16dd8963fb5ab7eeb447271dc33274d63f0d593414",
+        "3rdparty/fmtlib/fmt/format.h": "b95f7c5b45d3d93e7cd8e691ae3040282ebcfe2d9c390f2c19d15ffcfae80a9c",
+        "3rdparty/fmtlib/fmt/os.h": "b43e2f2e3683bcc930d8011199b811ecb6c4480d876ad453e15f6a58ec7ccc80",
+        "3rdparty/fmtlib/fmt/ostream.h": "663ab18a9c1cf8e7687d61ceb1acdcecd8c6484621855453fe83bc467c1b44c5",
+        "3rdparty/fmtlib/fmt/printf.h": "9c3421258aff344e27b36fe9f894b361d1865875aa781e4b392e60b2f1ebecc1",
+        "3rdparty/fmtlib/fmt/ranges.h": "0a9297b2feb4443413807ff5bc03e82b4671c150fdfadc869b009ff90b6015a1",
+        "3rdparty/fmtlib/fmt/std.h": "0aadd4893c93961a619d3bedbb8ac399dbbd5be18498df6933ea8eae88117d03",
+        "3rdparty/fmtlib/fmt/xchar.h": "1d68c1ed984d18ea267f02583e91e8297be8d23ccd3659fc5c3145bc1cbf2f25"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "3rdparty/fastfloat/",
+      "files": {
+        "3rdparty/fastfloat/fast_float/fast_float.h": "0055d1c392c2ebd9933146d3efcc9a7b98abb45960ecb90fcaadfc00b9be22e6"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "3rdparty/utf8proc/",
+      "files": {
+        "3rdparty/utf8proc/utf8proc.c": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+        "3rdparty/utf8proc/utf8proc.h": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+        "3rdparty/utf8proc/utf8proc_data.c": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "3rdparty/utf8cpp/",
+      "files": {
+        "3rdparty/utf8cpp/utf8cpp/utf8.h": "e92f4cff6d49c4a5935b1302bba283fde734ab951e6f8c4ca4008e9c9e6cf5e9",
+        "3rdparty/utf8cpp/utf8cpp/utf8/checked.h": "3f10825bb7699fbe7f6ffc128dfa3ddc58c7fb46de8973b9c6aaf0568b018569",
+        "3rdparty/utf8cpp/utf8cpp/utf8/core.h": "3fe2a41be02f37d6b509c1e131e15fb01f68d775f6d8aea67164ed04884215c5",
+        "3rdparty/utf8cpp/utf8cpp/utf8/cpp11.h": "91e4e2afcb41720ab02e23273ee88d202a4781640ae5efbc5d92df67b2dc8ae0",
+        "3rdparty/utf8cpp/utf8cpp/utf8/cpp17.h": "3751ec383aadf92750393856055dd78e3e2f2b07fc71570d0642035f849b8504",
+        "3rdparty/utf8cpp/utf8cpp/utf8/cpp20.h": "39c568de98b36717052731fe1de2a7b10d19fef56e9a3afc1b882860527aa25c",
+        "3rdparty/utf8cpp/utf8cpp/utf8/unchecked.h": "fbcd523c9e73ab5a80b59b2de0510748f84be964e6624606ee365b08e6016e89"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "src/podofo/3rdparty/",
+      "files": {
+        "src/podofo/3rdparty/span.hpp": "11931414cc90b92cfaf5e34e0c1e0761b452b239e64050205f76405e33434cb9"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    },
+    {
+      "archive": "podofo.tar.gz",
+      "prefix": "src/podofo/private/SASLprep",
+      "files": {
+        "src/podofo/private/SASLprep.cpp": "2edca3127a4cfae7c7f588fcda2b6a20f943392a38a10ff8c1eba64c571b5ea6",
+        "src/podofo/private/SASLprep.h": "78c654ebc3655fab0db91fb4bf5137b1cb47cea72df8252c84941f9338c196ae",
+        "src/podofo/private/SASLprepPrivate.h": "2b7e0af06a3423b1b1d671c0fc8b05d235d7754c6a4d9471abf07684196d60ec"
+      },
+      "identity": "Snapshot fixed by verified PoDoFo archive hash; independent upstream revision not invented",
+      "binaryCorrespondence": "unattested"
+    }
+  ],
+  "noticeExtractions": [
+    {
+      "file": "Resources/Notices/PoDoFo-Upstream-NOTICE.txt",
+      "sha256": "18fda2455924a246c1e1d159246e7de5c75ebc564e527b5dad3af3554f7033ca",
+      "archive": "podofo.tar.gz",
+      "member": "NOTICE"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-AFDKO.txt",
+      "sha256": "cb1d44d4a3f5ce48922bf4307a012b5fd4ff220b895b8cee5c1e5adc80d41612",
+      "archive": "podofo.tar.gz",
+      "member": "3rdparty/adobe/afdko/LICENSE"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-date.txt",
+      "sha256": "8a06b4e546b15376c306f49721d6735f1fb799ab92d5dbacb71a3dcf14899e8b",
+      "archive": "podofo.tar.gz",
+      "member": "3rdparty/date/date/date.h"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-fmt.txt",
+      "sha256": "3780c93a2384cbbb1cafa6193e5d2fa20542fc550512fd92b339b0549ddee90a",
+      "archive": "podofo.tar.gz",
+      "member": "3rdparty/fmtlib/fmt/format.h"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-fastfloat.txt",
+      "sha256": "56c90b7114414b40d0ee2d64ccb2dfd96dbc833cda223f1c5c1b784787fb2a25",
+      "archive": "podofo.tar.gz",
+      "member": "3rdparty/fastfloat/fast_float/fast_float.h"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-utf8proc.txt",
+      "sha256": "8ed8603a3045db67e8e60874204d0434f1de0215af7aed827b44ddb84f252f2a",
+      "archive": "podofo.tar.gz",
+      "member": "3rdparty/utf8proc/utf8proc.c"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-utf8cpp.txt",
+      "sha256": "025779cd615b102cac5356fd11bd00689a2842ab8dd002f03a9a3a657d9263cb",
+      "archive": "podofo.tar.gz",
+      "member": "3rdparty/utf8cpp/utf8cpp/utf8.h"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-tcbspan.txt",
+      "sha256": "ed366a297406acca6a63ba72c091d93a00a739f837ed797caf87ae8f0ebb7e5f",
+      "archive": "podofo.tar.gz",
+      "member": "src/podofo/3rdparty/span.hpp",
+      "licenseTextSource": "Same Boost license grant in bundled utf8cpp/utf8.h; original tcb-span attribution retained"
+    },
+    {
+      "file": "Resources/Notices/PoDoFo-SASLprep.txt",
+      "sha256": "015be70642a5d59efe65f9bbcc91c3ca1c5536d892f5ccf83ff4862a5a83694b",
+      "archive": "podofo.tar.gz",
+      "member": "src/podofo/private/SASLprep.cpp (SPDX header)",
+      "licenseTextSource": "https://spdx.org/licenses/MIT.txt; copyright retained from source SPDX header"
+    },
+    {
+      "file": "Resources/Notices/FreeType-BDF.txt",
+      "sha256": "7984455e7e5a9faba3797c8bf095fbe10cc846316b7320aff8c58402e22b82fe",
+      "archive": "freetype.tar.xz",
+      "member": "src/bdf/README"
+    },
+    {
+      "file": "Resources/Notices/FreeType-PCF.txt",
+      "sha256": "18d9782898d9eac04476e2f744678137b2a889689ed3e923e052fc396a86f86b",
+      "archive": "freetype.tar.xz",
+      "member": "src/pcf/README"
+    },
+    {
+      "file": "Resources/Notices/FreeType-zlib.txt",
+      "sha256": "050593349fdc45a4116b75151434dcd9acf46c55cb91427e481d00bc621f4b0d",
+      "archive": "freetype.tar.xz",
+      "member": "src/gzip/zlib.h"
+    },
+    {
+      "file": "Resources/Notices/FreeType-fthash.txt",
+      "sha256": "983ba1bba7f5454ea5303b511fcd147c96d793b9a0661b3234c56a4678c606ef",
+      "archive": "freetype.tar.xz",
+      "member": "src/base/fthash.c"
+    },
+    {
+      "file": "Resources/Notices/FreeType-HarfBuzz.txt",
+      "sha256": "3acc5f02921414572e1305ca34ed0a8edb4aeef9e63e99ff4fae2ccad5a4458d",
+      "archive": "freetype.tar.xz",
+      "member": "src/autofit/ft-hb.c"
+    }
+  ],
+  "binarySourceCorrespondence": "unattested; matching versions, headers, archive metadata and notices are partial evidence only",
+  "missing": [
+    "Original old compiled private source tree and patch diff (superseded only after new controlled build)",
+    "New controlled native build execution and verification"
+  ],
+  "unicodeDataNoticeEvidence": {
+    "bytes": 2360214,
+    "sha256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
+    "containsCopyright": false,
+    "status": "Source utf8proc.c refers to data-file copyright; do not infer a new Unicode license from current website",
+    "phase7Resolution": "Exact byte match of data and library source with official utf8proc2.11.3; LICENSE.md of that exact release expressly covers utf8proc_data.c"
+  },
+  "phase7": {
+    "retrievals": [
+      {
+        "file": "utf8proc.tar.gz",
+        "url": "https://codeload.github.com/JuliaStrings/utf8proc/tar.gz/refs/tags/v2.11.3",
+        "resolvedURL": "https://codeload.github.com/JuliaStrings/utf8proc/tar.gz/refs/tags/v2.11.3",
+        "contentType": "application/x-gzip",
+        "sha256": "abfed50b6d4da51345713661370290f4f4747263ee73dc90356299dfc7990c78",
+        "bytes": 202535
+      },
+      {
+        "file": "xml-xsd11.xsd",
+        "url": "https://www.w3.org/TR/xmlschema11-1/xml.xsd",
+        "error": "HTTP Error 404: Not Found"
+      },
+      {
+        "file": "xml-xsd10.xsd",
+        "url": "https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/xml.xsd",
+        "error": "HTTP Error 404: Not Found"
+      },
+      {
+        "file": "w3c-document-2023.html",
+        "url": "https://www.w3.org/copyright/document-license-2023/",
+        "resolvedURL": "https://www.w3.org/copyright/document-license-2023/",
+        "contentType": "text/html; charset=UTF-8",
+        "sha256": "8f0bf5069b42a555680ae69bd89f7aaa3c998adcaf336d7a01c0d9fe2994f3c1",
+        "bytes": 28063
+      },
+      {
+        "file": "w3c-ipr.html",
+        "url": "https://www.w3.org/copyright/intellectual-rights/",
+        "resolvedURL": "https://www.w3.org/copyright/intellectual-rights/",
+        "contentType": "text/html; charset=UTF-8",
+        "sha256": "5c35206143300fe80031753b0120e5518564ced6ec104741a64e3ff3cf4c110f",
+        "bytes": 44125
+      },
+      {
+        "file": "xml-current.xsd",
+        "url": "https://www.w3.org/2001/xml.xsd",
+        "resolvedURL": "https://www.w3.org/2001/xml.xsd",
+        "contentType": "application/xml",
+        "sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c",
+        "bytes": 8836
+      },
+      {
+        "file": "w3c-namespace.html",
+        "url": "https://www.w3.org/XML/1998/namespace.html",
+        "resolvedURL": "https://www.w3.org/XML/1998/namespace.html",
+        "contentType": "application/xhtml+xml; charset=utf-8",
+        "sha256": "444ebf0a8ac33c2ff5b65148d3c11e0f4225b19870d455718bde31167386ad95",
+        "bytes": 7878
+      }
+    ],
+    "utf8procExactMatch": {
+      "utf8proc.c": {
+        "upstreamSHA256": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+        "podofoSHA256": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+        "identical": true
+      },
+      "utf8proc.h": {
+        "upstreamSHA256": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+        "podofoSHA256": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+        "identical": true
+      },
+      "utf8proc_data.c": {
+        "upstreamSHA256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
+        "podofoSHA256": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7",
+        "identical": true
+      }
+    },
+    "utf8procLicense": {
+      "file": "Resources/Notices/PoDoFo-utf8proc-Upstream-License.md",
+      "sha256": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256"
+    },
+    "xmlLicenseRoute": "W3C-Document-2023 default public document and explicit derivative-in-software grant; not a per-file software license header"
+  }
+}

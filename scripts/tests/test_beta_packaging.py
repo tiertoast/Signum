@@ -20,8 +20,63 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(identity, "io.github.tiertoast.Signum.DevelopmentPreview.V07.B1")
         self.assertIn("0.7 Development Preview", name)
         self.assertNotEqual(identity, package.preview_metadata("0.6.0", 3)[0])
+        build2, _ = package.preview_metadata("0.7.0", 2)
+        self.assertEqual(build2, "io.github.tiertoast.Signum.DevelopmentPreview.V07.B2")
+        self.assertNotEqual(build2, identity)
+        build3, name3 = package.preview_metadata("0.7.0", 3)
+        self.assertNotIn(build3, (identity, build2, package.preview_metadata("0.6.0", 3)[0]))
+        self.assertIn("Build 3", name3)
+        build4, name4 = package.preview_metadata("0.7.0", 4)
+        self.assertNotIn(build4, (identity, build2, build3, package.preview_metadata("0.6.0", 3)[0]))
+        self.assertIn("Build 4", name4)
+        build5, name5 = package.preview_metadata("0.7.0", 5)
+        self.assertNotIn(build5, (identity, build2, build3, build4))
+        self.assertIn("Build 5", name5)
+        build6, name6 = package.preview_metadata("0.7.0", 6)
+        self.assertNotIn(build6, (identity, build2, build3, build4, build5))
+        self.assertIn("Build 6", name6)
+        self.assertIn("Build 7", package.preview_metadata("0.7.0", 7)[1])
+        self.assertIn("Build 8", package.preview_metadata("0.7.0", 8)[1])
+        self.assertNotEqual(package.preview_metadata("0.7.0", 8)[0], package.preview_metadata("0.7.0", 7)[0])
+        identity9, name9 = package.preview_metadata("0.7.0", 9)
+        self.assertEqual(name9, "Signum 0.7 Development Preview — Build 8 DSS")
+        self.assertNotEqual(identity9, package.preview_metadata("0.7.0", 8)[0])
+        self.assertNotEqual(identity9, package.preview_metadata("0.6.0", 3)[0])
+        identity10, name10 = package.preview_metadata("0.7.0", 10)
+        self.assertNotEqual(identity10, identity9)
+        self.assertEqual(name10, "Signum 0.7 Development Preview — Build 9 Verification")
+        hotfix, hotfix_name = package.preview_metadata("0.7.0", 11)
+        self.assertNotIn(hotfix, (identity9, identity10))
+        self.assertEqual(hotfix_name, "Signum 0.7 Development Preview — Build 9 Verification — Hotfix 1")
+        build10, build10_name = package.preview_metadata("0.7.0", 12)
+        self.assertNotIn(build10, (identity9, identity10, hotfix))
+        self.assertEqual(build10_name, "Signum 0.7 Development Preview — Build 10")
+        build11, build11_name = package.preview_metadata("0.7.0", 13)
+        self.assertNotIn(build11, (identity9, identity10, hotfix, build10))
+        self.assertEqual(build11_name, "Signum 0.7 Development Preview — Build 11")
+        build12a, build12a_name = package.preview_metadata("0.7.0", 14)
+        self.assertNotIn(build12a, (identity9, identity10, hotfix, build10, build11))
+        self.assertEqual(build12a_name, "Signum 0.7 Development Preview — Build 12A")
         with self.assertRaises(ValueError):
-            package.preview_metadata("0.7.0", 2)
+            package.preview_metadata("0.7.0", 15)
+
+    def test_finder_types_and_services_are_alternate_handlers(self):
+        info = plistlib.loads((SCRIPT.parents[1] / "Resources/Info.plist").read_bytes())
+        self.assertTrue(all(t["LSHandlerRank"] == "Alternate" for t in info["CFBundleDocumentTypes"]))
+        generic = info["CFBundleDocumentTypes"][-1]
+        self.assertNotIn("CFBundleTypeIconFile", generic)
+        self.assertEqual({s["NSMessage"] for s in info["NSServices"]}, {"signDocuments", "verifyDocuments"})
+        self.assertEqual(len(info["UTImportedTypeDeclarations"]), 4)
+        self.assertTrue((SCRIPT.parents[1] / "Resources/DocumentIcons/SignedDocument.svg").is_file())
+
+    def test_sdk_metadata_is_distinct_from_deployment_minimum(self):
+        load = "cmd LC_BUILD_VERSION\n platform MACOS\n minos 13.0\n sdk 27.0\n"
+        self.assertEqual(package.minimum(load), (13, 0))
+        self.assertEqual(package.linked_sdk(load), (27, 0, 0))
+        with self.assertRaises(ValueError):
+            package.linked_sdk("minos 13.0")
+        with self.assertRaises(ValueError):
+            package.linked_sdk(load + "sdk 13.0")
 
     def test_layered_document_compiles_for_macos13_with_native_and_fallback_icons(self):
         with tempfile.TemporaryDirectory() as root:
@@ -51,7 +106,7 @@ class PackagingTests(unittest.TestCase):
                          ("io.github.tiertoast.Signum.Beta.B7", "Signum 0.5 Beta — Build 7"))
         self.assertEqual(package.preview_metadata("0.5.0", 6)[0],
                          "io.github.tiertoast.Signum.DevelopmentPreview.B6")
-        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 2)]:
+        for version, build in [("0.6.0", 7), ("0.5.0", 1), ("0.7.0", 15)]:
             with self.assertRaises(ValueError):
                 package.preview_metadata(version, build)
 

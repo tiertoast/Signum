@@ -28,7 +28,7 @@ int sg_process_resident_bytes(int pid, uint64_t *bytes) {
     return 0;
 }
 
-struct SGTokenLease { int provider, token; };
+struct SGTokenLease { int barrier, provider, token; };
 static uint64_t milliseconds(void) {
     struct timespec value; clock_gettime(CLOCK_MONOTONIC, &value);
     return (uint64_t)value.tv_sec * 1000 + (uint64_t)value.tv_nsec / 1000000;
@@ -70,7 +70,7 @@ static int lock_file(int root, const char *name) {
     // Never unlink lock files: replacing a live lock inode would split owners.
     return fd;
 }
-SGTokenLease *sg_token_lease_acquire(const char *provider, uint64_t slot, int discovery, unsigned wait_ms) {
+static SGTokenLease *acquire_lease(const char *provider, uint64_t slot, int discovery, unsigned wait_ms, int administrative) {
     struct stat identity; char canonical[PATH_MAX], name[160];
     if (!provider || provider[0] != '/' || wait_ms > 30000 || (discovery != 0 && discovery != 1)) { errno = EINVAL; return NULL; }
     if (!realpath(provider, canonical) || stat(canonical, &identity)) return NULL;
@@ -78,8 +78,10 @@ SGTokenLease *sg_token_lease_acquire(const char *provider, uint64_t slot, int di
     int root = private_root(); if (root < 0) return NULL;
     SGTokenLease *lease = calloc(1, sizeof(*lease));
     if (!lease) { close(root); return NULL; }
-    lease->provider = lease->token = -1;
+    lease->barrier = lease->provider = lease->token = -1;
     uint64_t deadline = milliseconds() + wait_ms;
+    lease->barrier = lock_file(root, "administrative-barrier-v1");
+    if (lease->barrier < 0 || lock_until(lease->barrier, administrative ? LOCK_EX : LOCK_SH, deadline)) goto failed;
     snprintf(name, sizeof(name), "provider-%llx-%llx", (unsigned long long)identity.st_dev, (unsigned long long)identity.st_ino);
     lease->provider = lock_file(root, name);
     if (lease->provider < 0 || lock_until(lease->provider, discovery ? LOCK_EX : LOCK_SH, deadline)) goto failed;
@@ -93,10 +95,17 @@ SGTokenLease *sg_token_lease_acquire(const char *provider, uint64_t slot, int di
 failed:;
     int saved = errno; close(root); sg_token_lease_release(lease); errno = saved; return NULL;
 }
+SGTokenLease *sg_token_lease_acquire(const char *provider, uint64_t slot, int discovery, unsigned wait_ms) {
+    return acquire_lease(provider, slot, discovery, wait_ms, 0);
+}
+SGTokenLease *sg_admin_lease_acquire(const char *provider, uint64_t slot, unsigned wait_ms) {
+    return acquire_lease(provider, slot, 0, wait_ms, 1);
+}
 void sg_token_lease_release(SGTokenLease *lease) {
     if (!lease) return;
     if (lease->token >= 0) close(lease->token);
     if (lease->provider >= 0) close(lease->provider);
+    if (lease->barrier >= 0) close(lease->barrier);
     free(lease);
 }
 static _Atomic int watching = 0;

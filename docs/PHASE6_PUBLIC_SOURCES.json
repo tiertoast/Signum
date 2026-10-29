@@ -1,0 +1,44 @@
+[
+  {
+    "label": "w3c-license-1998",
+    "url": "https://www.w3.org/Consortium/Legal/copyright-software-19980720",
+    "resolvedURL": "https://www.w3.org/Consortium/Legal/copyright-software-19980720",
+    "bytes": 4261,
+    "sha256": "d4eedcb04dc16687b6d56b49ed06e1b55f599b8bd8e518af9773d1b7d2cf5c76",
+    "consultedUTC": "2026-10-29T15:53:14.849217+00:00"
+  },
+  {
+    "label": "xml-schema",
+    "url": "https://www.w3.org/2001/xml.xsd",
+    "resolvedURL": "https://www.w3.org/2001/xml.xsd",
+    "bytes": 8836,
+    "sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c",
+    "consultedUTC": "2026-10-29T15:53:14.916448+00:00",
+    "matchesLocalBytes": false
+  },
+  {
+    "label": "xml-namespace",
+    "url": "https://www.w3.org/XML/1998/namespace.html",
+    "resolvedURL": "https://www.w3.org/XML/1998/namespace.html",
+    "bytes": 7878,
+    "sha256": "444ebf0a8ac33c2ff5b65148d3c11e0f4225b19870d455718bde31167386ad95",
+    "consultedUTC": "2026-10-29T15:53:14.986550+00:00",
+    "legalLinks": [],
+    "legalContext": []
+  },
+  {
+    "label": "dss-xades",
+    "url": "https://raw.githubusercontent.com/esig/dss/9f3af8f2ca672b8948e0a3ee8687e53adf9f5c33/specs-xades/src/main/resources/xsd/XAdES01903v132-202407.xsd",
+    "resolvedURL": "https://raw.githubusercontent.com/esig/dss/9f3af8f2ca672b8948e0a3ee8687e53adf9f5c33/specs-xades/src/main/resources/xsd/XAdES01903v132-202407.xsd",
+    "bytes": 23562,
+    "sha256": "457745286eaa292ae1aaa6e976e0f30eeceb0a37cc2301151576175e0ae1986c",
+    "consultedUTC": "2026-10-29T15:53:15.347830+00:00",
+    "matchesWithDeclaredImportRewrite": false,
+    "header": [
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+      "<xsd:schema targetNamespace=\"http://uri.etsi.org/01903/v1.3.2#\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns=\"http://uri.etsi.org/01903/v1.3.2#\" xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\" elementFormDefault=\"qualified\">",
+      "\t<xsd:import namespace=\"http://www.w3.org/2000/09/xmldsig#\" schemaLocation=\"http://www.w3.org/TR/2008/REC-xmldsig-core-20080610/xmldsig-core-schema.xsd\"/>",
+      "\t<!-- Start auxiliary types definitions: AnyType, ObjectIdentifierType, "
+    ]
+  }
+]

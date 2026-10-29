@@ -350,6 +350,7 @@ static int find_one(SGContext *ctx, CK_SESSION_HANDLE session, CK_OBJECT_CLASS k
     CK_RV end = ctx->api->C_FindObjectsFinal(session);
     if (rv != CKR_OK) return failed(error, size, "C_FindObjects", rv);
     if (end != CKR_OK) return failed(error, size, "C_FindObjectsFinal", end);
+    if (found > 1) return invalid(error, size, "C_FindObjects count exceeds requested capacity");
     if (!found) return invalid(error, size, "Matching object not found");
     return 0;
 }
@@ -373,6 +374,7 @@ static int sg_certificates_impl(SGContext *ctx, unsigned long slot, SGCertificat
         CK_ULONG found = 0;
         rv = ctx->api->C_FindObjects(session, &object, 1, &found);
         if (rv != CKR_OK) { status = failed(error, error_size, "C_FindObjects", rv); break; }
+        if (found > 1) { status = invalid(error, error_size, "C_FindObjects count exceeds requested capacity"); break; }
         if (!found) break;
         if (*count >= capacity) { status = invalid(error, error_size, "Too many certificates for output buffer"); break; }
         SGCertificate *cert = &out[*count];
@@ -571,6 +573,31 @@ int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity, size_t *count, size
     int status = sg_tokens_impl(ctx, out, capacity, count, unavailable, error, error_size);
     pthread_mutex_unlock(&ctx->provider->operations);
     return status;
+}
+
+int sg_pin_public_info(SGContext *ctx, unsigned long slot, SGPINPublicInfo *out) {
+    if (!out) return -1;
+    memset(out, 0, sizeof(*out));
+    if (enter(ctx, NULL, 0)) return -1;
+    CK_TOKEN_INFO info = {0};
+    CK_SLOT_INFO reader = {0};
+    CK_RV rv = ctx->api->C_GetTokenInfo(slot, &info);
+    if (rv == CKR_OK) rv = ctx->api->C_GetSlotInfo(slot, &reader);
+    if (rv == CKR_OK) {
+        out->version = 1; out->token.slot = slot;
+        copy_padded(out->token.label, sizeof(out->token.label), info.label, sizeof(info.label));
+        copy_padded(out->token.manufacturer, sizeof(out->token.manufacturer), info.manufacturerID, sizeof(info.manufacturerID));
+        copy_padded(out->token.model, sizeof(out->token.model), info.model, sizeof(info.model));
+        copy_padded(out->token.serial, sizeof(out->token.serial), info.serialNumber, sizeof(info.serialNumber));
+        copy_padded(out->token.reader, sizeof(out->token.reader), reader.slotDescription, sizeof(reader.slotDescription));
+        out->flags = (uint64_t)info.flags;
+        out->minimum_known = info.ulMinPinLen != CK_UNAVAILABLE_INFORMATION;
+        out->maximum_known = info.ulMaxPinLen != CK_UNAVAILABLE_INFORMATION;
+        if (out->minimum_known) out->minimum_bytes = (uint64_t)info.ulMinPinLen;
+        if (out->maximum_known) out->maximum_bytes = (uint64_t)info.ulMaxPinLen;
+    }
+    pthread_mutex_unlock(&ctx->provider->operations);
+    return rv == CKR_OK ? 0 : -1;
 }
 
 int sg_certificates(SGContext *ctx, unsigned long slot, SGCertificate *out, size_t capacity, size_t *count, char *error, size_t error_size) {

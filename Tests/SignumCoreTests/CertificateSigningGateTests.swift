@@ -50,23 +50,18 @@ final class CertificateSigningGateTests: XCTestCase {
         XCTAssertEqual(mock.count(8), 1); XCTAssertEqual(mock.count(16), 1)
         XCTAssertEqual(mock.count(10), 0); XCTAssertEqual(mock.count(6), mock.count(5))
     }
-    func testCLIRejectsMalformedMockCertificateBeforePINPrompt() throws {
-        let mock = try MockModule()
+    // S03 requires validating terminal input before public provider sessions.
+    // Keep the certificate gate, now after a valid synthetic input and before Login.
+    func testCLIRejectsMalformedMockCertificateBeforeAuthentication() throws {
+        let mock = try MockModule(audit:true)
         let cli = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumCLI")
-        let process = Process(); process.executableURL = cli
-        process.arguments = ["sign-test", "7", "53", mock.path.path]
-        let input = Pipe(), output = Pipe(), diagnostics = Pipe()
-        process.standardInput = input; process.standardOutput = output; process.standardError = diagnostics
-        try process.run()
-        let deadline = ProcessInfo.processInfo.systemUptime + 3
-        while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.01) }
-        if process.isRunning { kill(process.processIdentifier, SIGKILL); XCTFail("CLI waited for credentials") }
-        try FixtureProcess.wait(process)
-        try input.fileHandleForWriting.close()
-        let reason = String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        XCTAssertEqual(process.terminationStatus, 1)
-        XCTAssertTrue(reason.contains("malformato"), reason)
-        XCTAssertFalse(reason.contains("Token PIN"))
+        let result=try S03CLITerminalFixture.run(arguments:[cli.path,"sign-test","7","53",mock.path.path],root:mock.folder)
+        XCTAssertEqual(result.exit,1)
+        XCTAssertTrue(result.error.contains("malformato"),result.error)
+        XCTAssertFalse(result.error.contains("Token PIN"))
+        XCTAssertTrue(result.protected);XCTAssertTrue(result.restored);XCTAssertTrue(result.clean)
+        let operations=try String(contentsOf:mock.folder.appendingPathComponent("operations")).split(separator:"\n")
+        XCTAssertFalse(operations.contains("8"));XCTAssertFalse(operations.contains("16"))
     }
     func testNativeCheckedEntryPointsCannotBypassPolicy() throws {
         let mock = try MockModule()

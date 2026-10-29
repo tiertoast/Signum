@@ -28,19 +28,23 @@ public final class SigningOperation: @unchecked Sendable {
     public let id: UUID
     private let lock = NSLock()
     private var phase: SigningOperationPhase = .idle, cancelled = false, publishing = false
+    private var privateRequestStarted = false, preservePrivateOutcome = false
     private let changed: @Sendable (SigningOperationPhase) -> Void
     public init(id: UUID = UUID(), changed: @escaping @Sendable (SigningOperationPhase) -> Void = { _ in }) {
         self.id = id; self.changed = changed
     }
     public var state: SigningOperationPhase { lock.lock(); defer { lock.unlock() }; return phase }
+    public var hasRequestedPrivateOperation: Bool { lock.lock(); defer { lock.unlock() }; return privateRequestStarted }
     public var isCancellationRequested: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
-    @discardableResult public func requestCancellation() -> Bool {
+    @discardableResult public func requestCancellation(preservingPrivateOutcome: Bool = false) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard !phase.isTerminal, !publishing else { return false }
+        preservePrivateOutcome = preservePrivateOutcome || preservingPrivateOutcome
         cancelled = true; return true
     }
     @discardableResult public func transition(to next: SigningOperationPhase) -> Bool {
         lock.lock()
+        let next = next == .cancelled && preservePrivateOutcome && privateRequestStarted ? SigningOperationPhase.outcomeUncertain : next
         let allowed: Bool
         if phase.isTerminal { allowed = false }
         else if next == phase { lock.unlock(); return true }
@@ -52,7 +56,7 @@ public final class SigningOperation: @unchecked Sendable {
             default: allowed = false
             }
         }
-        if allowed { phase = next }
+        if allowed { phase = next; if next == .signing { privateRequestStarted = true } }
         lock.unlock()
         if allowed { changed(next) }
         return allowed

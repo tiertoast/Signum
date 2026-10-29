@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "components": [
+    "podofo",
+    "freetype",
+    "pdfium",
+    "numerics",
+    "liberalean",
+    "foxit"
+  ],
+  "version": "podofo-1.1.2",
+  "upstreamArchiveSHA256": "d6ffe6fc173ac6d6e5b00f5cb9db01990cab1bdf7cc03bdeffce3013bc9ec63a",
+  "linkage": "dynamic",
+  "patchStatus": "unknown",
+  "sourceCorrespondence": "unattested",
+  "selectedLicense": "MPL-2.0",
+  "distributionRoute": "source-with-artifact",
+  "recipientInstructions": "See SOURCE_ACCESS.md alongside this dossier; the shipped corresponding source remains unqualified until patch/binary correspondence is attested.",
+  "sourceArchive": "podofo.tar.gz",
+  "status": "Author FTL/MPL decisions applied; expected upstream archives verified; patch inventory and binary/source correspondence remain UNATTESTED"
+}

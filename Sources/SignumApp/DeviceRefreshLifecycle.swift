@@ -1,0 +1,25 @@
+#if os(macOS)
+import Foundation
+import SignumCore
+
+/// Public discovery only; the existing worker and Core selection stay authoritative.
+struct DeviceRefreshLifecycle {
+    private(set) var requestID: UUID?
+    mutating func begin(selection: inout DeviceSelection, blocked: Bool, replacingCurrent: Bool = false) -> UUID? {
+        guard !blocked else { return nil }
+        // Explicit manual loads supersede public discovery; stale results remain
+        // rejected by request identity. Ordinary refresh still cannot overlap.
+        guard replacingCurrent || (requestID == nil && !selection.isSearching) else { return nil }
+        let id = selection.beginDiscovery()
+        requestID = id
+        return id
+    }
+    mutating func accept(_ result: DeviceDiscoveryResult, request: UUID,
+                         selection: inout DeviceSelection) -> Bool {
+        guard requestID == request, selection.accept(result, request: request) else { return false }
+        requestID = nil
+        return true
+    }
+    mutating func cancel() { requestID = nil }
+}
+#endif

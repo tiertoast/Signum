@@ -1,0 +1,17 @@
+FreeType acknowledgment — Signum
+================================
+
+Signum includes FreeType 2.13.3 through the PoDoFo native library described
+in the distribution dossier. This software is based in part on the work of the FreeType Team.
+FreeType Project: https://www.freetype.org/
+
+The original FreeType-license.txt and FreeType-FTL.txt are reproduced alongside
+this acknowledgment without changes. The latter identifies David Turner,
+Robert Wilhelm and Werner Lemberg as copyright holders and describes the
+FreeType License conditions. Its suggested acknowledgment wording is not the
+only permitted form; no unverified release copyright year is supplied here.
+
+This acknowledgment does not select a license for an unattested binary.
+The author must record the FreeType license selection and source provenance
+in the distribution dossier before distribution; the original LICENSE.TXT
+also describes the alternative GNU GPL licensing route.

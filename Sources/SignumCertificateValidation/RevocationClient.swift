@@ -111,15 +111,20 @@ actor RevocationSession {
     let cache: RevocationEvidenceCache?
     let transport: any RevocationTransport
     var requests = 0
+    private(set) var fetchedEvidence = [RevocationEvidence]()
+    private let localEvidence: [RevocationEvidence]
+    private let advancesClock: Bool
     private let startedAt = ProcessInfo.processInfo.systemUptime
-    private func current(_ base: Date) -> Date { base.addingTimeInterval(ProcessInfo.processInfo.systemUptime-startedAt) }
+    private func current(_ base: Date) -> Date { advancesClock ? base.addingTimeInterval(ProcessInfo.processInfo.systemUptime-startedAt) : base }
     let deadline = ProcessInfo.processInfo.systemUptime + 30
-    init(cache: RevocationEvidenceCache?,transport: any RevocationTransport = SystemRevocationTransport()) { self.cache = cache;self.transport = transport }
+    init(cache: RevocationEvidenceCache?,transport: any RevocationTransport = SystemRevocationTransport(), localEvidence: [RevocationEvidence] = [], advancesClock: Bool = true) {
+        self.cache = cache; self.transport = transport; self.localEvidence = Array(localEvidence.prefix(8)); self.advancesClock = advancesClock
+    }
     func check(certificate: Data,issuer: Data,evidence: [RevocationEvidence],mode: RevocationMode,now: Date,
                isCancelled: @escaping @Sendable () -> Bool) async -> CertificateRevocationCheck {
         guard !isCancelled(), CertificateEvidenceMaterial.issued(certificate,by: issuer) else { return .init(results: [],reason: "Emittente non verificato o operazione annullata.") }
         var results = [RevocationEvidenceResult]()
-        for value in evidence.prefix(64) {
+        for value in Array(evidence.prefix(64)) + localEvidence {
             guard CertificateEvidenceMaterial.applies(value,to: certificate,issuer: issuer) else { continue }
             let result = RevocationEvidenceVerifier.verify(value,certificate: certificate,issuer: issuer,now: current(now));results.append(result)
             if result.authenticated { _ = try? await cache?.store(value,certificate: certificate,issuer: issuer,now: current(now)) }
@@ -143,6 +148,7 @@ actor RevocationSession {
                 let bytes = try await transport.fetch(location,body: body,isCancelled: { isCancelled() || ProcessInfo.processInfo.systemUptime >= until })
                 guard !isCancelled(), !Task.isCancelled, bytes.count <= RevocationEvidenceVerifier.maximumBytes else { break }
                 let value = RevocationEvidence(kind: location.kind,der: bytes)
+                if !fetchedEvidence.contains(value) { fetchedEvidence.append(value) }
                 // Advance the supplied observation with monotonic elapsed time:
                 // production uses today's clock; fixed fixture dates remain reproducible.
                 let result = RevocationEvidenceVerifier.verify(value,certificate: certificate,issuer: issuer,now: current(now))
