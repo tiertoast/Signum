@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "failedMethods": [
+    "SignumCoreTests.S03PINFidelityTests/testBatchAndTemporaryReuseKeepExactAcceptedPINBytes",
+    "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues",
+    "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor",
+    "SignumCoreTests.TaskCancellationLifecycleTests/testCancellationTerminatesBlockedWorkerAndDoesNotRetry",
+    "SignumCoreTests.TaskCancellationLifecycleTests/testExplicitCancellationFixtureTerminatesBlockedWorker",
+    "SignumCoreTests.UnifiedVerificationTests/testSupervisedVerificationCrashTimeoutCancelAndRSSLimit"
+  ],
+  "classes": [
+    "SignumCoreTests.S03PINFidelityTests",
+    "SignumCoreTests.S04WindowRevocationTests",
+    "SignumCoreTests.SigningOperationTests",
+    "SignumCoreTests.TaskCancellationLifecycleTests",
+    "SignumCoreTests.UnifiedVerificationTests"
+  ],
+  "pertinentFilter": "SigningIncomingFormatTests|VerificationPresentationTests|SigningWorkspaceTests|PDFPreviewPreparationTests|SessionDocumentRemovalTests|PDFRevisionCoverageTests|PAdES.*Tests|Batch.*Tests|Secure.*Tests|PKCS11.*Tests|S03PINFidelityTests|S06PINCleanupTests|S15SigningTimeTests|OneShotContextTests|PostLoginCertificateTests|ProcessCoordinationTests|CAdES.*Tests|XAdES.*Tests|ASiC.*Tests|.*Verification.*Tests|.*Report.*Tests|SigningReviewTests|SigningJobTests|SigningOperationTests|SigningExperience.*Tests|.*Timestamp.*Tests|ConcurrencyOwnershipTests|NativeWorkspaceTests|EuropeanCatalogTests|DeviceRefreshLifecycleTests|DiscoveryExperienceTests|MiddlewareDiscoveryTests|DeviceSelectionTests|ProviderSelectionTests|TaskCancellationLifecycleTests|HostedPublicationLifecycleTests|NotificationObservationLifecycleTests|PlacementReadinessCharacterizationTests|S04WindowRevocationTests|S05ManualModuleRemovalTests",
+  "baseline": {
+    "full": 795,
+    "pertinent": 466
+  },
+  "scope": "Six historical failure methods; source-compiled discovery remains authoritative"
+}
