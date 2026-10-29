@@ -219,3 +219,32 @@ privato. Prima di consegnare occorrono albero realmente compilato, patch/diff o
 prova documentata di diff vuoto, log originale toolchain/SDK/flag e collegamento
 ai binari. Il kit è quindi predisposto ma non ancora qualificato come sorgente
 corrispondente. Il gate rimane rosso su quelle due attestazioni mancanti.
+
+## Fase7 — nuova catena controllata, checkpoint manuale
+
+La carenza del vecchio build non viene sanata inventando un registro:
+`rebuild-beta-native.py` prepara una NUOVA compilazione esterna FreeType/PoDoFo
+con gli archivi verificati, confronto integrale sorgenti prima/dopo, zero patch
+soltanto se quel confronto riesce, toolchain/SDK/flag e dipendenze registrati.
+OpenSSL/libxml2/xmlsec vengono copiati dal prefix approvato in sola lettura,
+identificati con hash e riscritti soltanto sulle copie; non si dichiara che
+siano stati ricompilati. Vecchi FreeType/PoDoFo non vengono copiati nel nuovo
+prefix. Tutto resta isolato; nessuna adozione automatica del vecchio binario.
+
+Il problema Unicode è ora documentato: i tre file utf8proc.c/.h/_data.c vendorizzati
+sono identici all'upstream ufficiale JuliaStrings/utf8proc v2.11.3, recuperato
+come archivio SHA256abfed50b6d4da51345713661370290f4f4747263ee73dc90356299dfc7990c78.
+La LICENSE.md di quella esatta versione include espressamente utf8proc_data.c
+e i suoi termini Unicode. Testo completo aggiunto ai notice con hash; confronto
+conservato in Evidence/utf8proc-2.11.3-comparison.json. Nessun ricorso alla licenza
+Unicode corrente per analogia. Nella nuova build il modulo è compilato dentro
+PoDoFo secondo la recipe; è previsto anche un controllo mirato di normalizzazione
+compatibile e rifiuto UTF8 non valido. Non dichiarato eseguito in questa fase.
+
+Il driver deve verificare collegamento/caricamento della nuova PoDoFo tramite
+l'helper Signum e il CTest offline esistente, oltre a architettura, minOS13,
+closure e notice. Solo dopo TUTTI i controlli e il cleanup riusciti produce
+`verified-native-checkpoint`, kit sorgenti con attestazione limitata al NUOVO
+prefix e manifest portabile. Il dossier globale e il prefix originale restano
+unattested. I risultati reali vanno letti al checkpoint prima di selezionare
+il nuovo kit per il candidato; non si indebolisce il gate di packaging.
