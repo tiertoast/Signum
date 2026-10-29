@@ -77,7 +77,7 @@ Attese fixture Swift: timeout, SIGKILL e osservazione bounded; eliminati waitUnt
 
 `scripts/test-local.py` è il runner locale ufficiale: setup esplicito, manifest delle classi/gruppi, nuova directory per ogni run, log e riepilogo machine-readable, watchdog del gruppo di processi. Completo = Swift senza filtri, PKCS#11 Debug, PAdES Debug/Release, Python packaging/tooling e sanitizer mirati; un prerequisito mancante è un errore di setup, uno skip in un gruppo selezionato fa fallire la suite. Gruppi opzionali espliciti: pure-swift, native-helper, poppler, synthetic-pkcs11, integration, ui; selezionarne uno non autorizza a dichiarare il completo verde. Nessuna CI, rete o installazione globale.
 
-Due nuovi test Swift per unicità/directory pronta e processo non rispondente; quattro unit test Python di classificazione, prerequisiti e selezione sanitizer. Istruzioni, env, timeout, skip ed evidenze in [LOCAL_TESTING.md](LOCAL_TESTING.md). `scripts/test-packaged-bindings.py` rende riproducibili anche i controlli sintetici sui bundle nuovi.
+Due nuovi test Swift per unicità/directory pronta e processo non rispondente; quattro unit test Python di classificazione, prerequisiti e selezione sanitizer. Istruzioni, env, timeout, skip ed evidenze in [LOCAL_TESTING.md](../LOCAL_TESTING.md). `scripts/test-packaged-bindings.py` rende riproducibili anche i controlli sintetici sui bundle nuovi.
 
 ## Risultati finali della 14-B
 

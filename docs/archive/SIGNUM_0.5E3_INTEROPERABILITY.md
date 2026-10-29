@@ -139,7 +139,7 @@ No E4 gate is marked passed by this document. No Build 6 was generated.
 ## References
 
 - [E2 report](SIGNUM_0.5E2_EUROPEAN_CATALOG.md) and
-  [recorded results](SIGNUM_0.5E2_RESULTS.json); E1R/E1S reports in this directory.
+  [recorded results](../SIGNUM_0.5E2_RESULTS.json); E1R/E1S reports in this directory.
 - Earlier static DSS evidence: task workspace
   `outputs/signum-0.5e-trust-investigation/evidence/dss-sources.json` and the
   accompanying `SIGNUM_0.5E_ETSI_INTEROPERABILITY.md`; source findings reused.

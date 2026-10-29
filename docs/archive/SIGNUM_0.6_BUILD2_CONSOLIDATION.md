@@ -66,7 +66,7 @@ Directory `outputs/signum-0.6-build2/`:
 
 ZIP SHA-256: `4ad6a8b625af27449ee0963f0608f957d56d80109ec69e2b1f7b82e093424c75`.
 
-Note preliminari e checklist: `docs/SIGNUM_0.6_BUILD2_RELEASE_NOTES.md`.
+Note preliminari e checklist: `docs/archive/SIGNUM_0.6_BUILD2_RELEASE_NOTES.md`.
 Restano i sottoinsiemi XAdES/ASiC/CAdES avanzato dichiarati, i limiti eIDAS
 IT/AT/DE/BE/FR/ES diretti CA/QC post-2016 con evidenze sufficienti, la firma ad hoc
 senza notarizzazione e il collaudo manuale hardware ancora da eseguire.

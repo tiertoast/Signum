@@ -21,8 +21,8 @@ This roadmap is a **plan, not a statement of delivered capabilities**. Completed
 ## 0.6 — Signing formats and practical interoperability
 
 A–E.1 are implemented on `feature/signum-0.6e-verification-reports`.
-[Definitive release notes](SIGNUM_0.6_RELEASE_NOTES.md) declare the actual subsets;
-[Build 3](SIGNUM_0.6_BUILD3_RC.md) consolidates the final identity presentation.
+[Definitive release notes](archive/SIGNUM_0.6_RELEASE_NOTES.md) declare the actual subsets;
+[Build 3](archive/SIGNUM_0.6_BUILD3_RC.md) consolidates the final identity presentation.
 ASiC uses XAdES only; CAdES detached is a separate CMS operation.
 Personal identity is informational, independent of integrity and eIDAS.
 Manual Build 3 acceptance was confirmed and Beta publication authorized on
@@ -106,4 +106,4 @@ A clearly scoped supported-format and hardware matrix; reproducible signed/notar
 5. Local build and test only; **no GitHub Actions**. Keep previous releases/tags intact.
 6. Defer additional formats, services or UI redesign outside a milestone rather than silently expanding its scope.
 
-Historical evidence: [0.5-F](SIGNUM_0.5F_BUILD7.md), [0.5-E2](SIGNUM_0.5E2_EUROPEAN_CATALOG.md), [0.4](SIGNUM_0.4_PROGRESS.md). Distribution gates: [RELEASE_READINESS](RELEASE_READINESS.md).
+Historical evidence: [0.5-F](archive/SIGNUM_0.5F_BUILD7.md), [0.5-E2](archive/SIGNUM_0.5E2_EUROPEAN_CATALOG.md), [0.4](archive/SIGNUM_0.4_PROGRESS.md). Distribution gates: [RELEASE_READINESS](RELEASE_READINESS.md).

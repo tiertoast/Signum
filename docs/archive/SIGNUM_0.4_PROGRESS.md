@@ -451,7 +451,7 @@ Il primo run completo Swift/ASAN era verde ma TSAN è stato interrotto nel runti
 
 Due bundle diagnostici **nuovi**, 0.4.0/build 13 da 276585c, sotto `work/hardening14b/bundles/Signum-14B-final-debug.app` e `Signum-14B-final-release.app` nella workspace della chat: audit dipendenze/minimo Mach-O 13.0, firma ad hoc strict, hash e rilocazione verificati. **20/20** controlli sui componenti effettivi: worker v2/helper v5, binding, checkpoint post-login, firme software/verifica/no-overwrite, source preflight e directory attesa. Nessuna installazione o distribuzione.
 
-[Rapporto 14-B](SIGNUM_0.4_HARDENING_14B.md) e [istruzioni locali](LOCAL_TESTING.md). Aperti CQ-08/10/11/12/14 e i collaudi manuali/hardware/runtime minimi dichiarati; nessuna chiusura indiretta. Main, B13, 14-A, rapporti originali, vecchi bundle e PR #3 preservati; nessun push/merge/tag/release/Actions o altro repository. **READY FOR 14-C: YES**, per ulteriore hardening, non per distribuzione. **14-C non avviata**.
+[Rapporto 14-B](SIGNUM_0.4_HARDENING_14B.md) e [istruzioni locali](../LOCAL_TESTING.md). Aperti CQ-08/10/11/12/14 e i collaudi manuali/hardware/runtime minimi dichiarati; nessuna chiusura indiretta. Main, B13, 14-A, rapporti originali, vecchi bundle e PR #3 preservati; nessun push/merge/tag/release/Actions o altro repository. **READY FOR 14-C: YES**, per ulteriore hardening, non per distribuzione. **14-C non avviata**.
 
 
 ## Hardening 14-C.1 — 20 ottobre 2026
@@ -462,7 +462,7 @@ CQ-08: invalidazione snapshot immediata con lease dei lettori e ritiro fuori mai
 
 Nuovi casi distinti: 16 Swift e 3 Python. Sui sorgenti finali: Swift 426/426, Python 17/17, PKCS#11 Debug 58/58, PAdES Debug/Release 79/79, Swift ASAN/TSAN mirati 208/208 ciascuno, PKCS#11 TSAN 58/58, PAdES ASAN/TSAN 79/79 ciascuno. Nuovi bundle Debug/Release, 20 integrazioni e 4 rifiuti di copie incomplete passati; hash, manifest e codesign verificati.
 
-**Gate aperto:** il completo ufficiale è failed su PKCS#11 ASAN nativo (CTest exit 8, DEADLYSIGNAL/report annidato); pass diagnostici intermittenti non chiudono il gate. Riproduzione anche nel binario 14-B e in un loader del mock senza codice prodotto; sospetto loader/runtime ASAN, causa definitiva non dimostrata. Nessuna soppressione, pinning o rimozione di dlclose adottata. PAdES ASAN e PKCS#11 TSAN sono completamenti separati dopo il fail-fast, non prove di un completo verde. Rapporto: `docs/SIGNUM_0.4_HARDENING_14C1.md`; log/diagnostica nel pacchetto di evidenze allegato alla chat.
+**Gate aperto:** il completo ufficiale è failed su PKCS#11 ASAN nativo (CTest exit 8, DEADLYSIGNAL/report annidato); pass diagnostici intermittenti non chiudono il gate. Riproduzione anche nel binario 14-B e in un loader del mock senza codice prodotto; sospetto loader/runtime ASAN, causa definitiva non dimostrata. Nessuna soppressione, pinning o rimozione di dlclose adottata. PAdES ASAN e PKCS#11 TSAN sono completamenti separati dopo il fail-fast, non prove di un completo verde. Rapporto: `docs/archive/SIGNUM_0.4_HARDENING_14C1.md`; log/diagnostica nel pacchetto di evidenze allegato alla chat.
 
 **READY FOR HARDENING 14-C.2: CONDITIONAL**, subordinato alla risoluzione e ripetizione affidabile del gate ASAN nativo. Milestone non dichiarata interamente verde; 14-C.2 non avviata. CQ-10/CQ-11 restano aperti. Main/B13/14-A/14-B e quattro rapporti originali preservati; nessun push/merge/tag/release, PR #3 o installazione. Collaudi umani, hardware reale e runtime minimi ancora da eseguire come indicato nel rapporto.
 

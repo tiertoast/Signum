@@ -44,8 +44,8 @@ Company identifiers are not presented as personal fiscal codes. Missing identity
 fields are explicitly unavailable; identity alone does not grant trust or QES.
 In the historical 0.6 release Burgundy accents applied to reports only; the 0.7 GUI now adopts them.
 
-See [0.6 release notes and manual checklist](docs/SIGNUM_0.6_RELEASE_NOTES.md)
-and [Build 3 scope/provenance](docs/SIGNUM_0.6_BUILD3_RC.md). Profiles remain bounded:
+See [0.6 release notes and manual checklist](docs/archive/SIGNUM_0.6_RELEASE_NOTES.md)
+and [Build 3 scope/provenance](docs/archive/SIGNUM_0.6_BUILD3_RC.md). Profiles remain bounded:
 no XAdES-T/LT/LTA, ASiC CAdES, timestamp issuance, encryption or universal eIDAS claim.
 
 ## Historical 0.5 Beta scope
@@ -66,7 +66,7 @@ no XAdES-T/LT/LTA, ASiC CAdES, timestamp issuance, encryption or universal eIDAS
 
 Signum 0.5 distinguishes **cryptographic integrity**, **trusted certificate chain**, **revocation**, **proven temporal evidence** and **eIDAS/QSCD qualification**. The authenticated EU LOTL exposes 30 EU/EEA territories for selective national TL acquisition; that **does not imply** positive QES coverage for 30 countries.
 
-The positive qualification policy validated so far is deliberately narrow: IT, AT, DE, BE, FR and ES, direct signer-to-CA/QC paths, applicable post-2016 profiles and sufficiently bound time/revocation evidence. Broader histories, profiles and general validation of un-timestamped signatures at the current time remain unsupported or indeterminate. A qualified electronic signature does **not** universally require a qualified timestamp, but removing temporal checks indiscriminately would be unsafe. See [European catalog evidence](docs/SIGNUM_0.5E2_EUROPEAN_CATALOG.md) and [Build 7 limitations](docs/SIGNUM_0.5F_BUILD7.md).
+The positive qualification policy validated so far is deliberately narrow: IT, AT, DE, BE, FR and ES, direct signer-to-CA/QC paths, applicable post-2016 profiles and sufficiently bound time/revocation evidence. Broader histories, profiles and general validation of un-timestamped signatures at the current time remain unsupported or indeterminate. A qualified electronic signature does **not** universally require a qualified timestamp, but removing temporal checks indiscriminately would be unsafe. See [European catalog evidence](docs/archive/SIGNUM_0.5E2_EUROPEAN_CATALOG.md) and [Build 7 limitations](docs/archive/SIGNUM_0.5F_BUILD7.md).
 
 ## Reliability and safety
 
@@ -82,7 +82,7 @@ Worker isolation reduces the impact of middleware crashes/hangs on the UI; it is
 
 The frozen 0.5-F campaign passed **564 Swift tests**, **81 PAdES native cases in Debug and Release each**, **58 PKCS#11 provider cases plus 2 loader contracts**, and **18 packaging contracts**, with no reported final failures or skips. A real two-signer CAdES file was checked without adding any untrusted QES claim. The user also confirmed successful local UI/token/document tests before publication. This is development acceptance, **not** independent regulatory certification or a compatibility guarantee for all middleware.
 
-Evidence: [0.5-F report](docs/SIGNUM_0.5F_BUILD7.md) · [machine-readable results](docs/SIGNUM_0.5F_RESULTS.json).
+Evidence: [0.5-F report](docs/archive/SIGNUM_0.5F_BUILD7.md) · [machine-readable results](docs/SIGNUM_0.5F_RESULTS.json).
 
 ## Requirements and local development
 

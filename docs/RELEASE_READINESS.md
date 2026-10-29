@@ -28,7 +28,7 @@ this candidate. The old 0.5 table below remains historical evidence.
 
 **Historical 0.5 status:** 21 October 2026 · [v0.5.0-beta / Build 7](https://github.com/tiertoast/Signum/releases/tag/v0.5.0-beta), available as a private GitHub pre-release. This document concerns **technical and distribution readiness**, not authorization to describe every signed document as a legally qualified QES.
 
-Earlier Alpha/Beta Foundation evidence is retained in [its historical report](SIGNUM_BETA_FOUNDATION_REPORT.md) and [the PR #2 review record](PR2_REVIEW_CORRECTIONS.md). The authoritative 0.5 validation record is the [0.5-F engineering report](SIGNUM_0.5F_BUILD7.md) and [results JSON](SIGNUM_0.5F_RESULTS.json).
+Earlier Alpha/Beta Foundation evidence is retained in [its historical report](SIGNUM_BETA_FOUNDATION_REPORT.md) and [the PR #2 review record](PR2_REVIEW_CORRECTIONS.md). The authoritative 0.5 validation record is the [0.5-F engineering report](archive/SIGNUM_0.5F_BUILD7.md) and [results JSON](SIGNUM_0.5F_RESULTS.json).
 
 ## Historical evidence validated in 0.5
 
