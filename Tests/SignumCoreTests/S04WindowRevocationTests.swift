@@ -205,16 +205,18 @@ import Darwin
                 let task=Task { try await f.batch.authorizeNext(pin:"synthetic-fixture") { job,pin,operation in try job.signCAdES(using:worker,pin:pin,operation:operation,timeout:5) } }
                 await fulfillment(of:[reached],timeout:8)
                 let pid=try XCTUnwrap((try? String(contentsOf:f.mock.folder.appendingPathComponent("operations.pid"))).flatMap(Int32.init))
-                let observedOperation = f.batch.activeOperation
+                // Close delivers a main-queue fence; the coordinator may retire the
+                // operation before that await returns. Verify the original capability.
+                let observedOperation = try XCTUnwrap(f.batch.activeOperation)
                 if native { await close(route,f) } else {
                     f.batch.cancelAll()
                     // A completed drain is a valid interleaving of the native close fence.
                     try await task.value
                     XCTAssertNil(f.batch.activeOperation, "Fixture proves the completed operation was retired")
-                    XCTAssertTrue(observedOperation?.isCancellationRequested == true, "Fixture proves cancellation reached the original operation")
+                    XCTAssertTrue(observedOperation.isCancellationRequested == true, "Fixture proves cancellation reached the original operation")
                 }
-                XCTAssertTrue(f.batch.activeOperation?.isCancellationRequested == true, "S-STAB route=\(route.rawValue), current=\(String(describing:f.batch.activeOperation?.isCancellationRequested)), retained=\(String(describing:observedOperation?.isCancellationRequested)), retainedState=\(String(describing:observedOperation?.state))")
-                if f.batch.activeOperation?.isCancellationRequested != true { f.batch.cancelAll() }
+                XCTAssertTrue(observedOperation.isCancellationRequested, "S-STAB route=\(route.rawValue), current=\(String(describing:f.batch.activeOperation?.isCancellationRequested)), retained=\(String(describing:observedOperation.isCancellationRequested)), retainedState=\(String(describing:observedOperation.state))")
+                if !observedOperation.isCancellationRequested { f.batch.cancelAll() }
                 try await task.value
                 XCTAssertEqual(kill(pid,0),-1); XCTAssertEqual(errno,ESRCH)
                 XCTAssertTrue(f.batch.needsOutcomeReview); XCTAssertEqual(states(f),[.uncertain,.cancelled,.cancelled])
