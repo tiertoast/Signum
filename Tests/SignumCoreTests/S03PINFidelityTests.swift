@@ -65,9 +65,18 @@ final class S03PINFidelityTests: XCTestCase {
         try Data(#"""
         import os,sys,json,base64,time,select,termios,signal
         config=json.load(sys.stdin);payload=base64.b64decode(config['input'])
+        # Snapshot the PTY before the child can disable echo, independent of scheduling.
+        gate_read,gate_write=os.pipe()
         pid,fd=os.forkpty()
-        if pid==0: os.execv(config['args'][0],config['args'])
-        initial=termios.tcgetattr(fd);output=b'';sent=False;protected=False;status=None
+        if pid==0:
+            os.close(gate_write)
+            if os.read(gate_read,1)!=b'1': os._exit(125)
+            os.close(gate_read)
+            os.execv(config['args'][0],config['args'])
+        os.close(gate_read)
+        initial=termios.tcgetattr(fd)
+        os.write(gate_write,b'1');os.close(gate_write)
+        output=b'';sent=False;protected=False;status=None
         deadline=time.monotonic()+15
         try:
             while time.monotonic()<deadline:
