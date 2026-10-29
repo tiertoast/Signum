@@ -2,117 +2,159 @@
 
 **Digital signatures. Simply native.**
 
-Signum is a lightweight, native macOS application for local digital signatures and verification, built in Swift/SwiftUI with native cryptographic helpers. It is designed for everyday document workflows, including the Italian public administration, while avoiding dependence on any single token vendor's desktop software.
+Signum is a native macOS application for signing documents with a smart card or
+USB token and verifying digital signatures. It brings CAdES, PAdES, XAdES and
+ASiC workflows into a focused document workspace, with local cryptographic
+processing and clear, separate results for integrity, trust, revocation and time.
 
-> **Current Beta: Signum 0.7.0 — Build 14** ([release](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta)). Apple Silicon arm64, ad-hoc signed, no Developer ID or notarization. **M3–M6 remain open; the RC stability gate is NOT PASSED.** The repository and release assets remain private.
+Built with SwiftUI and AppKit, Signum works with compatible PKCS#11 middleware
+rather than requiring a particular vendor's desktop signing application.
 
-For planned work, scope and milestone gates, see the **[development roadmap](docs/ROADMAP.md)**. For distribution and assurance gaps, see **[release readiness](docs/RELEASE_READINESS.md)**.
+**[Download Signum 0.7.0 Beta — Build 14](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta)**
+· Apple Silicon · declared minimum macOS 13.0 · [release notes](docs/RELEASE_NOTES.md)
 
-## Signum 0.7.0 Beta — Build 14
+## Features
 
-Native document workspace, signing inspector, Finder/services integration,
-cumulative verification and a redesigned Devices experience. Stabilization covers
-PDF revision coverage, conservative PAdES cleanup, session cancellation, exact CLI
-PIN bytes and PIN buffer lifecycle. Real PIN changes and PUK unblocking remain
-disabled and unqualified; the administrative foundation is synthetic only.
+- Sign individual documents or approved batches; keep original files intact.
+- Create attached or detached CAdES signatures, add co-signatures and explicitly
+  selected countersignatures to supported existing CMS documents.
+- Sign PDFs with an invisible signature or a visible appearance positioned in
+  the document preview, including text, images and orientation controls.
+- Sign XML using the supported XAdES Baseline-B profile and package documents
+  in supported ASiC-S or ASiC-E containers.
+- Verify supported signatures together in one workspace, with per-signer
+  results and exportable PDF and plain-text reports.
+- Discover devices and certificates through PKCS#11; review the selected
+  certificate and destination before authorizing a signature.
+- Open documents from Finder and macOS Services; work with native previews,
+  a signing inspector, device information and application preferences.
 
-The exact verified DMG is reused without rebuilding: product source
-`09316e046a4dd101ce74410a6eeccee6911d4783`, bundle `io.github.tiertoast.Signum`,
-version 0.7.0 / build 14. Declared macOS minimum 13.0 is not a runtime qualification
-on macOS 13/14. Clean-Mac and wider hardware/middleware acceptance remain open.
-The author's installation acceptance concerns the local Mac only.
+[Explore the features](docs/FEATURES.md) · [Using Signum](docs/USAGE.md)
 
-See [0.7 release notes](docs/SIGNUM_0.7_RELEASE_NOTES.md),
-[artifact evidence](docs/releases/0.7.0-beta/ArtifactManifest.json) and
-[open M3–M6 follow-up](https://github.com/tiertoast/Signum/issues/9).
-No Stable or RC promotion is claimed. Earlier releases and evidence remain intact.
+## Supported formats
 
-## Signum 0.6.0 Beta — Build 3
+Signing and verification have explicit profiles. A familiar extension alone does
+not establish that a document is supported or that its signature is valid.
 
-**Signum 0.6.0 Development Preview — Build 3** consolidates current-time eIDAS
-assessment, XAdES-B enveloped, ASiC-S/E with detached XAdES, detached CAdES,
-co-/counter-signatures and PDF/TXT verification reports. Manual Build 3 acceptance
-was confirmed on 22 October 2026 and Beta publication authorized.
-**[Signum 0.6.0 Beta](https://github.com/tiertoast/Signum/releases/tag/v0.6.0-beta)**
-distributes the exact accepted Development Preview Build 3 ZIP, with its original
-isolated identity and ad hoc signature; no rebuild, Developer ID or notarization.
-The released 0.4/0.5 Betas and previous previews remain unchanged.
+| Format | Signing | Verification and scope |
+| --- | --- | --- |
+| **CAdES attached** — `.p7m` | CMS container with embedded document; RSA/SHA-256 | Supported CMS signatures and nested layers, with individual signer results |
+| **CAdES detached** — `.p7s` | Signature stored separately from the document | Requires explicit selection of the exact original content |
+| **CAdES co-/counter-signatures** — `.p7m` | Add a content signer or countersign a selected signature | Supported attached DER CMS; signer relationships are retained |
+| **PAdES** — `.pdf` | Visible or invisible PDF signature | Supported `ETSI.CAdES.detached` signatures; revision coverage is reported separately |
+| **XAdES Baseline-B** — `.xml` | One enveloped RSA/SHA-256 signature | Restricted XML profile with signed properties and certificate binding |
+| **ASiC-S / ASiC-E** — `.asics` / `.asice` | One / two-to-four documents with detached XAdES-B | One signature; complete supported payload and manifest coverage |
 
-Verification summaries and reports display each signer's personal Subject name,
-Italian personal codice fiscale when unambiguously present, and individual outcomes.
-Company identifiers are not presented as personal fiscal codes. Missing identity
-fields are explicitly unavailable; identity alone does not grant trust or QES.
-In the historical 0.6 release Burgundy accents applied to reports only; the 0.7 GUI now adopts them.
+See [formats and profile limits](docs/FORMATS.md). Timestamp issuance,
+XAdES-T/LT/LTA, ASiC with CAdES and encryption are outside the current product scope.
 
-See [0.6 release notes and manual checklist](docs/SIGNUM_0.6_RELEASE_NOTES.md)
-and [Build 3 scope/provenance](docs/SIGNUM_0.6_BUILD3_RC.md). Profiles remain bounded:
-no XAdES-T/LT/LTA, ASiC CAdES, timestamp issuance, encryption or universal eIDAS claim.
+## Verification and trust
 
-## Historical 0.5 Beta scope
+Signum presents five independent assessments:
 
-| Area | Current scope |
+| Assessment | What it answers |
 | --- | --- |
-| **CAdES** | Local PKCS#11 attached CMS/`.p7m` signing and cryptographic verification; safe batch signing; automatic signed `signingTime` attribute with a persistent ON-by-default setting to omit it when desired. |
-| **PAdES** | PDF signing through a bundled native PoDoFo helper; visible/invisible appearance with PDFKit preview, placement and approved resources. |
-| **Verification** | CAdES/PAdES signature integrity and independent per-signer reports; certificate-chain trust, revocation, temporal evidence and eIDAS qualification exposed separately. |
-| **European Trusted Lists** | Authentic EU LOTL and selected national TLs, cryptographic XMLDSig authentication, cache continuity/rollback controls, selective acquisition and offline use of authenticated cached evidence. |
-| **Certificate/revocation** | X.509 chain checks against applicable TL services; supported OCSP/CRL evidence with conservative validation of responder, binding and freshness. |
-| **Time and qualification** | Verification of supported timestamp evidence; signing time *declared by the signer* is **not** an independently trusted timestamp. Positive eIDAS qualification has deliberate restrictions (below). |
-| **Hardware** | Local middleware through OpenSC/Bit4id and PKCS#11, certificate/reader discovery, isolated worker process for standard signing paths. DigitalDNA and CNS configurations have been manually tested; other devices need independent acceptance. |
-| **Interface** | Native macOS signing and verification panels, PDF preview and Trust Lists settings, explicit approval, cancellation and conservative error handling. |
-| **Not yet implemented** | Creation/verification of XAdES and ASiC containers, remote signing, timestamp *issuance* by an external TSA, encryption/decryption. |
+| Cryptographic integrity | Does the signature match the signed bytes? |
+| Certificate path | Can the signer be linked to an applicable trusted service? |
+| Revocation | Is authenticated, applicable certificate-status evidence available? |
+| Time | Is a time merely declared or independently supported by timestamp evidence? |
+| eIDAS qualification | Do the supported certificate, service, QSCD and evidence rules support a qualification result? |
 
-### Scope of eIDAS verification
+European LOTL and national Trusted Lists are authenticated before use. X.509,
+OCSP, CRL and supported timestamp evidence feed the assessment; missing or
+unsupported evidence remains indeterminate. A certificate's presence in a
+signature does not make it trusted. Declared `signingTime` is not a trusted timestamp.
 
-Signum 0.5 distinguishes **cryptographic integrity**, **trusted certificate chain**, **revocation**, **proven temporal evidence** and **eIDAS/QSCD qualification**. The authenticated EU LOTL exposes 30 EU/EEA territories for selective national TL acquisition; that **does not imply** positive QES coverage for 30 countries.
+Positive qualification is limited to supported direct CA/QC, post-2016 profiles
+for IT, AT, DE, BE, FR and ES, with sufficient bound evidence. This is not universal
+EU coverage or regulatory certification. [Security and validation scope](docs/SECURITY.md)
 
-The positive qualification policy validated so far is deliberately narrow: IT, AT, DE, BE, FR and ES, direct signer-to-CA/QC paths, applicable post-2016 profiles and sufficiently bound time/revocation evidence. Broader histories, profiles and general validation of un-timestamped signatures at the current time remain unsupported or indeterminate. A qualified electronic signature does **not** universally require a qualified timestamp, but removing temporal checks indiscriminately would be unsafe. See [European catalog evidence](docs/SIGNUM_0.5E2_EUROPEAN_CATALOG.md) and [Build 7 limitations](docs/SIGNUM_0.5F_BUILD7.md).
+## Devices and authentication
 
-## Reliability and safety
+Hardware signing requires a compatible PKCS#11 library installed separately from
+Signum. Device discovery and manual module selection support different middleware
+setups; compatibility depends on the exact token, module, architecture and configuration.
+No vendor certification or universal smart-card support is claimed.
 
-- Signing uses an immutable approved document snapshot, signer/certificate binding, isolated PKCS#11 worker operation and bounded supervision.
-- The signed output is verified before exclusive, atomic publication; files are never silently overwritten and uncertain private operations are not automatically retried.
-- CAdES batch signing preserves the approved CMS attributes even when a job is delayed.
-- Revocation, trust, declared signing time and legal qualification are **not conflated**: an absent timestamp does not make the cryptographic signature invalid, and `signingTime` alone cannot prove the date or a QES verdict.
-- National Trusted List cache presence is not treated as authentication; missing, expired or inconsistent trust material fails closed.
+For ordinary attached CAdES batches, authentication can be per document, reuse an
+approved device session without retaining the PIN, or temporarily retain the PIN
+in memory for the approved batch. Temporary PIN reuse increases exposure and is
+optional. Other signing operations use per-document authorization. Real PIN change
+and PUK unblocking are not enabled. [Device and batch workflows](docs/USAGE.md)
 
-Worker isolation reduces the impact of middleware crashes/hangs on the UI; it is **not** a privilege sandbox against hostile third-party modules. Avoid putting PINs or private document contents in logs, command arguments or issues.
+## Installation
 
-## Historical 0.5 Beta validation
+1. Download the DMG and its checksum from the [0.7.0 Beta release](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta).
+2. Check the download, then open the DMG and drag **Signum** to **Applications**.
+3. Install compatible arm64 PKCS#11 middleware if you need hardware signing.
+4. Open Signum, select the device/certificate and add documents to the workspace.
 
-The frozen 0.5-F campaign passed **564 Swift tests**, **81 PAdES native cases in Debug and Release each**, **58 PKCS#11 provider cases plus 2 loader contracts**, and **18 packaging contracts**, with no reported final failures or skips. A real two-signer CAdES file was checked without adding any untrusted QES claim. The user also confirmed successful local UI/token/document tests before publication. This is development acceptance, **not** independent regulatory certification or a compatibility guarantee for all middleware.
+```sh
+shasum -a 256 -c Signum-0.7.0-beta-arm64.dmg.sha256
+```
 
-Evidence: [0.5-F report](docs/SIGNUM_0.5F_BUILD7.md) · [machine-readable results](docs/SIGNUM_0.5F_RESULTS.json).
+The Beta is **ad-hoc signed, without Developer ID or notarization**; macOS may
+block opening the downloaded app. It does not change Gatekeeper settings.
+The declared macOS 13.0 minimum is not a completed macOS 13/14 or clean-Mac
+compatibility qualification. Intel builds are not provided. The packaged app
+includes its native libraries; Java, Homebrew and developer tools are not runtime
+requirements. Network access is needed when acquiring fresh trust/revocation data.
 
-## Requirements and local development
+## Architecture and dependencies
 
-- Apple Silicon; bundle declares a **macOS 13.0 minimum**, but real runtime testing on macOS 13/14 and clean-system distribution remain open.
-- Build environment: Xcode/Apple command-line tools, Swift 5.9+, CMake and pinned native dependencies. Bundle includes non-system OpenSSL/PoDoFo/xmlsec/libxml2 libraries as applicable; build tooling and Homebrew are not runtime dependencies of the packaged Beta.
-- A trusted, separately installed PKCS#11 middleware is necessary for hardware signing; Signum does not redistribute token vendors' drivers.
+Swift coordinates the workspace, signing approvals and validation. Isolated
+workers perform PKCS#11 operations and native parsing/signing; approved snapshots
+and exclusive output handling protect document and destination identity.
+Worker isolation is process isolation, not a security sandbox for hostile middleware.
 
-~~~bash
-git clone https://github.com/tiertoast/Signum.git
-cd Signum
-swift build
-swift test
-scripts/test-pkcs11-local.sh
-~~~
+| Component in Build 14 | Purpose | License / platform |
+| --- | --- | --- |
+| PoDoFo **1.1.2** | PDF processing and signing helper | MPL-2.0 distribution choice |
+| FreeType **2.13.3** | Font support within the native stack | FreeType License (FTL) |
+| OpenSSL **3.5.6** | CMS, certificate and cryptographic operations | Apache-2.0 |
+| libxml2 **2.15.4** | XML parsing and canonicalization | MIT license notices |
+| xmlsec **1.3.12** | XML signature processing | MIT-style license / bundled Copyright |
+| SwiftUI, AppKit, PDFKit, Security | Native interface, PDF preview and certificate services | Apple system frameworks |
+| PKCS#11 middleware | Access to the operator's token or smart card | Separately installed; vendor-specific terms |
 
-Some integration tests require a locally built native PDF helper and explicit environment configuration; `swift test` alone is not equivalent to the full release campaign. Consult [local testing](docs/LOCAL_TESTING.md), [release readiness](docs/RELEASE_READINESS.md), and the pinned packaging scripts before rebuilding. **No GitHub Actions** are used; builds and acceptance testing remain local.
+Versions are taken from the released `BuildManifest.json`. Third-party components
+and their own notices remain distinct from Signum's license.
+[Architecture and acknowledgments](docs/ARCHITECTURE.md)
 
-### Architecture
+## Building and integration
 
-- `SignumApp`: SwiftUI/AppKit GUI and PDFKit preview.
-- `SignumCore`, `SignumPKCS11Worker`, `SignumCLI`: signing/verification primitives, immutable jobs, worker supervision and CLI.
-- `SignumTrustCore`, `SignumTrustAuthentication`, `SignumTrustIntegration`, `SignumCertificateValidation`: European trust, authentication and certificate/evidence assessment.
-- `Tools/PAdESPrototype`, native C bridges and `scripts/`: PDF signing, security boundaries, packaging and local validation.
+The source uses Swift Package Manager and a CMake native helper. A prepared native
+prefix and Apple development tools are required; `swift build` alone does not
+assemble the complete application. Follow [Building from source](docs/BUILDING.md)
+for the supported packager and development prerequisites.
 
-## Next steps
+The bundled experimental `SignumCLI` supports device discovery, certificate
+listing, attached CAdES signing and integrity verification. Its results do not
+replace the app's certificate, revocation and eIDAS assessments. Finder opening,
+macOS Services and source-level Swift libraries are also available; there is no
+published stable HTTP API or general JSON automation contract.
+[CLI and integration details](docs/USAGE.md#cli-and-integration)
 
-The **0.5 line is frozen** except for confirmed blocking defects. The next milestone, **0.6**, prioritizes current-time eIDAS verification of signatures without timestamps, **XAdES Baseline-B, ASiC-S/ASiC-E**, CAdES interoperability and downloadable verification reports. A native UI redesign follows in 0.7. **Issuing external TSA timestamps, encryption and decryption are deferred to 0.9**, while verification of existing timestamp evidence remains available in the supported 0.5 scope.
+## Beta scope, roadmap and contributing
 
-See the [full roadmap](docs/ROADMAP.md) for planned acceptance criteria and the distinction between implemented functions and proposals.
+This is a **Beta**, with compatibility, accessibility, interoperability and
+stability work still open. It is not Stable or RC-qualified. Detailed engineering
+follow-up, including M3–M6, is kept in [issue #9](https://github.com/tiertoast/Signum/issues/9)
+and the [engineering documentation](docs/engineering/README.md).
+
+See the [roadmap](docs/ROADMAP.md) for reliability and distribution, optional
+trusted timestamp issuance and the path to a defined Stable support matrix.
+For contributions, open an issue with the expected behavior, format and relevant
+software versions. Remove PINs, personal documents and identifying certificate
+data from reports. Keep changes focused and follow the local verification guidance
+in [Building](docs/BUILDING.md); the project does not use GitHub Actions.
 
 ## License
 
-Signum original source code is available under **Apache License 2.0** ([LICENSE](LICENSE)). Bundled third-party libraries have their own licenses, notices and redistribution obligations. Signing results and eIDAS qualification claims must be understood within the documented validation profile; **this Beta is not a substitute for legal assessment or production distribution checks**.
+Signum's original code is licensed under [Apache License 2.0](LICENSE).
+Bundled libraries and source materials retain their own licenses. The release
+includes notices and corresponding native source materials under
+`Signum.app/Contents/Resources/ThirdPartySources/`, including `SOURCE_ACCESS.md`.
+FreeType credit: portions of this software are copyright © The FreeType Project.
+
+[Documentation](docs/README.md) · [Security](docs/SECURITY.md) · [Release notes](docs/RELEASE_NOTES.md)

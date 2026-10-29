@@ -71,7 +71,7 @@ native verifier; no synthetic anchor was substituted.
 Austria expires 15 December 2026 15:44:12 UTC. Its exact public XML is committed
 as a fixture with a SHA-256 manifest. All six downloads, their hashes, algorithms,
 locations and exact probe output are recorded in
-[SIGNUM_0.5E_E1_RESULTS.json](SIGNUM_0.5E_E1_RESULTS.json).
+[SIGNUM_0.5E_E1_RESULTS.json](../SIGNUM_0.5E_E1_RESULTS.json).
 The four rejected files are **not declared authentic or invalid signatures**:
 preflight rejects unsupported structures before completing XML signature checks.
 

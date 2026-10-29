@@ -198,7 +198,7 @@ Non sono stati caricati nuovi moduli o interrogati token in questa indagine.
 Le letture hardware/ATR della 12B sono evidenze storiche dichiarate nel relativo
 rapporto, non nuove misurazioni di questo collaudo documentale.
 OpenSC non è scelto come sostituto automatico quando Bit4id manca o fallisce.
-[Rapporto base Build 12B](SIGNUM_07_BUILD12B_PIN_CHANGE_QUALIFICATION.md).
+[Rapporto base Build 12B](archive/SIGNUM_07_BUILD12B_PIN_CHANGE_QUALIFICATION.md).
 
 ## 5. Matrice decisionale
 
