@@ -24,6 +24,7 @@ Leggere `summary.json` prima di fare altro. Successo atteso:
 `packagingQualified:false`, `publicationQualified:false`. In caso di fallimento
 sono conservati log del passo e diagnostica CMake/CTest necessaria; i successi
 non lasciano stdout dettagliati. I gruppi figli sono terminati su timeout,
+interruzione o SIGHUP alla chiusura del Terminale;
 intermedi rimossi; sorgenti, nuovo prefix e prove sono conservati. Se manca
 tempo per eliminare intermedi, cleanupIncomplete rende esplicito il fallimento.
 

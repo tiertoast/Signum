@@ -274,7 +274,7 @@ def main(argv=None):
     runner=Runner(root,args.budget_seconds);started=time.monotonic()
     manifest={'status':'failed','publicationQualified':False,'packagingQualified':False,'budgetSeconds':args.budget_seconds,
               'minimumOS':'13.0','architecture':'arm64','sourceDecisions':{'podofo':'MPL-2.0','freetype':'FTL'}}
-    old={sig:signal.signal(sig,interrupt) for sig in (signal.SIGINT,signal.SIGTERM,signal.SIGALRM)}
+    old={sig:signal.signal(sig,interrupt) for sig in (signal.SIGINT,signal.SIGTERM,signal.SIGALRM,signal.SIGHUP)}
     signal.alarm(args.budget_seconds-2)
     try:perform(args,runner,manifest)
     except (Exception,KeyboardInterrupt) as error:manifest['error']=str(error)
