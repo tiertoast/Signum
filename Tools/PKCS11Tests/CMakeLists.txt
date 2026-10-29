@@ -32,3 +32,10 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mock-provider-path.txt" CONTENT "$<TAR
 target_sources(signum-pkcs11-tests PRIVATE ../../Sources/CCertificatePolicy/certificate_policy.c)
 target_include_directories(signum-pkcs11-tests PRIVATE ../../Sources/CCertificatePolicy/include)
 target_link_libraries(signum-pkcs11-tests PRIVATE "-framework Security" "-framework CoreFoundation")
+
+# Scalar-only returned-count contract; includes the actual private helpers.
+add_executable(signum-find-count-tests find_count_tests.c ../../Sources/CCertificatePolicy/certificate_policy.c)
+target_include_directories(signum-find-count-tests PRIVATE ../../Sources/CPKCS11 ../../Sources/CPKCS11/include ../../Sources/CCertificatePolicy/include)
+target_link_libraries(signum-find-count-tests PRIVATE Threads::Threads ${CMAKE_DL_LIBS} "-framework Security" "-framework CoreFoundation")
+add_test(NAME signum-find-count-contract COMMAND signum-find-count-tests)
+set_tests_properties(signum-find-count-contract PROPERTIES TIMEOUT 10)

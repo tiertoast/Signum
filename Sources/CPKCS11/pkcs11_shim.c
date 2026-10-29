@@ -350,6 +350,7 @@ static int find_one(SGContext *ctx, CK_SESSION_HANDLE session, CK_OBJECT_CLASS k
     CK_RV end = ctx->api->C_FindObjectsFinal(session);
     if (rv != CKR_OK) return failed(error, size, "C_FindObjects", rv);
     if (end != CKR_OK) return failed(error, size, "C_FindObjectsFinal", end);
+    if (found > 1) return invalid(error, size, "C_FindObjects count exceeds requested capacity");
     if (!found) return invalid(error, size, "Matching object not found");
     return 0;
 }
@@ -373,6 +374,7 @@ static int sg_certificates_impl(SGContext *ctx, unsigned long slot, SGCertificat
         CK_ULONG found = 0;
         rv = ctx->api->C_FindObjects(session, &object, 1, &found);
         if (rv != CKR_OK) { status = failed(error, error_size, "C_FindObjects", rv); break; }
+        if (found > 1) { status = invalid(error, error_size, "C_FindObjects count exceeds requested capacity"); break; }
         if (!found) break;
         if (*count >= capacity) { status = invalid(error, error_size, "Too many certificates for output buffer"); break; }
         SGCertificate *cert = &out[*count];
