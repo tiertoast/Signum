@@ -1,0 +1,10 @@
+# Local third-party notice provenance
+
+These texts are copied verbatim from local inputs, without network retrieval. This inventory is technical evidence, not a legal opinion or authorization to distribute.
+
+- XMLSec 1.3.12: complete Copyright (7333 bytes), from the installed Homebrew libxmlsec1 1.3.12_1 package and independently identical cached bottle. The local formula identifies the same upstream source archive SHA256 24045199af12d93fe5fdbbbf7e386e823e4842071e9432e2b90ac108b889a923 as the private native recipe. Homebrew patches its own loader/backend build; its binaries are not substituted for the product prefix. Only the upstream Copyright text is copied. The former 55-byte COPYING referral is replaced, not used as the notice body.
+- Other notice texts: private native prefix share/signum-notices, whose native metadata declares OpenSSL3.5.6, PoDoFo1.1.2, FreeType2.13.3, libxml2 2.15.4. Their exact bytes are pinned in scripts/third-party-notices.json.
+- PoDoFo headers explicitly identify LGPL-2.0-or-later OR MPL-2.0. Both supplied texts remain present. No alternative is selected by this inventory. Embedded PDFium/numerics/fonts and FreeType notices are retained. Independent revisions of those embedded sources, source modifications and binary-source correspondence are not fully attested by installed headers/notices.
+- The complete source archives and the distribution/source-access decision are separate requirements. A private Signum repository link alone is not a recipient source-access mechanism. See the PoDoFo dossier when available. FreeType product-specific acknowledgment remains finding S17, outside this phase’s authorized fixes.
+
+The catalog maps actual non-system Mach-O dependencies to these texts and rejects unknown libraries, version mismatches, missing files, referrals and changed notice bytes. It does not establish legal compliance, identify all upstream file-level licenses, or qualify the final app/DMG.

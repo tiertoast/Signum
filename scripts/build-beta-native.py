@@ -143,7 +143,7 @@ def build(output, cmake, trust=False):
                 "PoDoFo-LiberaLean.txt": "podofo-1.1.2/src/podofo/private/LiberaLean/LICENSE.txt",
                 "PoDoFo-Foxit.txt": "podofo-1.1.2/src/podofo/private/FoxitFonts/COPYING.txt"}
     if trust:
-        licenses.update({"libxml2.txt": ARCHIVES["libxml2"][1] + "/Copyright", "xmlsec.txt": ARCHIVES["xmlsec"][1] + "/COPYING"})
+        licenses.update({"libxml2.txt": ARCHIVES["libxml2"][1] + "/Copyright", "xmlsec.txt": ARCHIVES["xmlsec"][1] + "/Copyright"})
     for name, source in licenses.items():
         (notices / name).write_bytes((sources / source).read_bytes())
     (prefix / "signum-native-build.json").write_text(json.dumps({

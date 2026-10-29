@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -115,6 +116,19 @@ def private_dependency(ref, prefix):
     if prefix not in path.parents:
         raise ValueError("Dependency outside the private native prefix: " + ref)
     return path
+
+
+def install_notices(resources, prefix, binaries):
+    """Use the same checked notice material for existing and rebuilt prefixes."""
+    spec = importlib.util.spec_from_file_location("notices_contract", REPO/"scripts/notices_contract.py")
+    contract = importlib.util.module_from_spec(spec); spec.loader.exec_module(contract)
+    catalog = json.loads((REPO/"scripts/third-party-notices.json").read_text())
+    native = json.loads((prefix/"signum-native-build.json").read_text())
+    proof = contract.audit(binaries, prefix, REPO/"Resources/Notices", native, catalog)
+    shutil.copytree(REPO/"Resources/Notices", resources/"Notices")
+    shutil.copyfile(REPO/"scripts/third-party-notices.json", resources/"ThirdPartyNotices.json")
+    contract.check_notices(resources/"Notices",catalog,set(proof['components']),native)
+    return proof
 
 
 def compile_app_icon(destination, minimum_os):
@@ -298,7 +312,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
         info.update(compile_app_icon(app / "Contents/Resources", declared_target))
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
         icon = app / "Contents/Resources/AppIcon.icns"
-        shutil.copytree(prefix / "share/signum-notices", app / "Contents/Resources/Notices")
+        notice_proof = install_notices(app / "Contents/Resources", prefix, list(products))
         manifest = {"configuration": configuration, "architecture": "arm64",
                     "sourceCommit": run(["/usr/bin/git", "rev-parse", "HEAD"], capture=True, cwd=REPO).strip(),
                     "sourceTrackedDirty": bool(run(["/usr/bin/git", "diff", "--name-only", "HEAD"], capture=True, cwd=REPO).strip()),
