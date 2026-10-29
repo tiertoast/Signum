@@ -248,3 +248,18 @@ closure e notice. Solo dopo TUTTI i controlli e il cleanup riusciti produce
 prefix e manifest portabile. Il dossier globale e il prefix originale restano
 unattested. I risultati reali vanno letti al checkpoint prima di selezionare
 il nuovo kit per il candidato; non si indebolisce il gate di packaging.
+
+## Fase8 — selezione del kit del nuovo prefix già verificato
+
+Il run Fase7 è completato: verified-native-checkpoint,58 passi senza errori,
+integrazione1/componenti3 superati. L'adattamento di packaging legge e verifica
+manifest/summary di quel run, inventario integrale del prefix, script al commit
+registrato e proof portabile. Copia il kit attestato del prefix selezionato,
+non il dossier globale storico unattested. Il vecchio prefix non viene
+promosso né modificato. Lo stesso controllo è riapplicato prima del bundle.
+
+Il candidato include NATIVE_BUILD_PROVENANCE.json e gli archivi verificati,
+SOURCE_ACCESS.md, licenze/notice e STATUS.json del kit selezionato. Un audit
+sull'app confronta questi file con gli hash del run nativo, controlla i materiali
+XSD realmente impacchettati e la licenza Signum. Il gate pubblico generale e
+la qualificazione dell'artefatto restano distinti dal checkpoint nativo.

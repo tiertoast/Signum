@@ -118,6 +118,15 @@ def private_dependency(ref, prefix):
     return path
 
 
+def source_materials(prefix):
+    native = json.loads((Path(prefix) / 'signum-native-build.json').read_text())
+    if 'phase7Controlled' in native:
+        spec = importlib.util.spec_from_file_location('native_profile_contract', REPO/'scripts/native_profile_contract.py')
+        contract = importlib.util.module_from_spec(spec); spec.loader.exec_module(contract)
+        return contract.validate(prefix, REPO)
+    return REPO/'Resources/ThirdPartySources', None
+
+
 def install_notices(resources, prefix, binaries):
     """Use the same checked notice material for existing and rebuilt prefixes."""
     spec = importlib.util.spec_from_file_location("notices_contract", REPO/"scripts/notices_contract.py")
@@ -130,7 +139,7 @@ def install_notices(resources, prefix, binaries):
     contract.check_notices(resources/"Notices",catalog,set(proof['components']),native)
     source_spec = importlib.util.spec_from_file_location("podofo_source_contract", REPO/"scripts/podofo_source_contract.py")
     source_contract = importlib.util.module_from_spec(source_spec); source_spec.loader.exec_module(source_contract)
-    source_root = REPO/"Resources/ThirdPartySources"
+    source_root, provenance = source_materials(prefix)
     dossier = json.loads((source_root/"podofo.json").read_text())
     source_status = source_contract.check(dossier, proof, native, source_root)
     shutil.copytree(source_root, resources/"ThirdPartySources")
@@ -215,11 +224,12 @@ def distribution_prerequisites(prefix):
         schemas = load('schema_license_contract').check(REPO, json.loads((REPO / 'scripts/schema-license-catalog.json').read_text()))
         blockers.extend('Original schema license missing: ' + x for x in schemas['unresolvedLicenses'])
         result['schemas'] = schemas
-        root = REPO / 'Resources/ThirdPartySources'
+        root, provenance = source_materials(prefix)
+        if provenance: result['nativeProvenance'] = provenance
         dossier = load('podofo_source_contract').check(json.loads((root / 'podofo.json').read_text()),
                     {'components': list(catalog['components'])}, native, root)
         result['podofo'] = dossier; blockers.extend(dossier['pending'])
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         blockers.append(str(error))
     result['ready'] = not blockers
     return result
@@ -430,6 +440,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
         icon = app / "Contents/Resources/AppIcon.icns"
         notice_proof = install_notices(app / "Contents/Resources", prefix, list(products))
         if public_beta:
+            shutil.copyfile(REPO / 'LICENSE', app / 'Contents/Resources/Signum-LICENSE.txt')
             shutil.copyfile(REPO / 'scripts/schema-license-catalog.json', app / 'Contents/Resources/SchemaLicenseCatalog.json')
             shutil.copyfile(REPO / 'Sources/SignumTrustAuthentication/Schemas/PROVENANCE.md', app / 'Contents/Resources/SchemaProvenance.md')
         manifest = {"configuration": configuration, "architecture": "arm64",
