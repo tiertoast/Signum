@@ -128,6 +128,14 @@ def install_notices(resources, prefix, binaries):
     shutil.copytree(REPO/"Resources/Notices", resources/"Notices")
     shutil.copyfile(REPO/"scripts/third-party-notices.json", resources/"ThirdPartyNotices.json")
     contract.check_notices(resources/"Notices",catalog,set(proof['components']),native)
+    source_spec = importlib.util.spec_from_file_location("podofo_source_contract", REPO/"scripts/podofo_source_contract.py")
+    source_contract = importlib.util.module_from_spec(source_spec); source_spec.loader.exec_module(source_contract)
+    source_root = REPO/"Resources/ThirdPartySources"
+    dossier = json.loads((source_root/"podofo.json").read_text())
+    source_status = source_contract.check(dossier, proof, native, source_root)
+    shutil.copytree(source_root, resources/"ThirdPartySources")
+    shutil.copyfile(REPO/"docs/PODOFO_SOURCE_DOSSIER.md", resources/"ThirdPartySources/DOSSIER.md")
+    (resources/"ThirdPartySources/STATUS.json").write_text(json.dumps(source_status, indent=2)+"\n")
     return proof
 
 
