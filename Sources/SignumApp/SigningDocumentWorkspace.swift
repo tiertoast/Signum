@@ -30,7 +30,7 @@ extension SignumWindow {
                             Spacer(minLength: 4)
                             Text(BatchWorkspaceSummary.status(entry.state)).font(.caption).foregroundStyle(.secondary)
                             SessionRemovalButton(name: entry.snapshot.originalURL.lastPathComponent,
-                                disabled: !canRemoveSessionDocuments) { removeSessionDocument(entry.id) }
+                                disabled: !canRemoveSessionDocuments || !batch.canRemove(entry.id)) { removeSessionDocument(entry.id) }
                         }.accessibilityElement(children: .contain)
                             .accessibilityAction(named: Text("Rimuovi dalla sessione")) {
                                 withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .default) {
@@ -41,7 +41,6 @@ extension SignumWindow {
                     }
                 }.listStyle(.plain)
                     .frame(height: CGFloat(min(batch.documents.count, 3) * 30 + 8))
-                    .disabled(batch.isRunning || interaction.isSubmittingPIN)
                     .accessibilityIdentifier("signum.document-list")
                 Divider()
                 if let entry = selectedDocument {

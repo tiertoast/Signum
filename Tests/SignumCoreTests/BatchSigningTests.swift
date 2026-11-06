@@ -76,7 +76,12 @@ import CoreGraphics
             XCTAssertNotEqual(plan.jobs[0].destination, existing)
             XCTAssertEqual(try String(contentsOf: existing), "PRESERVE")
             batch.remove(batch.documents[0].id)
-            XCTAssertEqual(batch.documents.count, 2) // Frozen list cannot be edited.
+            XCTAssertEqual(batch.documents.count, 1)
+            XCTAssertFalse(batch.isApproved); XCTAssertFalse(batch.isFrozen)
+            XCTAssertNil(batch.review)
+            XCTAssertEqual(batch.approval?.jobs.map(\.id), plan.jobs.map(\.id)) // The old plan itself stays immutable.
+            XCTAssertThrowsError(try batch.confirm(plan))
+            XCTAssertEqual(try String(contentsOf: existing), "PRESERVE")
         }
     }
     func testFailureOnSecondDoesNotAdvanceOrCorruptFirstOrThird() async throws {

@@ -34,7 +34,7 @@ public struct SigningJob: Sendable {
         self.counterSignatureKey = counterSignatureKey
         if effectiveFormat == .cadesCoSign || effectiveFormat == .cadesCounterSign {
             let container=try CAdESAdvanced.Container(snapshot.approvedBytes)
-            guard container.document != nil else { throw SignumError.module("Serve una busta CMS attached DER.") }
+            guard container.document != nil else { throw SignumError.module("Serve una busta CMS attached supportata.") }
             if effectiveFormat == .cadesCounterSign {
                 guard let key=counterSignatureKey,try container.targets().contains(where:{$0.signatureKey==key}) else { throw SignumError.module("Seleziona esplicitamente la firma da controfirmare.") }
             }

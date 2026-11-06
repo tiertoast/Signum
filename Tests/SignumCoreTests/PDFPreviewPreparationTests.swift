@@ -135,5 +135,46 @@ import PDFKit
         work.cancel()
         do { _ = try await work.value; XCTFail("Cancelled preview published") } catch {}
     }
+    func testNativePreviewCopyKeepsVerifiedBytesAndPrivateReadOnlyPermissions() throws {
+        let root = try FixtureFiles.directory("native-preview")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bytes = try pdf(), source = root.appendingPathComponent("original.pdf")
+        try bytes.write(to: source)
+        let helper = try XCTUnwrap(ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"])
+        let report = try SignumVerificationService.verify(file: source, helper: URL(fileURLWithPath: helper))
+        try Data("source changed after verification".utf8).write(to: source)
+        let copy = try VerifiedPDFPreview.prepare(report, root: root)
+        XCTAssertEqual(try Data(contentsOf: copy), bytes)
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: copy.path)[.posixPermissions] as? NSNumber)?.intValue, 0o400)
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: copy.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+        XCTAssertEqual(try Data(contentsOf: source), Data("source changed after verification".utf8))
+        VerifiedPDFPreview.retire(copy)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path))
+    }
+    func testNativePreviewExtractsVerifiedAttachedPDFAndRejectsMisleadingContent() throws {
+        let root = try FixtureFiles.directory("attached-native-preview")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bytes = try pdf(), signer = try SoftwareSigner(folder: root)
+        let cms = try signer.cms(for: bytes), source = root.appendingPathComponent("original.p7m")
+        try cms.write(to: source)
+        let helper = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["SIGNUM_TEST_PADES_HELPER"]))
+        let report = try SignumVerificationService.verify(file: source, helper: helper)
+        XCTAssertEqual(report.integrity, .verified)
+        let copy = try VerifiedPDFPreview.prepare(report, root: root)
+        defer { VerifiedPDFPreview.retire(copy) }
+        XCTAssertEqual(try Data(contentsOf: copy), bytes); XCTAssertEqual(try Data(contentsOf: source), cms)
+        for candidate in [nil, Data("%PDF-not-a-document".utf8)] as [Data?] {
+            let invalid = VerificationReport(id: UUID(), documentName: "misleading.pdf.p7m", sha256: "synthetic", format: .pades,
+                signatures: [], documentState: "unsigned", issue: "", previewPDF: candidate, originalContent: nil)
+            XCTAssertThrowsError(try VerifiedPDFPreview.prepare(invalid, root: root))
+        }
+        XCTAssertThrowsError(try VerifiedPDFPreview.prepare(report.withoutPreview(), root: root))
+        let outside = root.appendingPathComponent("outside"); try Data("keep".utf8).write(to: outside)
+        let trap = root.appendingPathComponent(".signum-verified-preview-symlink")
+        try FileManager.default.createSymbolicLink(at: trap, withDestinationURL: root)
+        VerifiedPDFPreview.retire(trap.appendingPathComponent("documento.pdf"))
+        XCTAssertEqual(try Data(contentsOf: outside), Data("keep".utf8))
+    }
+
 }
 #endif

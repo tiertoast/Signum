@@ -48,6 +48,10 @@ enum VerificationDropLoader {
         try SignumVerificationService.verify(file: url, isCancelled: { control.isCancellationRequested })
     }
     private func updateActivity() { busy = !tasks.isEmpty; acquiring = acquisitionCount > 0 }
+    /// Retire the generation when neither rows nor pending acquisitions need it.
+    private func retireIfEmpty() {
+        if rows.isEmpty, acquisitionCount == 0 { cancel() }
+    }
     /// Explicit cancellation stops this generation, preserving completed results.
     /// Late acquisitions/verifiers cannot append or mutate a newer generation.
     func cancel() {
@@ -63,11 +67,12 @@ enum VerificationDropLoader {
     }
     func reset() { cancel(); rows = []; selectedDocument = nil; issue = "" }
     @discardableResult func remove(_ id: UUID) -> Bool {
-        guard !busy, !acquiring, let index = rows.firstIndex(where: { $0.id == id }) else { return false }
+        guard let index = rows.firstIndex(where: { $0.id == id }) else { return false }
         rows.remove(at: index)
         if selectedDocument == id || !rows.contains(where: { $0.id == selectedDocument }) {
             selectedDocument = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
         }
+        retireIfEmpty()
         return true
     }
     @discardableResult func acquire(using load: @escaping @MainActor () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
@@ -82,7 +87,7 @@ enum VerificationDropLoader {
             defer {
                 if request == generation {
                     if loading { acquisitionCount -= 1 }
-                    tasks[id] = nil; updateActivity()
+                    tasks[id] = nil; retireIfEmpty(); updateActivity()
                 }
             }
             let files = await load()
@@ -96,7 +101,8 @@ enum VerificationDropLoader {
         return task
     }
     /// Every entry has its own UUID and verifier closure (including detached
-    /// original). Serial tasks append; only cancel/reset invalidate a generation.
+    /// original). Serial tasks append; cancellation, reset or empty-session removal
+    /// invalidate a generation.
     @discardableResult func start(_ files: [URL], using verifier: Verifier? = nil) -> Task<Void,Never> {
         var seen = Set<String>()
         let urls = files.filter { $0.isFileURL && seen.insert($0.standardizedFileURL.path).inserted }
@@ -149,8 +155,8 @@ enum VerificationDropLoader {
             let work = Task.detached(priority: .userInitiated) { Result { try verifier(entry.sourceURL, control) } }
             let result = await withTaskCancellationHandler(operation: { await work.value },
                 onCancel: { control.requestCancellation(); work.cancel() })
-            guard request == id, !Task.isCancelled, !control.isCancellationRequested,
-                  let index = rows.firstIndex(where: { $0.id == entry.id }) else { return }
+            guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+            guard let index = rows.firstIndex(where: { $0.id == entry.id }) else { continue }
             switch result {
             case .success(var report):
                 let count = report.originalContent?.count ?? report.previewPDF?.count ?? 0
@@ -166,7 +172,9 @@ enum VerificationDropLoader {
                 let cacheURL = FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask).first?.appendingPathComponent(identity).appendingPathComponent("Revocation")
                 let service = SignatureQualificationService(cache:cacheURL.map { RevocationEvidenceCache(directory:$0) })
                 let online = await european?.networkAllowed() ?? true
-                let observedAt=validationClock();rows[index].verificationDate=observedAt
+                guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
+                guard let current = rows.firstIndex(where: { $0.id == entry.id }) else { continue }
+                let observedAt=validationClock();rows[current].verificationDate=observedAt
                 let assessment = Task.detached(priority: .utility) {
                     if let european {
                         let result = await service.validate(assessmentReport, catalog: european.europeanService, mode: online ? .online : .offline, observedAt: observedAt, evaluationMode: .bestAvailable,
@@ -179,12 +187,14 @@ enum VerificationDropLoader {
                 }
                 let values = await withTaskCancellationHandler(operation: { await assessment.value }, onCancel: { assessment.cancel() })
                 guard request == id, !Task.isCancelled, !control.isCancellationRequested else { return }
-                rows[index].verificationDate = values.first?.qualification.verificationDate ?? observedAt
-                rows[index].paths = Dictionary(values.map { ($0.signatureID,$0.path) },uniquingKeysWith:{ a,_ in a })
-                rows[index].validations = Dictionary(values.map { ($0.signatureID,$0) },uniquingKeysWith:{ a,_ in a })
+                // Removal may shift every array index while assessment is suspended.
+                guard let current = rows.firstIndex(where: { $0.id == entry.id }) else { continue }
+                rows[current].verificationDate = values.first?.qualification.verificationDate ?? observedAt
+                rows[current].paths = Dictionary(values.map { ($0.signatureID,$0.path) },uniquingKeysWith:{ a,_ in a })
+                rows[current].validations = Dictionary(values.map { ($0.signatureID,$0) },uniquingKeysWith:{ a,_ in a })
             case .failure(let error): rows[index].issue = error.localizedDescription
             }
-            rows[index].finished = true
+            if let current = rows.firstIndex(where: { $0.id == entry.id }) { rows[current].finished = true }
         }
     }
 }
@@ -193,7 +203,7 @@ struct UnifiedVerificationPane: View {
     @StateObject private var workspace: VerificationWorkspace
     init(catalog: (any TrustedListCatalogProviding)? = nil, workspace: VerificationWorkspace? = nil) { _workspace = StateObject(wrappedValue: workspace ?? VerificationWorkspace(catalog: catalog)) }
     @State private var targeted = false
-    @State private var preview: VerificationReport?
+    @State private var openingPreview = false
     @State private var extractionIssue = ""
     @State private var exporting = false
     @State private var selectedSignature: Int?
@@ -248,7 +258,6 @@ struct UnifiedVerificationPane: View {
         .contentShape(Rectangle())
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $targeted, perform: drop)
         .background(targeted ? Color.accentColor.opacity(0.06) : Color.clear)
-        .sheet(item: $preview) { report in VerificationPDFPreview(report: report) }
         .onChange(of: workspace.rows.map(\.id)) { ids in
             if !ids.contains(where: { $0 == workspace.selectedDocument }) { workspace.selectedDocument = ids.first; selectedSignature = nil; detailsExpanded = false }
         }
@@ -297,7 +306,7 @@ struct UnifiedVerificationPane: View {
                             Text(workspace.busy && !row.finished ? (row.started ? "In verifica…" : "In coda…") : "Non disponibile")
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        SessionRemovalButton(name: row.name, disabled: workspace.busy || exporting) {
+                        SessionRemovalButton(name: row.name, disabled: exporting) {
                             if workspace.remove(row.id) { extractionIssue = "" }
                         }
                     }.accessibilityElement(children: .contain)
@@ -388,7 +397,10 @@ struct UnifiedVerificationPane: View {
                     Button("PDF…") { exportReport(row, format: .pdf) }
                     Button("Testo (.txt)…") { exportReport(row, format: .text) }
                 }.disabled(exporting || workspace.busy || row.verificationDate == nil)
-                if report.previewPDF != nil { Button("Anteprima PDF") { preview = report } }
+                if report.previewPDF != nil {
+                    Button("Apri in Anteprima") { openPreview(report) }.disabled(openingPreview)
+                        .help("Apre una copia temporanea del contenuto esaminato. La visualizzazione non costituisce verifica della firma.")
+                }
                 if report.originalContent != nil {
                     Button("Estrai originale…") { extract(report) }.disabled(exporting || workspace.busy || report.integrity != .verified)
                 }
@@ -451,6 +463,17 @@ struct UnifiedVerificationPane: View {
             case .failure(let error):extractionIssue=error.localizedDescription}
         }
     }
+    private func openPreview(_ report: VerificationReport) {
+        guard !openingPreview else { return }
+        openingPreview = true
+        Task {
+            defer { openingPreview = false }
+            do {
+                try await VerifiedPDFPreview.open(report)
+                extractionIssue = ""
+            } catch { extractionIssue = error.localizedDescription }
+        }
+    }
     private func extract(_ report: VerificationReport) {
         guard !exporting, report.integrity == .verified, let content = report.originalContent else { return }
         let chooser = NSSavePanel(); chooser.title = "Estrai il contenuto verificato"
@@ -477,37 +500,4 @@ struct UnifiedVerificationPane: View {
     }
 }
 
-/// PDFKit renders a static page thumbnail: no link, JavaScript, attachment or
-/// document action can be clicked. The source is immutable in-memory data.
-private struct VerificationPDFPreview: View {
-    let report: VerificationReport
-    @Environment(\.dismiss) private var dismiss
-    @State private var thumbnail: NSImage?
-    @State private var pageCount = 0
-    @State private var previewIssue = ""
-    @State private var page = 0
-    var body: some View {
-        VStack(alignment: .leading) {
-            HStack { Text(report.documentName).font(.headline); Spacer(); Button("Chiudi") { dismiss() } }
-            if pageCount > 0 {
-                Picker("Pagina", selection: $page) { ForEach(0..<min(1000, pageCount), id: \.self) { Text("\($0+1)").tag($0) } }
-            }
-            if let thumbnail {
-                Image(nsImage: thumbnail).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if previewIssue.isEmpty { ProgressView("Preparazione anteprima…") }
-            else { Text(previewIssue) }
-            Text("Sola lettura · l'immagine della pagina non costituisce verifica crittografica.").font(.caption)
-        }.padding().frame(width: 780, height: 680)
-        .task(id: page) {
-            thumbnail = nil; previewIssue = ""
-            guard let bytes = report.previewPDF else { previewIssue = "Anteprima PDF non disponibile."; return }
-            do {
-                let prepared = try await PDFPreviewPreparation.page(bytes, index: page)
-                try Task.checkCancellation()
-                pageCount = prepared.pageCount; thumbnail = NSImage(data: prepared.png)
-                if thumbnail == nil { previewIssue = "Anteprima PDF non disponibile." }
-            } catch { if !Task.isCancelled { previewIssue = error.localizedDescription } }
-        }
-    }
-}
 #endif
