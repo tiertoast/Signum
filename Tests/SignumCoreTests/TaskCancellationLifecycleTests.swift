@@ -21,7 +21,7 @@ import Darwin
         let root = try FixtureFiles.directory("task-lifecycle")
         defer { try? FileManager.default.removeItem(at: root) }
         let signer = try SoftwareSigner(folder: root)
-        let mock = try MockModule(certificate: signer.der, privateKey: signer.rsaPrivateDER(), workerPhase: blocked ? 16 : nil, workerEffect: blocked ? 2 : 0, audit: true)
+        let mock = try MockModule(certificate: signer.der, privateKey: signer.rsaPrivateDER(), workerPhase: blocked ? 16 : nil, workerEffect: blocked ? 9 : 0, audit: true)
         let certificate = try XCTUnwrap(worker.certificates(provider: mock.path.path, slot: 7).first)
         try CertificateEligibility.requireEligible(certificateDER: certificate.der)
         let files = try (1...3).map { index -> URL in
@@ -50,6 +50,43 @@ import Darwin
             while !open { guard condition.wait(until: deadline) else { throw SupervisedProcess.Failure.timeout } }
         }
         func release() { condition.lock(); open = true; condition.broadcast(); condition.unlock() }
+    }
+    /// Cross-process checkpoint, independent of filesystem notification delivery.
+    /// The worker acknowledges an armed gate; nobody writes its release FIFO.
+    private final class BlockedWorkerCheckpoint: @unchecked Sendable {
+        private let ready: Int32
+        private let gate: Int32
+        init(_ mock: MockModule) throws {
+            let base = mock.folder.appendingPathComponent("operations").path
+            guard mkfifo(base + ".sign-ready", 0o600) == 0,
+                  mkfifo(base + ".sign-gate", 0o600) == 0 else { throw POSIXError(.EIO) }
+            let ready = open(base + ".sign-ready", O_RDWR | O_NONBLOCK | O_CLOEXEC)
+            let gate = open(base + ".sign-gate", O_RDWR | O_NONBLOCK | O_CLOEXEC)
+            guard ready >= 0, gate >= 0 else {
+                if ready >= 0 { close(ready) }; if gate >= 0 { close(gate) }
+                throw POSIXError(.EIO)
+            }
+            self.ready = ready; self.gate = gate
+        }
+        deinit { close(ready); close(gate) }
+        func wait(timeout: TimeInterval) throws -> pid_t {
+            let deadline = ProcessInfo.processInfo.systemUptime + timeout
+            while true {
+                let remaining = deadline - ProcessInfo.processInfo.systemUptime
+                guard remaining > 0 else { throw SupervisedProcess.Failure.timeout }
+                var descriptor = pollfd(fd: ready, events: Int16(POLLIN), revents: 0)
+                let result = poll(&descriptor, 1, Int32(ceil(remaining * 1000)))
+                if result < 0 && errno == EINTR { continue }
+                guard result > 0, descriptor.revents & Int16(POLLIN) != 0 else {
+                    throw SupervisedProcess.Failure.timeout
+                }
+                var pid: pid_t = 0
+                let count = withUnsafeMutableBytes(of: &pid) { read(ready, $0.baseAddress, $0.count) }
+                if count < 0 && errno == EINTR { continue }
+                guard count == MemoryLayout<pid_t>.size, pid > 0 else { throw SupervisedProcess.Failure.protocolViolation }
+                return pid
+            }
+        }
     }
     func testFixtureSignsApprovedBytesWithoutCancellation() async throws {
         try await repeated {
@@ -161,36 +198,56 @@ import Darwin
     private func blockedWorker(cancelParent: Bool) async throws {
         try await repeated("blockedWorker(cancelParent: \(cancelParent))") {
             try await fixture(blocked: true) { batch, plan, mock in
-                // The append audit is flushed immediately before the mock blocks in C_Sign.
-                let file = mock.folder.appendingPathComponent("operations")
-                let descriptor = open(file.path, O_EVTONLY)
-                XCTAssertGreaterThanOrEqual(descriptor, 0)
-                guard descriptor >= 0 else { return }
-                let reached = expectation(description: "worker entered C_Sign")
-                let delivered = FixtureLocked(false)
-                let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: .write, queue: .global())
-                source.setEventHandler {
-                    let lines = (try? String(contentsOf: file)) ?? ""
-                    if lines.split(separator: "\n").contains("16"), delivered.withValue({ value in if value { return false }; value = true; return true }) { reached.fulfill() }
-                }
-                source.setCancelHandler { close(descriptor) }; source.resume()
-                defer { source.cancel() }
+                let checkpoint = try BlockedWorkerCheckpoint(mock)
+                defer { withExtendedLifetime(checkpoint) {} }
+                let observed = FixtureLocked<(operation: SigningOperation, started: TimeInterval)?>(nil)
                 let worker = worker
                 let task = Task { try await batch.authorizeNext(pin: "synthetic-fixture") { job, pin, operation in
+                    observed.withValue { $0 = (operation, ProcessInfo.processInfo.systemUptime) }
                     try job.signCAdES(using: worker, pin: pin, operation: operation, timeout: 3)
                 } }
-                await fulfillment(of: [reached], timeout: 5)
-                let pid = try XCTUnwrap((try? String(contentsOf: mock.folder.appendingPathComponent("operations.pid"))).flatMap(Int32.init))
+                // Even a broken/late checkpoint drains the owned work before
+                // the fixture removes its provider and approved snapshots.
+                let pid: pid_t
+                do { pid = try await Task.detached { try checkpoint.wait(timeout: 2) }.value }
+                catch { task.cancel(); batch.cancelAll(); _ = try? await task.value; throw error }
+                let owned = try XCTUnwrap(observed.withValue { $0 })
+                let operation = owned.operation
+                XCTAssertEqual(audit(mock, 16), 1)
+                XCTAssertEqual(kill(pid, 0), 0)
+                XCTAssertTrue(batch.isRunning); XCTAssertTrue(batch.activeOperation === operation)
+                XCTAssertEqual(operation.state, .signing)
+                XCTAssertTrue(operation.hasRequestedPrivateOperation)
+                XCTAssertFalse(operation.isCancellationRequested)
                 if cancelParent { task.cancel() } else { batch.cancelAll() }
+                XCTAssertEqual(task.isCancelled, cancelParent)
+                // This starts before SupervisedProcess establishes its deadline;
+                // a delayed test cannot pass by cancelling after worker timeout.
+                XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - owned.started, 3)
+                XCTAssertTrue(operation.isCancellationRequested)
                 XCTAssertTrue(batch.activeOperation?.isCancellationRequested == true)
-                // Drain baseline red safely; the assertion above precedes this cleanup.
-                if batch.activeOperation?.isCancellationRequested != true { batch.cancelAll() }
+                if !operation.isCancellationRequested { batch.cancelAll() }
+                let cancelledAt = ProcessInfo.processInfo.systemUptime
                 try await task.value
+                XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - cancelledAt, 2.5)
                 XCTAssertEqual(kill(pid, 0), -1); XCTAssertEqual(errno, ESRCH)
                 XCTAssertTrue(batch.needsOutcomeReview); XCTAssertEqual(batch.documents[0].state, .uncertain)
+                XCTAssertEqual(operation.state, .outcomeUncertain)
+                XCTAssertFalse(batch.isRunning); XCTAssertNil(batch.activeOperation)
+                XCTAssertFalse(batch.isContinuingAuthenticated)
+                XCTAssertEqual(batch.approval?.id, plan.id)
+                let subsequentCalls = FixtureLocked(0)
+                do {
+                    try await batch.authorizeNext(pin: "synthetic-fixture") { _, _, _ in subsequentCalls.withValue { $0 += 1 } }
+                    XCTFail("An uncertain private outcome must prevent another authorization")
+                } catch { XCTAssertTrue(error is SignumError) }
+                XCTAssertEqual(subsequentCalls.withValue { $0 }, 0)
+                XCTAssertEqual(audit(mock, 8), 1)
                 XCTAssertEqual(audit(mock, 16), 1)
+                XCTAssertTrue(batch.documents.dropFirst().allSatisfy { $0.state != .completed && $0.state != .signing })
                 XCTAssertFalse(plan.jobs.contains { FileManager.default.fileExists(atPath: $0.destination.path) })
                 batch.cancelPending()
+                XCTAssertEqual(batch.documents.map(\.state), [.uncertain, .cancelled, .cancelled])
             }
         }
     }
