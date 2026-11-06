@@ -48,6 +48,10 @@ enum VerificationDropLoader {
         try SignumVerificationService.verify(file: url, isCancelled: { control.isCancellationRequested })
     }
     private func updateActivity() { busy = !tasks.isEmpty; acquiring = acquisitionCount > 0 }
+    /// Retire the generation when neither rows nor pending acquisitions need it.
+    private func retireIfEmpty() {
+        if rows.isEmpty, acquisitionCount == 0 { cancel() }
+    }
     /// Explicit cancellation stops this generation, preserving completed results.
     /// Late acquisitions/verifiers cannot append or mutate a newer generation.
     func cancel() {
@@ -68,6 +72,7 @@ enum VerificationDropLoader {
         if selectedDocument == id || !rows.contains(where: { $0.id == selectedDocument }) {
             selectedDocument = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
         }
+        retireIfEmpty()
         return true
     }
     @discardableResult func acquire(using load: @escaping @MainActor () async -> [URL], verifier: Verifier? = nil) -> Task<Void,Never> {
@@ -82,7 +87,7 @@ enum VerificationDropLoader {
             defer {
                 if request == generation {
                     if loading { acquisitionCount -= 1 }
-                    tasks[id] = nil; updateActivity()
+                    tasks[id] = nil; retireIfEmpty(); updateActivity()
                 }
             }
             let files = await load()
@@ -96,7 +101,8 @@ enum VerificationDropLoader {
         return task
     }
     /// Every entry has its own UUID and verifier closure (including detached
-    /// original). Serial tasks append; only cancel/reset invalidate a generation.
+    /// original). Serial tasks append; cancellation, reset or empty-session removal
+    /// invalidate a generation.
     @discardableResult func start(_ files: [URL], using verifier: Verifier? = nil) -> Task<Void,Never> {
         var seen = Set<String>()
         let urls = files.filter { $0.isFileURL && seen.insert($0.standardizedFileURL.path).inserted }
@@ -464,7 +470,7 @@ struct UnifiedVerificationPane: View {
             defer { openingPreview = false }
             do {
                 try await VerifiedPDFPreview.open(report)
-                extractionIssue = "Copia aperta in Anteprima. La visualizzazione non costituisce verifica della firma."
+                extractionIssue = ""
             } catch { extractionIssue = error.localizedDescription }
         }
     }

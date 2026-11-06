@@ -72,6 +72,104 @@ import Security
         XCTAssertEqual(workspace.rows[0].report?.id, detached.report?.id)
         XCTAssertEqual(workspace.rows[0].report?.originalContent, original)
     }
+    func testLastVerificationRemovalCancelsWorkAndLateCompletionCannotClearNewActivity() async throws {
+        let workspace = VerificationWorkspace(), verify = verifier
+        let entered = expectation(description: "old verification active"), release = DispatchSemaphore(value: 0)
+        let control = FixtureLocked<SigningOperation?>(nil)
+        defer { release.signal() }
+        let old = workspace.start([URL(fileURLWithPath: "/synthetic/old")]) { url, operation in
+            control.withValue { $0 = operation }; entered.fulfill()
+            XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+            return try verify(url, operation)
+        }
+        await fulfillment(of: [entered], timeout: 3)
+        XCTAssertTrue(workspace.remove(try XCTUnwrap(workspace.rows.first?.id)))
+        XCTAssertTrue(old.isCancelled); XCTAssertTrue(control.withValue { $0?.isCancellationRequested == true })
+        XCTAssertTrue(workspace.rows.isEmpty); XCTAssertNil(workspace.selectedDocument)
+        XCTAssertFalse(workspace.busy); XCTAssertFalse(workspace.acquiring)
+
+        let newEntered = expectation(description: "new verification active"), newRelease = DispatchSemaphore(value: 0)
+        defer { newRelease.signal() }
+        let next = workspace.start([URL(fileURLWithPath: "/synthetic/new")]) { url, operation in
+            newEntered.fulfill()
+            XCTAssertEqual(newRelease.wait(timeout: .now() + 5), .success)
+            XCTAssertFalse(operation.isCancellationRequested)
+            return try verify(url, operation)
+        }
+        await fulfillment(of: [newEntered], timeout: 3)
+        release.signal(); await old.value
+        XCTAssertEqual(workspace.rows.map(\.name), ["new"])
+        XCTAssertTrue(workspace.busy); XCTAssertNil(workspace.rows[0].report)
+        newRelease.signal(); await next.value
+        XCTAssertEqual(workspace.rows.map(\.name), ["new"])
+        XCTAssertTrue(workspace.rows[0].finished); XCTAssertNotNil(workspace.rows[0].report)
+        XCTAssertFalse(workspace.busy)
+    }
+    func testRemovingMultipleVerificationRowsCancelsOnlyWhenLastQueuedRowIsRemoved() async throws {
+        let workspace = VerificationWorkspace(), verify = verifier
+        let entered = expectation(description: "verification active"), release = DispatchSemaphore(value: 0)
+        let control = FixtureLocked<SigningOperation?>(nil)
+        defer { release.signal() }
+        let active = workspace.start([URL(fileURLWithPath: "/synthetic/active")]) { url, operation in
+            control.withValue { $0 = operation }; entered.fulfill()
+            XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+            return try verify(url, operation)
+        }
+        await fulfillment(of: [entered], timeout: 3)
+        let queued = workspace.start([URL(fileURLWithPath: "/synthetic/queued")]) { url, operation in
+            XCTFail("Removed queued document was verified")
+            return try verify(url, operation)
+        }
+        XCTAssertTrue(workspace.remove(workspace.rows[0].id))
+        XCTAssertTrue(workspace.busy); XCTAssertFalse(active.isCancelled)
+        XCTAssertTrue(control.withValue { $0?.isCancellationRequested == false })
+        XCTAssertTrue(workspace.remove(workspace.rows[0].id))
+        XCTAssertTrue(active.isCancelled); XCTAssertTrue(queued.isCancelled)
+        XCTAssertTrue(control.withValue { $0?.isCancellationRequested == true })
+        XCTAssertFalse(workspace.busy); XCTAssertTrue(workspace.rows.isEmpty)
+        release.signal(); await active.value; await queued.value
+        XCTAssertTrue(workspace.rows.isEmpty); XCTAssertFalse(workspace.busy)
+    }
+    func testLastVerificationRemovalPreservesAcquisitionAndRetiresWorkIfItResolvesEmpty() async throws {
+        for empty in [false, true] {
+            let workspace = VerificationWorkspace(), verify = verifier
+            let entered = expectation(description: "verification active"), release = DispatchSemaphore(value: 0)
+            let control = FixtureLocked<SigningOperation?>(nil)
+            defer { release.signal() }
+            let active = workspace.start([URL(fileURLWithPath: "/synthetic/removed")]) { url, operation in
+                control.withValue { $0 = operation }; entered.fulfill()
+                XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+                return try verify(url, operation)
+            }
+            await fulfillment(of: [entered], timeout: 3)
+            let ready = expectation(description: "acquisition pending"), drop = ControlledDrop(1, ready: ready)
+            let resolved = expectation(description: "acquisition resolved")
+            let acquisition = workspace.acquire(using: {
+                let urls = await drop.resolve(); resolved.fulfill(); return urls
+            }, verifier: verify)
+            await fulfillment(of: [ready], timeout: 3)
+            XCTAssertTrue(workspace.remove(workspace.rows[0].id))
+            XCTAssertTrue(workspace.rows.isEmpty); XCTAssertTrue(workspace.busy); XCTAssertTrue(workspace.acquiring)
+            XCTAssertFalse(active.isCancelled); XCTAssertFalse(acquisition.isCancelled)
+            XCTAssertTrue(control.withValue { $0?.isCancellationRequested == false })
+            if empty { drop.fire() } else { drop.send(0, "acquired") }
+            await fulfillment(of: [resolved], timeout: 3)
+            if empty {
+                await acquisition.value
+                XCTAssertTrue(active.isCancelled)
+                XCTAssertTrue(control.withValue { $0?.isCancellationRequested == true })
+                XCTAssertFalse(workspace.busy); XCTAssertFalse(workspace.acquiring)
+            } else {
+                XCTAssertEqual(workspace.rows.map(\.name), ["acquired"])
+                XCTAssertTrue(workspace.busy); XCTAssertFalse(workspace.acquiring)
+                XCTAssertFalse(active.isCancelled)
+            }
+            release.signal(); await active.value; await acquisition.value
+            XCTAssertEqual(workspace.rows.map(\.name), empty ? [] : ["acquired"])
+            XCTAssertTrue(workspace.rows.allSatisfy { $0.finished && $0.report != nil })
+            XCTAssertFalse(workspace.busy); XCTAssertFalse(workspace.acquiring)
+        }
+    }
     func testSigningRemovalRetiresSnapshotAndRejectsStaleApprovalWithoutDeletingFiles() async throws {
         let root = try FixtureFiles.directory("signing-removal")
         defer { try? FileManager.default.removeItem(at: root) }
