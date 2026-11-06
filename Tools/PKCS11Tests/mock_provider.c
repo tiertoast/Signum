@@ -124,6 +124,28 @@ static CK_RV begin(int op) {
 #endif
         /* Fixture teardown must never release a real private operation. */
         _exit(76);
+#elif SIGNUM_MOCK_WORKER_EFFECT == 10
+#ifdef SIGNUM_MOCK_AUDIT_PATH
+        /* M3: acknowledge a main-queue ping while still inside Initialize.
+         * No ping releases vendor work; the supervisor must time it out. */
+        char ready_path[4096], ping_path[4096];
+        snprintf(ready_path, sizeof(ready_path), "%s.main-ready", SIGNUM_MOCK_AUDIT_PATH);
+        snprintf(ping_path, sizeof(ping_path), "%s.main-ping", SIGNUM_MOCK_AUDIT_PATH);
+        int ping = open(ping_path, O_RDONLY | O_CLOEXEC);
+        int ready = open(ready_path, O_WRONLY | O_CLOEXEC);
+        if (ping < 0 || ready < 0) _exit(75);
+        pid_t pid = getpid();
+        for (;;) {
+            ssize_t count;
+            do { count = write(ready, &pid, sizeof(pid)); } while (count < 0 && errno == EINTR);
+            if (count != sizeof(pid)) _exit(75);
+            char heartbeat;
+            do { count = read(ping, &heartbeat, 1); } while (count < 0 && errno == EINTR);
+            if (count != 1 || heartbeat != 'H') _exit(76);
+        }
+#else
+        _exit(75);
+#endif
 #elif SIGNUM_MOCK_WORKER_EFFECT == 3
         raise(SIGABRT);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 4

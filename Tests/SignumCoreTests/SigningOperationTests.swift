@@ -85,16 +85,80 @@ final class SigningOperationTests: XCTestCase {
         native.recordPublished(); XCTAssertEqual(native.state, .completed)
     }
     func testMainQueueRemainsResponsiveDuringBlockedVendor() throws {
-        let mock = try MockModule(workerPhase: 0, workerEffect: 2)
+        let mock = try MockModule(workerPhase: 0, workerEffect: 10, audit: true)
+        let base = mock.folder.appendingPathComponent("operations").path
+        guard mkfifo(base + ".main-ready", 0o600) == 0,
+              mkfifo(base + ".main-ping", 0o600) == 0 else { throw POSIXError(.EIO) }
+        let ready = open(base + ".main-ready", O_RDWR | O_NONBLOCK | O_CLOEXEC)
+        let ping = open(base + ".main-ping", O_RDWR | O_NONBLOCK | O_CLOEXEC)
+        guard ready >= 0, ping >= 0 else {
+            if ready >= 0 { close(ready) }; if ping >= 0 { close(ping) }
+            throw POSIXError(.EIO)
+        }
         let done = expectation(description: "worker bounded"), heartbeat = expectation(description: "main queue responsive")
+        let submitted = ProcessInfo.processInfo.systemUptime
+        let timeline = FixtureLocked<[String: TimeInterval]>([:])
+        let workerPID = FixtureLocked<pid_t?>(nil)
+        let source = DispatchSource.makeReadSource(fileDescriptor: ready, queue: .main)
+        source.setCancelHandler { close(ready) }
+        defer { source.cancel(); close(ping) }
+        source.setEventHandler {
+            XCTAssertTrue(Thread.isMainThread)
+            var pid: pid_t = 0
+            let count = withUnsafeMutableBytes(of: &pid) { read(ready, $0.baseAddress, $0.count) }
+            guard count == MemoryLayout<pid_t>.size, pid > 0 else {
+                XCTFail("Invalid blocked-provider checkpoint"); source.cancel(); return
+            }
+            let first = workerPID.withValue { value in
+                if let previous = value { XCTAssertEqual(pid, previous); return false }
+                value = pid; return true
+            }
+            timeline.withValue { events in
+                XCTAssertNil(events["scan_return"], "Heartbeat must precede scan completion")
+                events[first ? "provider_ready_on_main" : "heartbeat_ack_on_main"] = ProcessInfo.processInfo.systemUptime
+            }
+            if first {
+                XCTAssertEqual(kill(pid, 0), 0)
+                var message: UInt8 = 72 // 'H'; only the main queue sends it.
+                XCTAssertEqual(write(ping, &message, 1), 1)
+            } else {
+                // The child can only acknowledge after this main queue has
+                // handled its readiness message. It never leaves Initialize.
+                heartbeat.fulfill(); source.cancel()
+            }
+        }
+        source.resume()
         let client = worker
         DispatchQueue.global().async {
-            do { _ = try client.scan(provider: mock.path.path, timeout: 0.3); XCTFail("Blocked provider succeeded") }
+            timeline.withValue { $0["scan_enter"] = ProcessInfo.processInfo.systemUptime }
+            do {
+                _ = try client.scan(provider: mock.path.path, timeout: 0.3, isCancelled: {
+                    // The first check precedes launch; subsequent checks run
+                    // after Process.run(), before checking the deadline.
+                    timeline.withValue { events in
+                        let now = ProcessInfo.processInfo.systemUptime
+                        if events["prelaunch_check"] == nil { events["prelaunch_check"] = now }
+                        else {
+                            if events["supervision_enter"] == nil { events["supervision_enter"] = now }
+                            events["last_deadline_check"] = now
+                        }
+                    }
+                    return false
+                })
+                XCTFail("Blocked provider succeeded")
+            }
             catch { XCTAssertEqual(error as? SupervisedProcess.Failure, .timeout) }
+            timeline.withValue { $0["scan_return"] = ProcessInfo.processInfo.systemUptime }
             done.fulfill()
         }
-        DispatchQueue.main.async { heartbeat.fulfill() }
         wait(for: [heartbeat, done], timeout: 4)
+        let pid = try XCTUnwrap(workerPID.withValue { $0 })
+        XCTAssertEqual(kill(pid, 0), -1); XCTAssertEqual(errno, ESRCH)
+        XCTAssertEqual(mock.count(0), 0) // Initialize ran only in the child.
+        let audit = try String(contentsOfFile: base, encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(audit.filter { $0 == "0" }.count, 1)
+        let events = timeline.withValue { $0 }
+        print("M3_TIMELINE seconds_since_submit " + events.keys.sorted().map { "\($0)=\(events[$0]! - submitted)" }.joined(separator: " "))
     }
     func testCLIInterruptAndParentCrashDoNotLeaveOrphanWorker() throws {
         for signalNumber in [SIGINT, SIGKILL] {
