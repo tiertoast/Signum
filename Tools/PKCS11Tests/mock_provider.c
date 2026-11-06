@@ -14,6 +14,7 @@
 #ifdef SIGNUM_MOCK_WORKER_PHASE
 #include <signal.h>
 #include <stdio.h>
+#include <errno.h>
 #endif
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
@@ -101,6 +102,28 @@ static CK_RV begin(int op) {
         usleep(50000);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 2
         for (;;) pause();
+#elif SIGNUM_MOCK_WORKER_EFFECT == 9
+#ifdef SIGNUM_MOCK_AUDIT_PATH
+        /* Cancellation checkpoint: the parent holds an unwritten FIFO open.
+         * Once acknowledged, this private request cannot proceed to signing.
+         * The production supervisor's unchanged deadline is the watchdog. */
+        char ready_path[4096], gate_path[4096];
+        snprintf(ready_path, sizeof(ready_path), "%s.sign-ready", SIGNUM_MOCK_AUDIT_PATH);
+        snprintf(gate_path, sizeof(gate_path), "%s.sign-gate", SIGNUM_MOCK_AUDIT_PATH);
+        int gate = open(gate_path, O_RDONLY | O_CLOEXEC);
+        int ready = open(ready_path, O_WRONLY | O_CLOEXEC);
+        if (gate < 0 || ready < 0) _exit(75);
+        pid_t pid = getpid();
+        ssize_t sent;
+        do { sent = write(ready, &pid, sizeof(pid)); } while (sent < 0 && errno == EINTR);
+        close(ready);
+        if (sent != sizeof(pid)) _exit(75);
+        char release;
+        while (read(gate, &release, 1) < 0 && errno == EINTR) {}
+        close(gate);
+#endif
+        /* Fixture teardown must never release a real private operation. */
+        _exit(76);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 3
         raise(SIGABRT);
 #elif SIGNUM_MOCK_WORKER_EFFECT == 4
