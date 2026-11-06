@@ -66,6 +66,10 @@ public struct BatchApproval: Sendable {
     private var reviewRequest = UUID()
     private var acquisitionID = UUID()
     private var activeID: UUID?
+    private var authorizationRevoked = false
+    public var hasRevokedAuthorization: Bool { authorizationRevoked }
+    private var removalRequests: Set<UUID> = []
+    private var pendingDocuments: [BatchDocument] { documents.filter { !$0.state.isTerminal } }
     private var provisionalWindowUncertainty: UUID?
     private var acquisitionOperation: SigningOperation?
     private var captureDocument: @Sendable (URL, SigningFormat, SigningOperation) throws -> DocumentSnapshot = {
@@ -118,9 +122,9 @@ public struct BatchApproval: Sendable {
                               appearances: [UUID: RenderedPAdESAppearance] = [:],
                               includeSigningTime: Bool = true,
                               isCancelled: @escaping @Sendable () -> Bool = { false }) async throws -> BatchApproval {
-        guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
+        guard !needsOutcomeReview, !isFrozen, !isPreparing, !pendingDocuments.isEmpty, !isRunning, !isContinuingAuthenticated else { throw Self.failure("Selezione non disponibile.") }
         invalidateReview()
-        let request = reviewRequest, version = revision, selected = documents.map(\.snapshot), padesHelper = padesHelper
+        let request = reviewRequest, version = revision, selected = pendingDocuments.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
         let counterKeys=Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.configuration.counterSignatureKey) })
         let control = SigningOperation()
@@ -153,12 +157,13 @@ public struct BatchApproval: Sendable {
 
     /// Synchronous MainActor boundary: freeze exactly the plan already displayed.
     public func freezeReview(_ value: BatchApproval) throws {
-        guard !isFrozen, !isPreparing, !isApproved, review?.id == value.id,
-              value.jobs.map(\.snapshotIdentity.id) == documents.map(\.id),
-              value.jobs.map(\.format) == documents.map(\.format),
-              documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Riepilogo non più valido. Controlla la lista aggiornata.") }
-        approval = value; isFrozen = true
-        for i in documents.indices { documents[i].destination = value.jobs[i].destination }
+        guard !needsOutcomeReview, !isFrozen, !isPreparing, !isApproved, review?.id == value.id,
+              value.jobs.map(\.snapshotIdentity.id) == pendingDocuments.map(\.id),
+              value.jobs.map(\.format) == pendingDocuments.map(\.format) else { throw Self.failure("Riepilogo non più valido. Controlla la lista aggiornata.") }
+        approval = value; isFrozen = true; authorizationRevoked = false
+        for i in documents.indices {
+            if let job = value.jobs.first(where: { $0.snapshotIdentity.id == documents[i].id }) { documents[i].destination = job.destination }
+        }
     }
 
     public var nextDocument: BatchDocument? { documents.first { !$0.state.isTerminal } }
@@ -231,14 +236,36 @@ public struct BatchApproval: Sendable {
         }
     }
 
+    public func canRemove(_ id: UUID) -> Bool {
+        !isPreparing && documents.contains { $0.id == id && $0.state != .uncertain } && !removalRequests.contains(id)
+    }
+
+    /// Revoke future consent without mutating an immutable plan or interrupting
+    /// an unrelated active job. A running removal remains visible until drained;
+    /// uncertain or already published outcomes must stay available for review.
     public func remove(_ id: UUID) {
-        guard !isFrozen, !isPreparing, !isRunning, let index = documents.firstIndex(where: { $0.id == id }) else { return }
-        invalidateReview(); revision = UUID()
-        documents.remove(at: index).snapshot.retire()
+        guard canRemove(id), let index = documents.firstIndex(where: { $0.id == id }) else { return }
+        reviewRequest = UUID(); review = nil; revision = UUID()
+        if isFrozen || isApproved {
+            authorizationRevoked = true; isApproved = false
+            for i in documents.indices where documents[i].id != activeID && !documents[i].state.isTerminal {
+                documents[i].state = .pending; documents[i].destination = nil
+            }
+            authenticationNotice = "Lista modificata. Approva nuovamente i documenti rimasti dopo l’operazione corrente."
+        }
+        if id == activeID {
+            removalRequests.insert(id)
+            activeOperation?.requestCancellation(preservingPrivateOutcome: true)
+        } else { documents.remove(at: index).snapshot.retire() }
+        finishRemovalRevocation()
+    }
+    private func finishRemovalRevocation() {
+        if authorizationRevoked && !isRunning && !isContinuingAuthenticated { isFrozen = false }
     }
     public func reset() {
         guard !isRunning, !isPreparing, !isContinuingAuthenticated else { return }
         authenticationNotice = ""
+        authorizationRevoked = false; removalRequests = []
         isFrozen = false; invalidateReview(); revision = UUID()
         documents.forEach { $0.snapshot.retire() }
         documents = []; approval = nil; selectionIssues = []; selectionTechnicalDetails = []
@@ -252,10 +279,10 @@ public struct BatchApproval: Sendable {
 
     public func prepareApproval(provider: String, slot: UInt, certificate: SignumCertificate,
                                 der: Data, destination: BatchOutputDestination = .originalFolders, includeSigningTime: Bool = true) async throws -> BatchApproval {
-        guard !isFrozen, !isPreparing, !documents.isEmpty, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Selezione non disponibile.") }
+        guard !needsOutcomeReview, !isFrozen, !isPreparing, !pendingDocuments.isEmpty, !isRunning, !isContinuingAuthenticated else { throw Self.failure("Selezione non disponibile.") }
         isFrozen = true; isPreparing = true
         let request = UUID(); acquisitionID = request
-        let selected = documents.map(\.snapshot), padesHelper = padesHelper
+        let selected = pendingDocuments.map(\.snapshot), padesHelper = padesHelper
         let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
         let counterKeys=Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.configuration.counterSignatureKey) })
         do {
@@ -271,9 +298,12 @@ public struct BatchApproval: Sendable {
                 }
                 return BatchApproval(id: UUID(), jobs: jobs)
             }.value
-            guard acquisitionID == request, documents.allSatisfy({ !$0.state.isTerminal }) else { throw Self.failure("Preparazione annullata.") }
+            guard acquisitionID == request, selected.map(\.identity.id) == pendingDocuments.map(\.id) else { throw Self.failure("Preparazione annullata.") }
             approval = prepared
-            for index in documents.indices { documents[index].destination = prepared.jobs[index].destination }
+            authorizationRevoked = false
+            for index in documents.indices {
+                if let job = prepared.jobs.first(where: { $0.snapshotIdentity.id == documents[index].id }) { documents[index].destination = job.destination }
+            }
             isPreparing = false
             return prepared
         } catch { isFrozen = false; isPreparing = false; throw error }
@@ -286,11 +316,11 @@ public struct BatchApproval: Sendable {
     }
 
     public func confirm(_ value: BatchApproval) throws {
-        guard !isApproved, let approval, value.id == approval.id, isFrozen, !isPreparing,
-              value.jobs.map(\.snapshotIdentity.id) == documents.map(\.id),
-              value.jobs.map(\.format) == documents.map(\.format) else { throw Self.failure("Riepilogo non più valido.") }
+        guard !needsOutcomeReview, !authorizationRevoked, !isRunning, !isContinuingAuthenticated, !isApproved, let approval, value.id == approval.id, isFrozen, !isPreparing,
+              value.jobs.map(\.snapshotIdentity.id) == pendingDocuments.map(\.id),
+              value.jobs.map(\.format) == pendingDocuments.map(\.format) else { throw Self.failure("Riepilogo non più valido.") }
         isApproved = true
-        if !documents.isEmpty { documents[0].state = .waitingForAuthorization }
+        if let index = documents.firstIndex(where: { !$0.state.isTerminal }) { documents[index].state = .waitingForAuthorization }
     }
     public func declineApproval() {
         guard !isApproved, !isPreparing else { return }
@@ -358,22 +388,26 @@ public struct BatchApproval: Sendable {
                 authenticationNotice = "Chiusura della sessione non confermata. Verifica il dispositivo prima di continuare."
             }
             isContinuingAuthenticated = wasContinuing
+            finishRemovalRevocation()
         }
     }
 
     /// No PIN argument or stored secret. Only a capability bound to this exact
     /// approved batch can continue; each job is verified/committed before next.
     public func continueAuthenticatedBatch(using session: BatchCAdESSession) async {
-        guard isApproved, !isRunning, !isContinuingAuthenticated, approval?.id == session.approvalID else { session.requestStop(); return }
+        guard isApproved, !isRunning, !isContinuingAuthenticated, approval?.id == session.approvalID else {
+            await retireAuthenticatedSession(using: session).value; return
+        }
         isContinuingAuthenticated = true
         await withTaskCancellationHandler(operation: {
-            while !Task.isCancelled, session.canContinue, !needsOutcomeReview, let next = nextDocument {
+            while !Task.isCancelled, isApproved, session.canContinue, !needsOutcomeReview, let next = nextDocument {
                 await executeNext(expectedDocumentID: next.id) { job, operation in try session.signCAdES(job: job, pin: nil, operation: operation) }
                 guard documents.first(where: { $0.id == next.id })?.state == .completed else { break }
             }
             await retireAuthenticatedSession(using: session).value
         }, onCancel: { session.requestStop() })
         isContinuingAuthenticated = false
+        finishRemovalRevocation()
     }
 
     private func executeNext(expectedDocumentID: UUID?, execute: @escaping @Sendable (SigningJob, SigningOperation) throws -> Void) async {
@@ -441,7 +475,11 @@ public struct BatchApproval: Sendable {
             documents[index].result = error.localizedDescription
         }
         if provisionalWindowUncertainty == next.id { provisionalWindowUncertainty = nil }
-        if let index = documents.firstIndex(where: { !$0.state.isTerminal }) { documents[index].state = .waitingForAuthorization }
+        if removalRequests.remove(next.id) != nil, documents[index].state == .cancelled, !needsOutcomeReview {
+            documents.remove(at: index).snapshot.retire(); revision = UUID()
+        }
+        if isApproved, let index = documents.firstIndex(where: { !$0.state.isTerminal }) { documents[index].state = .waitingForAuthorization }
+        finishRemovalRevocation()
     }
     private nonisolated static func failure(_ message: String) -> SignumError { .module(message) }
 }

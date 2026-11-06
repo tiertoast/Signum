@@ -1,6 +1,7 @@
 #if os(macOS)
 import XCTest
 import SwiftUI
+import Security
 @testable import SignumApp
 @testable import SignumCore
 
@@ -36,18 +37,21 @@ import SwiftUI
         await workspace.verify(files, using: verifier)
         XCTAssertEqual(workspace.selectedDocument, workspace.rows.first?.id)
     }
-    func testRemovalBlockedDuringVerificationAndAcquisition() async throws {
+    func testRemovalDuringVerificationDiscardsLateResultAndContinuesQueue() async throws {
         let workspace = VerificationWorkspace(), entered = expectation(description: "verifier entered")
         let release = DispatchSemaphore(value: 0)
-        let task = workspace.start([URL(fileURLWithPath: "/synthetic/input")]) { url, _ in
-            entered.fulfill(); _ = release.wait(timeout: .now() + 3)
+        let task = workspace.start([URL(fileURLWithPath: "/synthetic/input"), URL(fileURLWithPath: "/synthetic/next")]) { url, _ in
+            if url.lastPathComponent == "input" { entered.fulfill(); _ = release.wait(timeout: .now() + 3) }
             return .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .unknown, signatures: [], documentState: "unsupported", issue: "", previewPDF: nil, originalContent: nil)
         }
         await fulfillment(of: [entered], timeout: 2)
         let id = try XCTUnwrap(workspace.rows.first?.id)
-        XCTAssertFalse(workspace.remove(id)); XCTAssertEqual(workspace.rows.count, 1)
+        XCTAssertTrue(workspace.remove(id)); XCTAssertEqual(workspace.rows.count, 1)
         release.signal(); await task.value
-        XCTAssertTrue(workspace.remove(id))
+        XCTAssertEqual(workspace.rows.first?.name, "next")
+        XCTAssertTrue(workspace.rows.first?.finished == true)
+        XCTAssertFalse(workspace.rows.contains { $0.id == id })
+        XCTAssertTrue(workspace.remove(workspace.rows[0].id))
         let ready = expectation(description: "acquiring"), drop = ControlledDrop(1, ready: ready)
         let acquisition = workspace.acquire(using: { await drop.resolve() }, verifier: verifier)
         await fulfillment(of: [ready], timeout: 2)
@@ -92,7 +96,7 @@ import SwiftUI
         for (i, file) in files.enumerated() { XCTAssertEqual(try Data(contentsOf: file), Data("Original \(i)".utf8)) }
         XCTAssertEqual(try Data(contentsOf: output), Data("Keep output".utf8))
     }
-    func testFrozenApprovalBlocksRemovalUntilExplicitlyDeclined() async throws {
+    func testFrozenRemovalRevokesPlanAndRejectsStaleConsent() async throws {
         let root = try FixtureFiles.directory("frozen-removal")
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("input.txt"); try Data("input".utf8).write(to: file)
@@ -102,8 +106,144 @@ import SwiftUI
             certificate: .init(label: "Synthetic", identifier: Data([1])), der: CertificateEligibilityTests.fixtures.get().der("valid"), destination: .originalFolders)
         try batch.freezeReview(plan)
         let id = batch.documents[0].id
-        batch.remove(id); XCTAssertEqual(batch.documents.count, 1)
-        batch.declineApproval(); batch.remove(id); XCTAssertTrue(batch.documents.isEmpty)
+        batch.remove(id)
+        XCTAssertTrue(batch.documents.isEmpty); XCTAssertFalse(batch.isFrozen)
+        XCTAssertFalse(batch.isApproved); XCTAssertNil(batch.review)
+        XCTAssertThrowsError(try batch.confirm(plan))
     }
+    func testCompletedAndPendingVerificationRemovalLeavesUnrelatedActiveWork() async throws {
+        let workspace = VerificationWorkspace(), entered = expectation(description: "second active")
+        let release = DispatchSemaphore(value: 0)
+        let task = workspace.start(["completed", "active", "pending"].map { URL(fileURLWithPath: "/synthetic/" + $0) }) { url, control in
+            if url.lastPathComponent == "active" { entered.fulfill(); _ = release.wait(timeout: .now() + 5); XCTAssertFalse(control.isCancellationRequested) }
+            if url.lastPathComponent == "pending" { XCTFail("Removed pending row was verified") }
+            return .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .unknown,
+                signatures: [], documentState: "unsupported", issue: "", previewPDF: nil, originalContent: nil)
+        }
+        await fulfillment(of: [entered], timeout: 3)
+        XCTAssertTrue(workspace.rows[0].finished)
+        XCTAssertTrue(workspace.remove(workspace.rows[0].id))
+        XCTAssertTrue(workspace.remove(workspace.rows[1].id))
+        release.signal(); await task.value
+        XCTAssertEqual(workspace.rows.count, 1); XCTAssertEqual(workspace.rows[0].name, "active")
+        XCTAssertTrue(workspace.rows[0].finished)
+    }
+    func testPendingSigningRemovalRevokesFutureJobsButActiveJobCompletes() async throws {
+        let root = try FixtureFiles.directory("active-removal")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let batch = BatchSigningCoordinator(); defer { batch.reset() }
+        let files = try (0..<3).map { i -> URL in
+            let file = root.appendingPathComponent("input-\(i)"); try Data("input \(i)".utf8).write(to: file); return file
+        }
+        await batch.addDocuments(files, format: .cades)
+        let certificate = SignumCertificate(label: "Synthetic", identifier: Data([1])), der = try CertificateEligibilityTests.fixtures.get().der("valid")
+        let plan = try await batch.prepareApproval(provider: "/synthetic", slot: 7, certificate: certificate, der: der)
+        try batch.confirm(plan)
+        let entered = expectation(description: "active"), release = DispatchSemaphore(value: 0)
+        let task = Task { try await batch.authorizeNext(pin: "synthetic") { job, _, control in
+            control.transition(to: .signing); entered.fulfill(); _ = release.wait(timeout: .now() + 5)
+            XCTAssertFalse(control.isCancellationRequested)
+            try Data("published".utf8).write(to: job.destination)
+            control.transition(to: .verifying); control.transition(to: .completed)
+        } }
+        await fulfillment(of: [entered], timeout: 3)
+        let removed = batch.documents[1].snapshot, remaining = batch.documents[2].id
+        batch.remove(removed.identity.id)
+        XCTAssertTrue(removed.isRetired); XCTAssertFalse(batch.isApproved); XCTAssertTrue(batch.isRunning)
+        release.signal(); try await task.value
+        XCTAssertEqual(batch.documents[0].state, .completed); XCTAssertEqual(batch.nextDocument?.id, remaining)
+        XCTAssertFalse(batch.isFrozen)
+        do { try await batch.authorizeNext(pin: "synthetic") { _, _, _ in XCTFail("Revoked approval executed") }; XCTFail("Revoked consent accepted") } catch {}
+        let renewed = try await batch.prepareReview(provider: "/synthetic", slot: 7, certificate: certificate, der: der, destination: .originalFolders)
+        XCTAssertEqual(renewed.jobs.map(\.snapshotIdentity.id), [remaining])
+        XCTAssertThrowsError(try batch.freezeReview(plan))
+        try batch.freezeReview(renewed); try batch.confirm(renewed)
+    }
+    func testActiveSigningRemovalKeepsUncertainOutcomeVisibleWithoutRetry() async throws {
+        let root = try FixtureFiles.directory("uncertain-removal")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("input"); try Data("input".utf8).write(to: file)
+        let batch = BatchSigningCoordinator(); await batch.addDocuments([file], format: .cades)
+        let plan = try await batch.prepareApproval(provider: "/synthetic", slot: 7,
+            certificate: .init(label: "Synthetic", identifier: Data([1])), der: CertificateEligibilityTests.fixtures.get().der("valid"))
+        try batch.confirm(plan)
+        let id = batch.documents[0].id, entered = expectation(description: "private operation"), release = DispatchSemaphore(value: 0)
+        let task = Task { try await batch.authorizeNext(pin: "synthetic") { _, _, control in
+            control.transition(to: .signing); entered.fulfill(); _ = release.wait(timeout: .now() + 5)
+            XCTAssertTrue(control.isCancellationRequested); throw SupervisedProcess.Failure.cancelled
+        } }
+        await fulfillment(of: [entered], timeout: 3)
+        batch.remove(id); XCTAssertEqual(batch.documents.count, 1)
+        release.signal(); try await task.value
+        XCTAssertEqual(batch.documents[0].state, .uncertain); XCTAssertTrue(batch.needsOutcomeReview)
+        XCTAssertFalse(batch.canRemove(id)); XCTAssertFalse(batch.isApproved)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plan.jobs[0].destination.path))
+        batch.acknowledgeUncertainOutcome(); batch.reset()
+    }
+
+    func testSelectiveRemovalRetiresAuthenticatedCapabilityAfterCurrentPublication() async throws {
+        for failCleanup in [false, true] {
+            let root = try FixtureFiles.directory("removal-authenticated")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let signer = try SoftwareSigner(folder: root)
+            let key = try XCTUnwrap(SecKeyCreateWithData(try signer.rsaPrivateDER() as CFData,
+                [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPrivate] as CFDictionary, nil))
+            let connection = BatchCleanupContractTests.Connection(key: key, failCleanup: failCleanup)
+            let module = root.appendingPathComponent("synthetic-module"); try Data("Synthetic module identity".utf8).write(to: module)
+            let inspected = try MiddlewareFileSecurity.inspect(module.path, automatic: false)
+            let files = try (0..<3).map { i -> URL in
+                let file = root.appendingPathComponent("input-\(i)"); try Data("input \(i)".utf8).write(to: file); return file
+            }
+            let batch = BatchSigningCoordinator(); defer { batch.reset() }
+            await batch.addDocuments(files, format: .cades)
+            let plan = try await batch.prepareApproval(provider: inspected.canonicalPath, slot: 7,
+                certificate: .init(label: "Synthetic", identifier: Data([1])), der: signer.der)
+            try batch.confirm(plan)
+            let session = try BatchCAdESSession(approval: plan, serial: "SYNTHETIC", moduleIdentity: inspected.identity)
+            session.makeConnection = { _, _ in connection }
+            let entered = expectation(description: "authenticated signature"), release = DispatchSemaphore(value: 0)
+            connection.beforeReturn = { entered.fulfill(); _ = release.wait(timeout: .now() + 5) }
+            let work = Task { try await batch.authorizeNext(pin: "synthetic") { job, pin, operation in
+                try session.signCAdES(job: job, pin: pin, operation: operation)
+            } }
+            await fulfillment(of: [entered], timeout: 3)
+            batch.remove(batch.documents[1].id)
+            XCTAssertThrowsError(try batch.confirm(plan))
+            release.signal(); try await work.value
+            XCTAssertEqual(batch.documents[0].state, .completed)
+            XCTAssertEqual(try CAdESVerifier.verify(file: plan.jobs[0].destination).originalDocument, Data("input 0".utf8))
+            await batch.continueAuthenticatedBatch(using: session)
+            XCTAssertEqual(connection.next, 1); XCTAssertEqual(connection.finishCalls, 1)
+            XCTAssertFalse(session.canContinue); XCTAssertFalse(batch.isApproved)
+            XCTAssertEqual(batch.needsOutcomeReview, failCleanup)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.jobs[1].destination.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: plan.jobs[2].destination.path))
+        }
+    }
+    func testActiveRemovalBeforePrivateOperationDrainsThenRetiresRow() async throws {
+        let root = try FixtureFiles.directory("removal-before-private")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("input"); try Data("input".utf8).write(to: source)
+        let batch = BatchSigningCoordinator(); defer { batch.reset() }
+        await batch.addDocuments([source], format: .cades)
+        let plan = try await batch.prepareApproval(provider: "/synthetic", slot: 7,
+            certificate: .init(label: "Synthetic", identifier: Data([1])), der: CertificateEligibilityTests.fixtures.get().der("valid"))
+        try batch.confirm(plan)
+        let snapshot = batch.documents[0].snapshot, entered = expectation(description: "preparing"), release = DispatchSemaphore(value: 0)
+        let work = Task { try await batch.authorizeNext(pin: "synthetic") { _, _, operation in
+            entered.fulfill(); _ = release.wait(timeout: .now() + 5)
+            XCTAssertFalse(operation.hasRequestedPrivateOperation)
+            try operation.checkCancellation()
+        } }
+        await fulfillment(of: [entered], timeout: 3)
+        batch.remove(snapshot.identity.id)
+        XCTAssertFalse(snapshot.isRetired); XCTAssertEqual(batch.documents.count, 1)
+        XCTAssertThrowsError(try batch.confirm(plan))
+        release.signal(); try await work.value
+        XCTAssertTrue(batch.documents.isEmpty); XCTAssertTrue(snapshot.isRetired)
+        XCTAssertFalse(batch.needsOutcomeReview); XCTAssertFalse(batch.isFrozen)
+        XCTAssertEqual(try Data(contentsOf: source), Data("input".utf8))
+    }
+
 }
 #endif

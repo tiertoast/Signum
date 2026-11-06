@@ -1,7 +1,7 @@
 #if os(macOS)
 import Foundation
 
-/// Bounded DER editing only. Existing content, signed attributes and SignatureValue
+/// Bounded CMS envelope editing (DER and constructed indefinite BER). Existing content, signed attributes and SignatureValue
 /// bytes are retained verbatim; cryptographic verification stays in the native helper.
 public enum CAdESAdvanced {
     public struct Target: Identifiable, Equatable, Sendable {
@@ -9,20 +9,66 @@ public enum CAdESAdvanced {
         public let signatureKey, title: String
     }
     static let counterOID=Data([6,9,42,134,72,134,247,13,1,9,6])
-    static func fail() -> SignumError { .module("CMS DER non supportato, ambiguo o oltre i limiti (32 firme, 4 livelli di controfirma, 64 certificati).") }
+    static func fail() -> SignumError { .module("Busta CMS non supportata, ambigua o oltre i limiti (32 firme, 4 livelli di controfirma, 64 certificati).") }
+    /// CMS envelopes may use BER streaming lengths (RFC 5652). Certificate
+    /// parsing remains strict DER; CMS errors must never implicate the token.
+    private static func node(_ data: Data, at offset: inout Int, limit: Int, depth: Int = 0, budget: inout Int) throws -> DER.Node {
+        guard data.startIndex == 0, depth <= 16, budget > 0, offset >= 0, offset + 2 <= limit, limit <= data.count else { throw fail() }
+        budget -= 1
+        let start = offset, tag = data[offset]
+        guard tag != 0, tag & 0x1f != 0x1f else { throw fail() }
+        if data[offset + 1] != 0x80 {
+            do { return try DER.read(data, at: &offset, limit: limit) }
+            catch { throw fail() }
+        }
+        guard tag & 0x20 != 0 else { throw fail() }
+        offset += 2
+        let begin = offset
+        while offset + 2 <= limit {
+            if data[offset] == 0 && data[offset + 1] == 0 {
+                let end = offset; offset += 2
+                return DER.Node(tag: tag, full: start..<offset, contents: begin..<end)
+            }
+            _ = try node(data, at: &offset, limit: limit, depth: depth + 1, budget: &budget)
+        }
+        throw fail()
+    }
     static func fields(_ data: Data, tag: UInt8) throws -> [Data] {
-        var offset=0;let outer=try DER.read(data,at:&offset,limit:data.count)
-        guard outer.tag==tag,offset==data.count else { throw fail() }
-        var result=[Data]();offset=outer.contents.lowerBound
-        while offset<outer.contents.upperBound {
-            let n=try DER.read(data,at:&offset,limit:outer.contents.upperBound)
-            guard result.count<128 else { throw fail() };result.append(data.subdata(in:n.full))
+        var offset = 0, budget = 65536
+        let outer = try node(data, at: &offset, limit: data.count, budget: &budget)
+        guard outer.tag == tag, offset == data.count else { throw fail() }
+        var result = [Data](); offset = outer.contents.lowerBound
+        while offset < outer.contents.upperBound {
+            let n = try node(data, at: &offset, limit: outer.contents.upperBound, budget: &budget)
+            guard result.count < 128 else { throw fail() }
+            result.append(data.subdata(in: n.full))
         }
         return result
     }
     static func content(_ data: Data, tag: UInt8) throws -> Data {
-        var o=0;let n=try DER.read(data,at:&o,limit:data.count)
-        guard n.tag==tag,o==data.count else { throw fail() };return data.subdata(in:n.contents)
+        var offset = 0, budget = 65536
+        let n = try node(data, at: &offset, limit: data.count, budget: &budget)
+        guard n.tag == tag, offset == data.count else { throw fail() }
+        return data.subdata(in: n.contents)
+    }
+    private static func octets(_ data: Data, depth: Int = 0, budget: inout Int) throws -> Data {
+        guard depth <= 16, budget > 0 else { throw fail() }
+        var offset = 0
+        let outer = try node(data, at: &offset, limit: data.count, budget: &budget)
+        guard offset == data.count else { throw fail() }
+        if outer.tag == 4 {
+            guard outer.contents.count <= SigningResourceLimits.maximumDocumentBytes else { throw fail() }
+            return data.subdata(in: outer.contents)
+        }
+        guard outer.tag == 0x24 else { throw fail() }
+        var output = Data(); offset = outer.contents.lowerBound
+        while offset < outer.contents.upperBound {
+            let part = try node(data, at: &offset, limit: outer.contents.upperBound, budget: &budget)
+            let bytes = try octets(data.subdata(in: part.full), depth: depth + 1, budget: &budget)
+            guard bytes.count <= SigningResourceLimits.maximumDocumentBytes - output.count else { throw fail() }
+            output.append(bytes)
+        }
+        return output
     }
     struct Signer {
         var parts: [Data]
@@ -90,7 +136,8 @@ public enum CAdESAdvanced {
             guard (1...2).contains(encapsulated.count),encapsulated[0]==DER.dataOID else { throw fail() }
             if encapsulated.count==2 {
                 let explicit=try fields(encapsulated[1],tag:0xa0);guard explicit.count==1 else { throw fail() }
-                document=try content(explicit[0],tag:4)
+                var budget = 65536
+                document=try octets(explicit[0],budget: &budget)
             } else { document=nil }
             _=try targets()
         }
@@ -145,7 +192,7 @@ public enum CAdESAdvanced {
             } else {
                 let cms=try Container(document)
                 guard try cms.targets().count<32 else { throw SignumError.module("Limite di 32 firme/controfirmatari raggiunto prima dell’autenticazione.") }
-                guard let payload=cms.document,!payload.isEmpty else { throw SignumError.module("Cofirma/controfirma richiede un CMS attached DER con contenuto presente.") }
+                guard let payload=cms.document,!payload.isEmpty else { throw SignumError.module("Cofirma/controfirma richiede un CMS attached con contenuto presente.") }
                 let report=try SignumVerificationService.verify(data:document,name:"input.p7m",helper:helper,isCancelled:isCancelled)
                 guard report.integrity == .verified else { throw SignumError.module("Le firme precedenti devono essere tutte verificabili prima di aggiungere una firma.") }
                 let bytes: Data

@@ -127,12 +127,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
         SigningDestinationSelection(alongsideOriginal: saveAlongsideOriginal, customDirectory: customDirectory).policy
     }
     var reviewContext: SigningReviewContext? {
-        guard session.isActive, !batch.isPreparing, !batch.documents.isEmpty, let destination = destinationPolicy,
+        guard session.isActive, !batch.isPreparing, !batch.isRunning, !batch.isContinuingAuthenticated, !batch.needsOutcomeReview, batch.nextDocument != nil, let destination = destinationPolicy,
               let path = provider.signingProvider, let slot = provider.selectedSlot,
               let id = provider.selectedCertificateID, let route = devices.selectedRoute,
               let certificate = provider.certificates.first(where: { $0.id == id }),
               let der = provider.certificateDERs[id], provider.certificateAssessments[id]?.permitsSigning == true,
-              batch.documents.allSatisfy({ !$0.state.isTerminal && ($0.format != .pades ||
+              batch.documents.filter({ !$0.state.isTerminal }).allSatisfy({ ($0.format != .pades ||
                 (readyPreviews.contains($0.id) && placements[$0.id]?.appearance?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
         return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
                      der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity },
@@ -405,7 +405,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     HStack {
                         if !batch.isFrozen {
                             Button("Rimuovi") { removeSessionDocument(entry.id) }
-                                .disabled(!canRemoveSessionDocuments)
+                                .disabled(!canRemoveSessionDocuments || !batch.canRemove(entry.id))
                         } else if batch.isApproved && !entry.state.isTerminal {
                             Button("Annulla documento") { batch.cancelDocument(entry.id); provider.pin = "" }
                                 .disabled((batch.isRunning || interaction.isSubmittingPIN) && batch.nextDocument?.id == entry.id)
@@ -448,7 +448,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     var sessionCompletionKey: String {
         [String(batch.isRunning), String(batch.isPreparing), String(batch.isContinuingAuthenticated),
-         String(batch.needsOutcomeReview), String(interaction.isSubmittingPIN), String(interfaceLocked),
+         String(batch.needsOutcomeReview), String(batch.isApproved), String(interaction.isSubmittingPIN), String(interfaceLocked),
          String(authenticationSession != nil), batch.documents.map { $0.id.uuidString + $0.state.rawValue }.joined()].joined(separator: "|")
     }
     func releaseFinishedSession() {
@@ -641,13 +641,18 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
 
     var canRemoveSessionDocuments: Bool {
-        !interfaceLocked && !batch.isFrozen && !batch.isApproved && !batch.needsOutcomeReview
+        session.isActive && !busy && !batch.isPreparing && !interaction.isRequestingApproval
     }
     func removeSessionDocument(_ id: UUID) {
-        guard canRemoveSessionDocuments, let index = batch.documents.firstIndex(where: { $0.id == id }) else { return }
+        guard canRemoveSessionDocuments, batch.canRemove(id), let index = batch.documents.firstIndex(where: { $0.id == id }) else { return }
         let selected = documentSnapshot?.identity.id == id
         review.cancel()
         batch.remove(id)
+        provider.pin = ""
+        if !batch.isApproved {
+            approvedRoute = nil; authenticationAttempted = false
+            status = "Rimozione richiesta. L’eventuale firma corrente conserva il proprio esito; i documenti rimasti richiedono una nuova approvazione."
+        }
         guard !batch.documents.contains(where: { $0.id == id }) else { return }
         placements[id] = nil; readyPreviews.remove(id); provider.pin = ""
         showingDocumentDetails = false
@@ -726,7 +731,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             guard self.session.accepts(generation) else { return }
             lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
             if let session {
-                if session.canContinue {
+                if session.canContinue && batch.isApproved {
                     authenticationStatus = approvedAuthenticationMode == .temporaryPIN
                         ? "PIN temporaneo attivo soltanto per questo batch approvato."
                         : "Sessione autenticata per questo batch. Nessun PIN riutilizzato."

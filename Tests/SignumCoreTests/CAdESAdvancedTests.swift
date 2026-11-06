@@ -284,5 +284,94 @@ p.currentDirectoryURL=root;p.standardOutput=pipe;p.standardError=pipe
         try batch.freezeReview(review)
         XCTAssertThrowsError(try batch.selectCounterSignature(key,for:id))
     }
+    func testStreamingBERCoAndCounterSignUseSameBoundCertificateAsOrdinarySigning() throws {
+        try fixture { root, a, b in
+            try content.write(to: root.appendingPathComponent("stream-content"))
+            try run(["cms", "-sign", "-binary", "-stream", "-nodetach", "-in", "stream-content", "-signer", "certificate.pem", "-inkey", "key.pem", "-outform", "DER", "-out", "stream.p7m"], at: root)
+            let input = try Data(contentsOf: root.appendingPathComponent("stream.p7m"))
+            XCTAssertEqual(Array(input.prefix(2)), [0x30, 0x80])
+            // The former CMS path called the strict certificate DER reader here.
+            var legacyOffset = 0
+            XCTAssertThrowsError(try DER.read(input, at: &legacyOffset, limit: input.count)) { error in
+                guard case SignumError.invalidCertificate = error else { return XCTFail("Unexpected legacy decoder error") }
+            }
+            XCTAssertEqual(try report(input).integrity, .verified)
+            let container = try CAdESAdvanced.Container(input)
+            XCTAssertEqual(container.document, content)
+            let target = try XCTUnwrap(container.targets().first?.signatureKey)
+            let mock = try MockModule(certificate: b.der, privateKey: b.rsaPrivateDER(), audit: true)
+            let inspected = try MiddlewareFileSecurity.inspect(mock.path.path, automatic: false)
+            let client = IsolatedPKCS11Client(executable: Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker"))
+            let token = try XCTUnwrap(client.scan(provider: inspected.canonicalPath).tokens.first)
+            let contextTests = OneShotContextTests()
+            let binding = contextTests.context(path: inspected.canonicalPath, identity: inspected.identity, token: token, der: b.der, objectID: Data([0x53]))
+            for format in [SigningFormat.cades, .cadesCoSign, .cadesCounterSign] {
+                let source = root.appendingPathComponent(format.rawValue + "-input")
+                let bytes = format == .cades ? content : input
+                try bytes.write(to: source)
+                let snapshot = try DocumentSnapshot.capture(source: source, format: format)
+                let job = try SigningJob(snapshot: snapshot, providerPath: binding.provider, slot: 7,
+                    certificate: .init(label: "Synthetic", identifier: Data([0x53])), certificateDER: b.der,
+                    destination: root.appendingPathComponent(format.rawValue + "-output.p7m"), providerContext: binding,
+                    counterSignatureKey: format == .cadesCounterSign ? target : nil)
+                let operation = SigningOperation()
+                if format == .cades { try job.signCAdES(using: client, pin: "synthetic", operation: operation) }
+                else { try job.signAdvancedCAdES(using: client, pin: "synthetic", operation: operation, helper: helper) }
+                XCTAssertEqual(operation.state, .completed)
+                let result = try report(Data(contentsOf: job.destination))
+                XCTAssertEqual(result.integrity, .verified)
+                XCTAssertTrue(result.signatures.contains { $0.signerDER == b.der })
+                XCTAssertEqual(result.signatures.count, format == .cades ? 1 : 2)
+                if format == .cadesCounterSign { XCTAssertEqual(result.signatures.filter { $0.counterSignatureOf == target }.count, 1) }
+                if format == .cadesCoSign {
+                    let updated = try CAdESAdvanced.Container(Data(contentsOf: job.destination))
+                    XCTAssertTrue(updated.signers.contains(container.signers[0]))
+                    XCTAssertEqual(updated.parts[2], container.parts[2])
+                }
+                XCTAssertEqual(try Data(contentsOf: source), bytes)
+            }
+            XCTAssertEqual(contextTests.count(mock, 8), 3)
+            XCTAssertEqual(contextTests.count(mock, 16), 3)
+        }
+    }
+    func testMalformedCMSDoesNotBlameTokenAndBERLimitsRemainBounded() throws {
+        for bytes in [Data([0x30, 0x80]), Data([0x30, 0x82, 0xff]), Data([0x04, 0x80, 0, 0]), Data([1, 0x30, 0]).dropFirst(),
+                      Data(Array(repeating: [UInt8(0x30), 0x80], count: 20).flatMap { $0 } + Array(repeating: UInt8(0), count: 40))] {
+            XCTAssertThrowsError(try CAdESAdvanced.targets(in: bytes)) { error in
+                guard case SignumError.module = error else { return XCTFail("CMS error misreported as certificate error: \(error)") }
+            }
+        }
+    }
+
+    func testAdvancedJobsRejectStaleTokenBindingBeforePINWithoutCertificateFallback() throws {
+        try fixture { root, a, b in
+            let cms = try a.cms(for: content), target = try XCTUnwrap(CAdESAdvanced.targets(in: cms).first?.signatureKey)
+            let mock = try MockModule(certificate: b.der, privateKey: b.rsaPrivateDER(), audit: true)
+            let inspected = try MiddlewareFileSecurity.inspect(mock.path.path, automatic: false)
+            let client = IsolatedPKCS11Client(executable: Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker"))
+            let token = try XCTUnwrap(client.scan(provider: inspected.canonicalPath).tokens.first)
+            let stale = SignumToken(slot: token.slot, label: token.label, manufacturer: token.manufacturer,
+                model: token.model, reader: token.reader, serial: "STALE-TOKEN")
+            let binding = OneShotContextTests().context(path: inspected.canonicalPath, identity: inspected.identity,
+                token: stale, der: b.der, objectID: Data([0x53]))
+            for format in [SigningFormat.cadesCoSign, .cadesCounterSign] {
+                let source = root.appendingPathComponent(format.rawValue + "-stale-input"); try cms.write(to: source)
+                let snapshot = try DocumentSnapshot.capture(source: source, format: format)
+                let job = try SigningJob(snapshot: snapshot, providerPath: binding.provider, slot: token.slot,
+                    certificate: .init(label: "Synthetic", identifier: Data([0x53])), certificateDER: b.der,
+                    destination: root.appendingPathComponent(format.rawValue + "-stale-output.p7m"), providerContext: binding,
+                    counterSignatureKey: format == .cadesCounterSign ? target : nil)
+                let operation = SigningOperation()
+                XCTAssertThrowsError(try job.signAdvancedCAdES(using: client, pin: "synthetic", operation: operation, helper: helper)) { error in
+                    guard case IsolatedPKCS11Client.Failure.contextChanged = error else { return XCTFail("Expected explicit stale binding error: \(error)") }
+                }
+                XCTAssertEqual(operation.state, .failed)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: job.destination.path))
+            }
+            XCTAssertEqual(OneShotContextTests().count(mock, 8), 0)
+            XCTAssertEqual(OneShotContextTests().count(mock, 16), 0)
+        }
+    }
+
 }
 #endif
