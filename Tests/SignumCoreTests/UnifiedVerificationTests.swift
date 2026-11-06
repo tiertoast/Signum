@@ -232,20 +232,85 @@ final class UnifiedVerificationTests: XCTestCase {
         }
     }
     func testSupervisedVerificationCrashTimeoutCancelAndRSSLimit() throws {
-        try folder { root in
-            let engine = root.appendingPathComponent("parser")
-            func script(_ text: String) throws { try Data(("#!/bin/sh\n"+text).utf8).write(to:engine);try FileManager.default.setAttributes([.posixPermissions:0o700],ofItemAtPath:engine.path) }
-            for (body,expected) in [("kill -KILL $$",SupervisedProcess.Failure.abnormalExit),("while :; do :; done",.timeout)] {
-                try script(body)
-                XCTAssertThrowsError(try SignumVerificationService.verify(data:Data("Synthetic".utf8),name:"parser",helper:engine,timeout:expected == .timeout ? 0.1 : 3)) { XCTAssertEqual($0 as? SupervisedProcess.Failure,expected) }
-            }
-            XCTAssertThrowsError(try SignumVerificationService.verify(data:Data("Synthetic".utf8),name:"parser",helper:engine,isCancelled:{true})) { XCTAssertEqual($0 as? SupervisedProcess.Failure,.cancelled) }
-            let control = SigningOperation()
-            DispatchQueue.global().asyncAfter(deadline:.now()+0.15) { control.requestCancellation() }
-            XCTAssertThrowsError(try SignumVerificationService.verify(data:Data("Synthetic".utf8),name:"parser",helper:engine,timeout:3,isCancelled:{control.isCancellationRequested})) { XCTAssertEqual($0 as? SupervisedProcess.Failure,.cancelled) }
-            var input = Data()
-            XCTAssertThrowsError(try SupervisedProcess.run(executable:engine,input:&input,maximumResidentBytes:1,timeout:2)) { XCTAssertEqual($0 as? SupervisedProcess.Failure,.resourceLimit) }
+        let root = try FixtureFiles.directory("verification-supervision")
+        defer { try? FileManager.default.removeItem(at: root) }
+        func script(_ name: String, _ body: String) throws -> (engine: URL, checkpoint: URL) {
+            let engine = root.appendingPathComponent(name), checkpoint = root.appendingPathComponent(name + ".pid")
+            let quoted = "'" + checkpoint.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            // Consume the bounded request before announcing readiness or crashing:
+            // otherwise an early exit can race the parent's write with EPIPE.
+            let text = "#!/bin/sh\nIFS= read -r request\nprintf '%s\\n' \"$$\" > " + quoted + "\n" + body + "\n"
+            try Data(text.utf8).write(to: engine)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: engine.path)
+            return (engine, checkpoint)
         }
+        func startedPID(_ checkpoint: URL) -> pid_t? {
+            guard let text = try? String(contentsOf: checkpoint, encoding: .utf8), text.hasSuffix("\n"),
+                  let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return nil }
+            return pid
+        }
+        func assertReaped(_ pid: pid_t) {
+            XCTAssertEqual(kill(pid, 0), -1); XCTAssertEqual(errno, ESRCH)
+        }
+        func failure(_ name: String, _ body: String, expected: SupervisedProcess.Failure,
+                     timeout: TimeInterval, cancelWhenStarted: Bool = false) throws {
+            let fixture = try script(name, body), control = SigningOperation()
+            let submitted = ProcessInfo.processInfo.systemUptime
+            var events: [String: TimeInterval] = [:]
+            var observed: SupervisedProcess.Failure?
+            XCTAssertThrowsError(try SignumVerificationService.verify(data: Data("Synthetic".utf8), name: name,
+                helper: fixture.engine, timeout: timeout, isCancelled: {
+                    let now = ProcessInfo.processInfo.systemUptime
+                    if events["prelaunch_check"] == nil { events["prelaunch_check"] = now }
+                    else {
+                        if events["supervision_enter"] == nil { events["supervision_enter"] = now }
+                        events["last_check"] = now
+                    }
+                    if let pid = startedPID(fixture.checkpoint) {
+                        if events["checkpoint_observed"] == nil { events["checkpoint_observed"] = ProcessInfo.processInfo.systemUptime }
+                        if cancelWhenStarted, !control.isCancellationRequested {
+                            XCTAssertEqual(kill(pid, 0), 0)
+                            XCTAssertTrue(control.requestCancellation())
+                            events["cancellation_requested"] = ProcessInfo.processInfo.systemUptime
+                        }
+                    }
+                    return control.isCancellationRequested
+                })) { error in
+                    observed = error as? SupervisedProcess.Failure
+                    XCTAssertEqual(observed, expected)
+                }
+            events["returned"] = ProcessInfo.processInfo.systemUptime
+            let pid = try XCTUnwrap(startedPID(fixture.checkpoint), "\(name) must actually reach its helper checkpoint")
+            assertReaped(pid)
+            if cancelWhenStarted {
+                let ready = try XCTUnwrap(events["checkpoint_observed"])
+                let cancelled = try XCTUnwrap(events["cancellation_requested"])
+                XCTAssertLessThanOrEqual(ready, cancelled)
+                XCTAssertLessThan(cancelled - submitted, timeout)
+                XCTAssertTrue(control.isCancellationRequested)
+            }
+            print("M6_SCENARIO \(name) failure=\(String(describing: observed)) pid=\(pid) reaped=true seconds_since_submit " +
+                events.keys.sorted().map { "\($0)=\(events[$0]! - submitted)" }.joined(separator: " "))
+        }
+        try failure("crash", "kill -KILL $$", expected: .abnormalExit, timeout: 3)
+        try failure("timeout", "while :; do :; done", expected: .timeout, timeout: 0.1)
+        let preCancelled = try script("pre-cancelled", "while :; do :; done")
+        XCTAssertThrowsError(try SignumVerificationService.verify(data: Data("Synthetic".utf8), name: "parser",
+            helper: preCancelled.engine, isCancelled: { true })) { XCTAssertEqual($0 as? SupervisedProcess.Failure, .cancelled) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: preCancelled.checkpoint.path))
+        print("M6_SCENARIO pre-cancelled failure=cancelled checkpoint=absent")
+        try failure("running-cancelled", "while :; do :; done", expected: .cancelled, timeout: 3, cancelWhenStarted: true)
+        let rss = try script("rss", "while :; do :; done")
+        var input = Data()
+        XCTAssertThrowsError(try SupervisedProcess.run(executable: rss.engine, input: &input, maximumResidentBytes: 1, timeout: 2)) {
+            XCTAssertEqual($0 as? SupervisedProcess.Failure, .resourceLimit)
+        }
+        // One byte deliberately tests the monitor, and may stop the process
+        // before its first instruction. resourceLimit is thrown after waitUntilExit.
+        if let pid = startedPID(rss.checkpoint) {
+            assertReaped(pid)
+            print("M6_SCENARIO rss failure=resourceLimit pid=\(pid) reaped=true")
+        } else { print("M6_SCENARIO rss failure=resourceLimit checkpoint=not-reached-before-limit") }
     }
     @MainActor func testBatchIndependentResultsDuplicatePathsAndCancellation() async throws {
         let workspace = VerificationWorkspace()
