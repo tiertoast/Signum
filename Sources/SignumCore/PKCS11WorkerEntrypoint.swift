@@ -42,7 +42,7 @@ public enum PKCS11WorkerEntrypoint {
         } : nil
         audit?.record(.requestAccepted)
         do {
-            if let audit { response = try audit.observeProvider { try perform(request) } }
+            if let audit { response = try audit.observeProvider { try perform(request, audit: audit) } }
             else { response = try perform(request) }
         } catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
         catch IsolatedPKCS11Client.Failure.authenticationRequired { response.failureKind = "authenticationRequired" }
@@ -65,7 +65,7 @@ public enum PKCS11WorkerEntrypoint {
         }
         return 0
     }
-    private static func perform(_ request: PKCS11WorkerRequest) throws -> PKCS11WorkerResponse {
+    private static func perform(_ request: PKCS11WorkerRequest, audit: CAdESWorkerAudit? = nil) throws -> PKCS11WorkerResponse {
         guard let lease = sg_token_lease_acquire(request.provider, UInt64(request.slot ?? 0), request.action == .scan ? 1 : 0,
                                                  UInt32(request.leaseWaitMilliseconds)) else {
             if errno == ETIMEDOUT { throw IsolatedPKCS11Client.Failure.busy }
@@ -77,6 +77,7 @@ public enum PKCS11WorkerEntrypoint {
             guard inspected.identity == expected, inspected.canonicalPath == request.provider else { throw MiddlewareFileSecurity.Failure.changed }
         }
         let module = try PKCS11Module(path: request.provider)
+        audit?.recordModule(path: module.modulePath)
         let result = Result { () -> PKCS11WorkerResponse in
             var tokens: [WorkerToken] = [], certificates: [WorkerCertificate] = [], unavailable = 0
             var signature: Data?, version: String?

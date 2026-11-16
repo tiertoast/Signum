@@ -8,7 +8,7 @@ import CPKCS11
 final class CAdESWorkerAudit: @unchecked Sendable {
     enum Event: String, Codable {
         case jobStarted, jobEnded, requestNotStarted
-        case workerLaunched, requestSent, requestAccepted
+        case workerLaunched, requestSent, requestAccepted, moduleLoaded
         case pkcs11Enter, pkcs11Return
         case responseReceived, responseRejected, replyFailed, providerRejected
         case signatureVerified, signatureRejected
@@ -25,6 +25,11 @@ final class CAdESWorkerAudit: @unchecked Sendable {
         let function: String?
         let code: UInt64?
         let phase: String?
+        let mechanism: UInt64?
+        let inputBytes: Int?
+        let moduleName: String?
+        let moduleDevice: Int32?
+        let moduleInode: UInt64?
     }
 
     private static let directoryName = "Signum-CAdES-Worker-Audit-v1"
@@ -99,11 +104,21 @@ final class CAdESWorkerAudit: @unchecked Sendable {
         record(.jobEnded, phase: phase)
     }
 
-    func record(_ event: Event, function: String? = nil, code: UInt64? = nil, phase: SigningOperationPhase? = nil) {
+    func recordModule(path: String) {
+        var identity = stat()
+        guard stat(path, &identity) == 0 else { return }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        record(.moduleLoaded, module: (name, identity.st_dev, identity.st_ino))
+    }
+
+    func record(_ event: Event, function: String? = nil, code: UInt64? = nil,
+                phase: SigningOperationPhase? = nil, mechanism: UInt64? = nil, inputBytes: Int? = nil,
+                module: (name: String, device: Int32, inode: UInt64)? = nil) {
         lock.lock(); let pid = self.pid; lock.unlock()
         let entry = Entry(timestampMs: Int64(Date().timeIntervalSince1970 * 1000), jobID: jobID,
                           workerPID: pid, action: "rsaSHA256", event: event, function: function,
-                          code: code, phase: phase?.rawValue)
+                          code: code, phase: phase?.rawValue, mechanism: mechanism, inputBytes: inputBytes,
+                          moduleName: module?.name, moduleDevice: module?.device, moduleInode: module?.inode)
         guard var line = try? JSONEncoder().encode(entry) else { return }
         // One append per event. Never wait on the other process or retry a partial record.
         line.append(0x0a)
@@ -113,7 +128,7 @@ final class CAdESWorkerAudit: @unchecked Sendable {
     }
 
     func observeProvider<T>(_ body: () throws -> T) rethrows -> T {
-        sg_observe_calls({ context, call, returned, rv in
+        sg_observe_calls({ context, call, returned, rv, mechanism, inputBytes in
             guard let context else { return }
             let audit = Unmanaged<CAdESWorkerAudit>.fromOpaque(context).takeUnretainedValue()
             let function: String
@@ -127,8 +142,10 @@ final class CAdESWorkerAudit: @unchecked Sendable {
             case SG_CALL_FINALIZE: function = "C_Finalize"
             default: return
             }
+            let signEntry = call == SG_CALL_SIGN && returned == 0
             audit.record(returned == 0 ? .pkcs11Enter : .pkcs11Return,
-                         function: function, code: returned == 0 ? nil : UInt64(rv))
+                         function: function, code: returned == 0 ? nil : UInt64(rv),
+                         mechanism: signEntry ? UInt64(mechanism) : nil, inputBytes: signEntry ? inputBytes : nil)
         }, Unmanaged.passUnretained(self).toOpaque())
         defer { sg_observe_calls(nil, nil) }
         return try withExtendedLifetime(self, body)

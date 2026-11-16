@@ -9,7 +9,7 @@ final class SigningOperationTests: XCTestCase {
         .init(executable: Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker"))
     }
     private func withJob(phase: Int? = nil, effect: Int = 0, useUnrelatedKey: Bool = false,
-                         scanCertificate: Bool = true,
+                         scanCertificate: Bool = true, alwaysAuth: Bool = false,
                          _ body: (SigningJob, MockModule, SoftwareSigner) throws -> Void) throws {
         let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -25,7 +25,8 @@ final class SigningOperationTests: XCTestCase {
             keyOwner = signer
         }
         let mock = try MockModule(certificate: signer.der, privateKey: keyOwner.rsaPrivateDER(),
-                                  workerPhase: phase, workerEffect: effect, audit: true)
+                                  workerPhase: phase, workerEffect: effect, audit: true,
+                                  alwaysAuth: alwaysAuth, strictContext: alwaysAuth)
         let source = folder.appendingPathComponent("source"); try Data("Approved synthetic bytes".utf8).write(to: source)
         let snapshot = try DocumentSnapshot.capture(source: source, format: .cades, privateRoot: folder)
         defer { snapshot.close() }
@@ -107,7 +108,7 @@ final class SigningOperationTests: XCTestCase {
     }
 
     func testAuditRecordsVerifiedSigningAndContainsOnlyDiagnosticFields() throws {
-        try withJob { job, mock, _ in
+        try withJob(alwaysAuth: true) { job, mock, _ in
             try job.signCAdES(using: auditedWorker(for: job), pin: "synthetic-secret", operation: .init())
             let audit = try entries(for: job)
             let pid = try XCTUnwrap(audit.first { $0.event == .workerLaunched }?.workerPID)
@@ -116,18 +117,28 @@ final class SigningOperationTests: XCTestCase {
             XCTAssertTrue(audit.dropFirst().allSatisfy { $0.workerPID == pid })
             let functions = [
                 "C_Initialize", "C_OpenSession", "C_CloseSession", // Public certificate binding.
-                "C_OpenSession", "C_Login", "C_SignInit", "C_Sign", "C_CloseSession", "C_Finalize"
+                "C_OpenSession", "C_Login", "C_SignInit", "C_Login", "C_Sign", "C_CloseSession", "C_Finalize"
             ]
             XCTAssertEqual(audit.filter { $0.event == .pkcs11Enter }.compactMap(\.function), functions)
             XCTAssertEqual(audit.filter { $0.event == .pkcs11Return }.compactMap(\.function), functions)
             XCTAssertEqual(audit.filter { $0.event == .pkcs11Return }.compactMap(\.code), Array(repeating: 0, count: functions.count))
+            let sign = try XCTUnwrap(audit.first { $0.event == .pkcs11Enter && $0.function == "C_Sign" })
+            XCTAssertEqual(sign.mechanism, 0x40)
+            XCTAssertGreaterThan(try XCTUnwrap(sign.inputBytes), 51)
+            let module = try XCTUnwrap(audit.first { $0.event == .moduleLoaded })
+            XCTAssertEqual(module.moduleName, mock.path.lastPathComponent)
+            var identity = stat()
+            XCTAssertEqual(stat(mock.path.path, &identity), 0)
+            XCTAssertEqual(module.moduleDevice, identity.st_dev)
+            XCTAssertEqual(module.moduleInode, identity.st_ino)
             XCTAssertTrue(audit.contains { $0.event == .responseReceived })
             XCTAssertTrue(audit.contains { $0.event == .signatureVerified })
             XCTAssertEqual(audit.last?.phase, SigningOperationPhase.completed.rawValue)
             XCTAssertEqual(try CAdESVerifier.verify(file: job.destination).originalDocument, Data("Approved synthetic bytes".utf8))
 
             let text = try String(contentsOf: auditFile(for: job), encoding: .utf8)
-            let allowedFields: Set<String> = ["timestampMs", "jobID", "workerPID", "action", "event", "function", "code", "phase"]
+            let allowedFields: Set<String> = ["timestampMs", "jobID", "workerPID", "action", "event", "function", "code", "phase",
+                                              "mechanism", "inputBytes", "moduleName", "moduleDevice", "moduleInode"]
             for line in text.split(separator: "\n") {
                 let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
                 XCTAssertTrue(Set(object.keys).isSubset(of: allowedFields))

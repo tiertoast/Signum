@@ -72,17 +72,20 @@ void sg_observe_calls(SGCallObserver observer, void *context) {
     call_observer_context = context;
 }
 
-static void notify_call(SGObservedCall call, int returned, CK_RV rv) {
+static void notify_call(SGObservedCall call, int returned, CK_RV rv,
+                        CK_MECHANISM_TYPE mechanism, size_t input_bytes) {
     int saved = errno;
-    call_observer(call_observer_context, call, returned, rv);
+    call_observer(call_observer_context, call, returned, rv, mechanism, input_bytes);
     errno = saved;
 }
 
-#define OBSERVE_CALL(rv, call, expression) do { \
-    if (call_observer) notify_call(call, 0, 0); \
+#define OBSERVE_CALL_INPUT(rv, call, mechanism, input_bytes, expression) do { \
+    if (call_observer) notify_call(call, 0, 0, mechanism, input_bytes); \
     (rv) = (expression); \
-    if (call_observer) notify_call(call, 1, (rv)); \
+    if (call_observer) notify_call(call, 1, (rv), 0, 0); \
 } while (0)
+
+#define OBSERVE_CALL(rv, call, expression) OBSERVE_CALL_INPUT(rv, call, 0, 0, expression)
 
 static void unlink_provider(SGProvider *provider) { // registry lock held
     SGProvider **entry = &providers;
@@ -511,7 +514,8 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
                 }
                 if (!status) {
                     CK_ULONG n = signature_capacity;
-                    OBSERVE_CALL(rv, SG_CALL_SIGN, ctx->api->C_Sign(session, (CK_BYTE_PTR)message, message_length, signature, &n));
+                    OBSERVE_CALL_INPUT(rv, SG_CALL_SIGN, mechanism.mechanism, message_length,
+                        ctx->api->C_Sign(session, (CK_BYTE_PTR)message, message_length, signature, &n));
                     if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
                     else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
                     else status = failed(error, error_size, "C_Sign", rv);
@@ -575,8 +579,8 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                 }
                 if (!status) {
                     CK_ULONG n = signature_capacity;
-                    rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)digestinfo,
-                                          digestinfo_length, signature, &n);
+                    OBSERVE_CALL_INPUT(rv, SG_CALL_SIGN, mechanism.mechanism, digestinfo_length,
+                        ctx->api->C_Sign(session, (CK_BYTE_PTR)digestinfo, digestinfo_length, signature, &n));
                     if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
                     else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
                     else status = failed(error, error_size, "C_Sign", rv);

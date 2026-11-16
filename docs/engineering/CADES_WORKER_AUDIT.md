@@ -11,7 +11,11 @@ Use the timestamp and worker PID to correlate the file with macOS logs.
 `timestampMs` is Unix epoch time in milliseconds. The action is `rsaSHA256`.
 Each event after launch carries the worker PID. Only PKCS#11 function names,
 raw numeric `CK_RV` values, numeric exit/signal codes and the final operation
-phase are recorded alongside the event name and correlation fields. The
+phase are recorded alongside the event name and correlation fields.
+`moduleLoaded` identifies the canonical module by file basename, device and
+inode (compare with `stat -f '%N %d %i' /path/to/module`). The `C_Sign`
+entry records the numeric mechanism and exact input byte count, without
+recording the path or input itself. `0x40` is `CKM_SHA256_RSA_PKCS`. The
 transport records whether it received response bytes, even if it subsequently
 rejects the response or discards it on cancellation.
 
