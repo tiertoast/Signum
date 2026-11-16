@@ -88,6 +88,8 @@ extension SigningJob {
         guard operation.state == .idle || operation.state == .preparing else {
             throw SignumError.module("Operazione già avviata o conclusa.")
         }
+        let audit = CAdESWorkerAudit.start(jobID: id, supportDirectory: worker.auditSupportDirectory)
+        defer { audit?.finish(phase: operation.state) }
         var submitted = false, receivedVerifiedSignature = false
         operation.transition(to: .preparing)
         var io = SignumFileOutput.OutputIO()
@@ -106,7 +108,7 @@ extension SigningJob {
                 submitted = true
                 let signature = try worker.sign(provider: providerPath, slot: slot, certificate: certificate,
                     der: certificateDER, attributes: prepared.attributesToSign, pin: pin, id: id,
-                    timeout: timeout, providerContext: providerContext, isCancelled: { operation.isCancellationRequested })
+                    timeout: timeout, providerContext: providerContext, audit: audit, isCancelled: { operation.isCancellationRequested })
                 receivedVerifiedSignature = true
                 operation.transition(to: .verifying)
                 try operation.checkCancellation()

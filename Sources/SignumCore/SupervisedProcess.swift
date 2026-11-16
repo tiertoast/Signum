@@ -47,11 +47,32 @@ public enum SupervisedProcess {
                            maximumResidentBytes: UInt64? = nil,
                            timeout: TimeInterval = 30,
                            isCancelled: () -> Bool = { false }) throws -> Data {
+        try run(executable: executable, arguments: arguments, input: &input, maximumInput: maximumInput,
+                maximumOutput: maximumOutput, maximumResidentBytes: maximumResidentBytes,
+                timeout: timeout, audit: nil, isCancelled: isCancelled)
+    }
+
+    static func run(executable: URL, arguments: [String] = [], input: inout Data,
+                    maximumInput: Int = 131072, maximumOutput: Int = 2 * 1024 * 1024,
+                    maximumResidentBytes: UInt64? = nil, timeout: TimeInterval,
+                    audit: CAdESWorkerAudit?, isCancelled: () -> Bool) throws -> Data {
+        func record(_ failure: Failure) -> Failure {
+            switch failure {
+            case .launch: audit?.record(.launchFailed)
+            case .capacity: audit?.record(.capacity)
+            case .timeout: audit?.record(.timeout)
+            case .cancelled: audit?.record(.cancelled)
+            case .protocolViolation: audit?.record(.ipcError)
+            case .terminationPending: audit?.record(.terminationPending)
+            case .abnormalExit, .resourceLimit, .memoryMonitoringUnavailable: break
+            }
+            return failure
+        }
         defer { input.resetBytes(in: 0..<input.count) }
         guard maximumInput > 0, maximumOutput > 0, input.count <= maximumInput,
-              timeout.isFinite, timeout > 0 else { throw Failure.protocolViolation }
-        guard !isCancelled() else { throw Failure.cancelled }
-        guard acquire() else { throw Failure.capacity }
+              timeout.isFinite, timeout > 0 else { throw record(.protocolViolation) }
+        guard !isCancelled() else { throw record(.cancelled) }
+        guard acquire() else { throw record(.capacity) }
         var retainedForReaping = false
         defer { if !retainedForReaping { release() } }
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
@@ -68,16 +89,19 @@ public enum SupervisedProcess {
         for fd in [writer.fileDescriptor, reader.fileDescriptor] {
             let flags = fcntl(fd, F_GETFL)
             guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0,
-                  fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else { throw Failure.launch }
+                  fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else { throw record(.launch) }
         }
-        guard fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else { throw Failure.launch }
-        do { try process.run() } catch { throw Failure.launch }
+        guard fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else { throw record(.launch) }
+        do { try process.run() } catch { throw record(.launch) }
         // Close the parent's copies of the child's ends (including on early exit).
         try? incoming.fileHandleForReading.close(); try? outgoing.fileHandleForWriting.close()
         var result = Data(), sent = 0, writerClosed = false, failure: Failure?
         var stopAt: TimeInterval?, killed = false, unavailableRSSCount = 0
+        var sawResponse = false
         var nextRSSSample: TimeInterval = 0
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        audit?.launched(pid: process.processIdentifier)
+        defer { if !writerClosed { audit?.record(.requestNotStarted) } }
         var chunk = [UInt8](repeating: 0, count: 16384)
         func drain() {
             for _ in 0..<32 {
@@ -85,6 +109,10 @@ public enum SupervisedProcess {
                 if count < 0 && errno == EINTR { continue }
                 if count < 0 && errno != EAGAIN && errno != EWOULDBLOCK { failure = failure ?? .protocolViolation }
                 guard count > 0 else { break }
+                if !sawResponse {
+                    sawResponse = true
+                    audit?.record(.responseReceived)
+                }
                 if count > maximumOutput - result.count { failure = failure ?? .protocolViolation; break }
                 result.append(contentsOf: chunk.prefix(count))
             }
@@ -121,16 +149,28 @@ public enum SupervisedProcess {
                     if count > 0 { sent += count }
                     else if count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK { failure = .protocolViolation }
                 }
-                if sent == input.count { try? writer.close(); writerClosed = true; input.resetBytes(in: 0..<input.count) }
+                if sent == input.count {
+                    try? writer.close(); writerClosed = true; input.resetBytes(in: 0..<input.count)
+                    audit?.record(.requestSent)
+                }
             }
-            if failure != nil {
-                if stopAt == nil { stopAt = now; process.terminate() }
-                else if !killed && now - stopAt! >= 0.25 { _ = kill(process.processIdentifier, SIGKILL); killed = true }
-                else if killed && now - stopAt! >= 2 {
+            if let failure {
+                if stopAt == nil {
+                    stopAt = now; process.terminate()
+                    _ = record(failure)
+                    audit?.record(.terminationRequested, code: UInt64(SIGTERM))
+                } else if !killed && now - stopAt! >= 0.25 {
+                    _ = kill(process.processIdentifier, SIGKILL); killed = true
+                    audit?.record(.terminationEscalated, code: UInt64(SIGKILL))
+                } else if killed && now - stopAt! >= 2 {
                     // Do not hang the caller on an OS-level uninterruptible child.
                     // Keep its slot until it actually dies; resource usage is capped.
                     retainedForReaping = true
-                    DispatchQueue.global(qos: .utility).async { process.waitUntilExit(); release() }
+                    _ = record(.terminationPending)
+                    DispatchQueue.global(qos: .utility).async {
+                        process.waitUntilExit(); release()
+                        audit?.recordExit(process)
+                    }
                     throw Failure.terminationPending
                 }
             }
@@ -143,10 +183,17 @@ public enum SupervisedProcess {
             } else { Thread.sleep(forTimeInterval: 0.005) }
         }
         process.waitUntilExit(); drain()
-        if let failure { throw failure }
-        guard !isCancelled() else { throw Failure.cancelled }
+        audit?.recordExit(process)
+        if let failure {
+            if stopAt == nil { _ = record(failure) }
+            throw failure
+        }
+        guard !isCancelled() else { throw record(.cancelled) }
         guard process.terminationReason == .exit, process.terminationStatus == 0,
-              sent == input.count else { throw Failure.abnormalExit }
+              sent == input.count else {
+            if sent != input.count { _ = record(.protocolViolation) }
+            throw Failure.abnormalExit
+        }
         return result
     }
 }

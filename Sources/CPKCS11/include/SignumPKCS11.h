@@ -7,6 +7,14 @@ extern "C" {
 #endif
 typedef struct SGContext SGContext;
 typedef struct SGBatchSession SGBatchSession;
+typedef enum {
+    SG_CALL_INITIALIZE, SG_CALL_OPEN_SESSION, SG_CALL_LOGIN, SG_CALL_SIGN_INIT,
+    SG_CALL_SIGN, SG_CALL_CLOSE_SESSION, SG_CALL_FINALIZE
+} SGObservedCall;
+/* Optional observer for the calling thread. Called synchronously around the
+ * provider call with no arguments, and with the raw CK_RV only on return. */
+typedef void (*SGCallObserver)(void *context, SGObservedCall call, int returned, unsigned long rv);
+void sg_observe_calls(SGCallObserver observer, void *context);
 typedef struct { unsigned long slot; char label[33]; char manufacturer[33]; char model[17]; char reader[65]; char serial[17]; } SGToken;
 /* Public observation only. No session, login, capability probe or mutation.
  * Unknown CK_UNAVAILABLE_INFORMATION bounds remain unknown. No retry counter.

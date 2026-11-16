@@ -19,14 +19,20 @@ public final class IsolatedPKCS11Client: Sendable {
     }
     public let executable: URL
     private let leaseWaitMilliseconds: UInt
+    let auditSupportDirectory: URL?
     public static var bundledExecutable: URL {
         let bundle = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/SignumPKCS11Worker")
         if Bundle.main.bundleURL.pathExtension == "app" { return bundle }
         return URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
             .deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker")
     }
-    public init(executable: URL = IsolatedPKCS11Client.bundledExecutable, leaseWaitMilliseconds: UInt = 10000) {
-        self.executable = executable; self.leaseWaitMilliseconds = leaseWaitMilliseconds
+    public convenience init(executable: URL = IsolatedPKCS11Client.bundledExecutable, leaseWaitMilliseconds: UInt = 10000) {
+        self.init(executable: executable, leaseWaitMilliseconds: leaseWaitMilliseconds, auditSupportDirectory: nil)
+    }
+    init(executable: URL, leaseWaitMilliseconds: UInt = 10000, auditSupportDirectory: URL?) {
+        self.executable = executable
+        self.leaseWaitMilliseconds = leaseWaitMilliseconds
+        self.auditSupportDirectory = auditSupportDirectory
     }
 
     public struct Scan: Sendable {
@@ -67,20 +73,23 @@ public final class IsolatedPKCS11Client: Sendable {
     // approved DER; even a lying worker cannot return an accepted foreign key.
     func sign(provider: String, slot: UInt, certificate: SignumCertificate, der: Data, attributes: Data,
               pin: String, id: UUID, timeout: TimeInterval = 120, providerContext: SigningProviderContext? = nil,
-              isCancelled: () -> Bool = { false }) throws -> Data {
+              audit: CAdESWorkerAudit? = nil, isCancelled: () -> Bool = { false }) throws -> Data {
         try CertificateEligibility.requireEligible(certificateDER: der)
         if let providerContext, !providerContext.matches(provider: provider, slot: slot, certificate: certificate, der: der) { throw Failure.contextChanged }
         var request = PKCS11WorkerRequest(version: providerContext == nil ? 1 : 2, id: id, action: .rsaSHA256, provider: provider, slot: slot,
             certificate: WorkerCertificate(certificate, der: der), attributes: attributes, pin: pin, leaseWaitMilliseconds: leaseWaitMilliseconds)
         request.providerContext = providerContext
         request.expectedModule = providerContext?.moduleIdentity; request.automaticModule = providerContext?.automatic
-        let result = try exchange(request, timeout: timeout, isCancelled: isCancelled)
+        request.auditDirectory = audit?.directory.path
+        let result = try exchange(request, timeout: timeout, audit: audit, isCancelled: isCancelled)
         guard result.tokens.isEmpty, result.certificates.isEmpty, let signature = result.signature,
               (128...1024).contains(signature.count), let cert = SecCertificateCreateWithData(nil, der as CFData),
               let key = SecCertificateCopyKey(cert),
               SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256, attributes as CFData, signature as CFData, nil) else {
+            audit?.record(.signatureRejected)
             throw SignumError.invalidSignature
         }
+        audit?.record(.signatureVerified)
         return signature
     }
     public func signProof(provider: String, slot: UInt, certificate: SignumCertificate, der: Data,
@@ -88,24 +97,37 @@ public final class IsolatedPKCS11Client: Sendable {
         _ = try sign(provider: provider, slot: slot, certificate: certificate, der: der,
             attributes: Data("Signum PKCS11 proof of concept v0.1\n".utf8), pin: pin, id: UUID(), isCancelled: isCancelled)
     }
-    private func exchange(_ request: PKCS11WorkerRequest, timeout: TimeInterval,
+    private func exchange(_ request: PKCS11WorkerRequest, timeout: TimeInterval, audit: CAdESWorkerAudit? = nil,
                           isCancelled: () -> Bool) throws -> PKCS11WorkerResponse {
-        guard request.valid else { throw SupervisedProcess.Failure.protocolViolation }
-        var input = try JSONEncoder().encode(request)
-        let data = try SupervisedProcess.run(executable: executable, input: &input, timeout: timeout, isCancelled: isCancelled)
+        guard request.valid else {
+            audit?.record(.ipcError)
+            throw SupervisedProcess.Failure.protocolViolation
+        }
+        var input: Data
+        do { input = try JSONEncoder().encode(request) }
+        catch { audit?.record(.ipcError); throw error }
+        let data = try SupervisedProcess.run(executable: executable, input: &input, timeout: timeout, audit: audit, isCancelled: isCancelled)
+        func rejectResponse() -> SupervisedProcess.Failure {
+            audit?.record(.responseRejected)
+            return .protocolViolation
+        }
         guard let response = try? JSONDecoder().decode(PKCS11WorkerResponse.self, from: data),
               response.version == request.version, response.id == request.id, response.action == request.action,
               response.provider.hasPrefix("/"), response.provider.utf8.count <= 4096,
-              !response.provider.utf8.contains(0) else { throw SupervisedProcess.Failure.protocolViolation }
+              !response.provider.utf8.contains(0) else { throw rejectResponse() }
+        if !response.succeeded { audit?.record(.providerRejected) }
         if !response.succeeded, response.failureKind == "busy" { throw Failure.busy }
         if !response.succeeded, response.failureKind == "authenticationRequired", request.action != .rsaSHA256 { throw Failure.authenticationRequired }
         if !response.succeeded, response.failureKind == "contextChanged", request.version == 2 { throw Failure.contextChanged }
         if let binding = request.providerContext, response.succeeded {
-            guard response.provider == binding.provider, response.validatedContext == binding else { throw SupervisedProcess.Failure.protocolViolation }
+            guard response.provider == binding.provider, response.validatedContext == binding else { throw rejectResponse() }
         }
-        guard response.succeeded, response.failureKind == nil else { throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.") }
+        guard response.succeeded, response.failureKind == nil else {
+            if response.succeeded { audit?.record(.responseRejected) }
+            throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.")
+        }
         if let expected = request.expectedModule {
-            guard response.validatedModule == expected, response.automaticValidated == request.automaticModule else { throw SupervisedProcess.Failure.protocolViolation }
+            guard response.validatedModule == expected, response.automaticValidated == request.automaticModule else { throw rejectResponse() }
             let inspected = try MiddlewareFileSecurity.inspect(request.provider, automatic: request.automaticModule == true)
             guard inspected.identity == expected, inspected.canonicalPath == response.provider else { throw MiddlewareFileSecurity.Failure.changed }
         }

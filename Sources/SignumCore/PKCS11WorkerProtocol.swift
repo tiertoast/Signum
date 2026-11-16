@@ -16,6 +16,7 @@ struct PKCS11WorkerRequest: Codable {
     var expectedModule: MiddlewareFileIdentity? = nil
     var automaticModule: Bool? = nil
     var providerContext: SigningProviderContext? = nil
+    var auditDirectory: String? = nil
     init(version: Int = 1, id: UUID = UUID(), action: Action, provider: String, slot: UInt? = nil,
          certificate: WorkerCertificate? = nil, attributes: Data? = nil, pin: String? = nil, leaseWaitMilliseconds: UInt = 10000) {
         self.version = version; self.id = id; self.action = action; self.provider = provider
