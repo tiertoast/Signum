@@ -37,22 +37,35 @@ public enum PKCS11WorkerEntrypoint {
         input.resetBytes(in: 0..<input.count)
         var response = PKCS11WorkerResponse(version: request.version, id: request.id, action: request.action,
             provider: request.provider, tokens: [], unavailable: 0, certificates: [], signature: nil, succeeded: false)
-        do { response = try perform(request) }
-        catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
+        let audit = request.action == .rsaSHA256 ? request.auditDirectory.flatMap {
+            CAdESWorkerAudit.attach(jobID: request.id, directory: $0)
+        } : nil
+        audit?.record(.requestAccepted)
+        do {
+            if let audit { response = try audit.observeProvider { try perform(request, audit: audit) } }
+            else { response = try perform(request) }
+        } catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
         catch IsolatedPKCS11Client.Failure.authenticationRequired { response.failureKind = "authenticationRequired" }
         catch is MiddlewareFileSecurity.Failure { if request.version == 2 { response.failureKind = "contextChanged" } }
         catch { /* Never return vendor diagnostics or request bytes. */ }
-        guard var output = try? JSONEncoder().encode(response), output.count <= 2 * 1024 * 1024 else { return 2 }
+        guard var output = try? JSONEncoder().encode(response), output.count <= 2 * 1024 * 1024 else {
+            audit?.record(.replyFailed)
+            return 2
+        }
         defer { output.resetBytes(in: 0..<output.count) }
         var offset = 0
         while offset < output.count {
             let count = output.withUnsafeBytes { Darwin.write(reply, $0.baseAddress!.advanced(by: offset), output.count - offset) }
             if count < 0 && errno == EINTR { continue }
-            guard count > 0 else { return 2 }; offset += count
+            guard count > 0 else {
+                audit?.record(.replyFailed)
+                return 2
+            }
+            offset += count
         }
         return 0
     }
-    private static func perform(_ request: PKCS11WorkerRequest) throws -> PKCS11WorkerResponse {
+    private static func perform(_ request: PKCS11WorkerRequest, audit: CAdESWorkerAudit? = nil) throws -> PKCS11WorkerResponse {
         guard let lease = sg_token_lease_acquire(request.provider, UInt64(request.slot ?? 0), request.action == .scan ? 1 : 0,
                                                  UInt32(request.leaseWaitMilliseconds)) else {
             if errno == ETIMEDOUT { throw IsolatedPKCS11Client.Failure.busy }
@@ -64,6 +77,7 @@ public enum PKCS11WorkerEntrypoint {
             guard inspected.identity == expected, inspected.canonicalPath == request.provider else { throw MiddlewareFileSecurity.Failure.changed }
         }
         let module = try PKCS11Module(path: request.provider)
+        audit?.recordModule(path: module.modulePath)
         let result = Result { () -> PKCS11WorkerResponse in
             var tokens: [WorkerToken] = [], certificates: [WorkerCertificate] = [], unavailable = 0
             var signature: Data?, version: String?
