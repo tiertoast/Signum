@@ -34,6 +34,21 @@ public enum SigningAuthenticationFailure: String, Error, LocalizedError, Codable
         }
     }
 
+    /// One-line feedback shown next to the PIN field.
+    public var shortDescription: String {
+        switch self {
+        case .pinIncorrect: return "PIN errato. Nessuna firma eseguita: riprova."
+        case .pinIncorrectCountLow: return "PIN errato. Restano pochi tentativi prima del blocco."
+        case .pinIncorrectFinalTry: return "PIN errato. Resta un solo tentativo prima del blocco."
+        case .pinInvalid: return "Il dispositivo non accetta questo PIN (lunghezza o caratteri)."
+        case .pinLocked: return "PIN bloccato. Usa il PUK o lo strumento del produttore."
+        case .pinExpired: return "PIN scaduto. Cambialo con lo strumento del produttore."
+        case .notSigned: return "Operazione rifiutata dal dispositivo prima della firma."
+        }
+    }
+    /// The last attempts are serious enough to warrant stronger emphasis.
+    public var isCritical: Bool { self == .pinIncorrectFinalTry || self == .pinIncorrectCountLow || self == .pinLocked }
+
     /// Wire value used between worker processes and the app.
     var wire: String { "auth." + rawValue }
     init?(wire: String?) {

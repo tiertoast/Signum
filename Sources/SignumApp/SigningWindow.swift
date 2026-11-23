@@ -752,8 +752,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
                         guard self.session.accepts(generation) else { return }
                         if newPINAllowed, case .failure(let error) = result {
                             // Nothing was signed: the next PIN may start a new session for the same batch.
+                            // The PIN field shows the refusal; keep the session text quiet.
                             authenticationAttempted = false
-                            authenticationStatus = error.localizedDescription
+                            authenticationStatus = ""
                             status = error.localizedDescription
                             return
                         }

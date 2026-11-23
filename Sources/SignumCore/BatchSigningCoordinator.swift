@@ -33,6 +33,8 @@ public struct BatchDocument: Identifiable, Sendable {
     public fileprivate(set) var destination: URL?
     public fileprivate(set) var state: BatchDocumentState = .pending
     public fileprivate(set) var result: String = ""
+    /// Latest PIN refusal for this still-authorizable document, shown by the PIN field.
+    public fileprivate(set) var authenticationRefusal: SigningAuthenticationFailure?
 }
 
 public struct BatchApproval: Sendable {
@@ -419,6 +421,7 @@ public struct BatchApproval: Sendable {
               expectedDocumentID == nil || expectedDocumentID == next.id,
               let job = approval.jobs.first(where: { $0.snapshotIdentity.id == next.id }) else { return }
         isRunning = true; activeID = next.id
+        if let i = documents.firstIndex(where: { $0.id == next.id }) { documents[i].authenticationRefusal = nil }
         let operation = SigningOperation(id: job.id) { [weak self] phase in
             Task { @MainActor in
                 guard let self, self.activeID == next.id, let i = self.documents.firstIndex(where: { $0.id == next.id }), !self.documents[i].state.isTerminal else { return }
@@ -470,6 +473,7 @@ public struct BatchApproval: Sendable {
             operation.transition(to: .failed)
             documents[index].state = .pending
             documents[index].result = error.localizedDescription
+            documents[index].authenticationRefusal = error as? SigningAuthenticationFailure
         case .failure(let error):
             if case SignumError.outputUncertain = error {
                 operation.transition(to: .outcomeUncertain)

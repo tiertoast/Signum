@@ -228,6 +228,13 @@ extension SignumWindow {
                             .textFieldStyle(.roundedBorder).privacySensitive().focused($pinFocused)
                             .onSubmit { authorizeNextDocument() }.onAppear { pinFocused = true }
                             .disabled(interfaceLocked)
+                        if let refusal = next.authenticationRefusal {
+                            Label(refusal.shortDescription, systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout.weight(refusal.isCritical ? .semibold : .regular))
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("signum.pin-refusal")
+                        }
                     }
                     if presentation.stage == .completed { Text("Sessione conclusa. Consulta gli esiti nei documenti.").font(.caption) }
                     if batch.needsOutcomeReview {

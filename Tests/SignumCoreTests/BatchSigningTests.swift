@@ -68,11 +68,13 @@ import CoreGraphics
             XCTAssertFalse(snapshot.isRetired)
             XCTAssertTrue(FileManager.default.fileExists(atPath: snapshot.fileURL.path))
             XCTAssertEqual(batch.documents.first?.result, SigningAuthenticationFailure.pinIncorrect.localizedDescription)
+            XCTAssertEqual(batch.documents.first?.authenticationRefusal, .pinIncorrect)
             let worker = worker
             try await batch.authorizeNext(pin: "synthetic-fixture") { job, pin, operation in
                 try job.signCAdES(using: IsolatedPKCS11Client(executable: worker), pin: pin, operation: operation)
             }
             XCTAssertEqual(batch.documents.first?.state, .completed)
+            XCTAssertNil(batch.documents.first?.authenticationRefusal)
             XCTAssertEqual(audit(mock, "16"), 1)
             XCTAssertEqual(try CAdESVerifier.verify(file: approval.jobs[0].destination).originalDocument, Data("Approved synthetic document 0".utf8))
         }
