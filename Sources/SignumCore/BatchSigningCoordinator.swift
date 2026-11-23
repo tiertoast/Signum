@@ -416,7 +416,7 @@ public struct BatchApproval: Sendable {
         isContinuingAuthenticated = true
         await withTaskCancellationHandler(operation: {
             while !Task.isCancelled, isApproved, session.canContinue, !needsOutcomeReview, let next = nextDocument {
-                await executeNext(expectedDocumentID: next.id) { job, operation in try session.signCAdES(job: job, pin: nil, operation: operation) }
+                await executeNext(expectedDocumentID: next.id) { job, operation in try session.sign(job: job, pin: nil, operation: operation) }
                 guard documents.first(where: { $0.id == next.id })?.state == .completed else { break }
             }
             await retireAuthenticatedSession(using: session).value

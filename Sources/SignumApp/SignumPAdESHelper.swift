@@ -2,9 +2,10 @@
 import Foundation
 import SignumCore
 
-/// Launches the separately built PoDoFo proof-of-concept with a private stdin pipe.
-/// No PIN is passed via argv or process environment. This is not production IPC:
-/// secrets may remain in Swift and middleware memory.
+/// Launches the bundled PoDoFo helper with a private stdin pipe. Either the helper
+/// signs with its own PKCS#11 session (PIN on stdin, never argv/env), or, with a
+/// remote signer, it loads no middleware, receives no PIN and asks the app for
+/// the signature, which comes from the batch worker's authenticated session.
 enum SignumPAdESHelper {
     static var executableURL: URL {
         Bundle.main.bundleURL
@@ -23,13 +24,16 @@ enum SignumPAdESHelper {
         let height: Double
     }
 
-    static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?, operation: SigningOperation? = nil,
-                     executable: URL? = nil, timeout: TimeInterval = 120, appearance: RenderedPAdESAppearance? = nil) throws {
+    static func sign(job: SigningJob, pin: String?, appearanceName: String, field: Field?, operation: SigningOperation? = nil,
+                     executable: URL? = nil, timeout: TimeInterval = 120, appearance: RenderedPAdESAppearance? = nil,
+                     remoteSigner: ((Data) throws -> Data)? = nil) throws {
         // A PIN refusal proven before C_Sign keeps the approved snapshot for a new PIN.
         var keepSnapshot = false
         defer { if !keepSnapshot { job.snapshot.close() } }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
-        guard PAdESInputContract.validPIN(pin) else { throw SignumError.module("PIN non rappresentabile nel trasporto PAdES.") }
+        guard remoteSigner != nil ? job.providerContext != nil : pin.map(PAdESInputContract.validPIN) == true else {
+            throw SignumError.module("PIN non rappresentabile nel trasporto PAdES.")
+        }
         if let frozen = job.padesAppearance, let appearance, frozen.approvalIdentity != appearance.approvalIdentity {
             throw SignumError.module("Appearance differente da quella approvata nel job.")
         }
@@ -83,12 +87,17 @@ enum SignumPAdESHelper {
                 String(field.height)
             ]
         }
-        args.append("--pin-stdin")
+        if remoteSigner == nil { args.append("--pin-stdin") }
         if field != nil { args.append(appearance == nil ? "--appearance-stdin" : "--appearance-pdf-stdin") }
 
         // Supply exactly one line to the helper. This avoids getpass() in GUI
         // contexts and avoids leaking credentials through command arguments.
-        var secret = try PAdESInputContract.pinLine(pin)
+        var secret: Data
+        if remoteSigner != nil {
+            // Certificate frame instead of a PIN: the helper never sees credentials.
+            secret = Data((0..<4).reversed().map { UInt8((UInt32(expectedCertificate.count) >> ($0*8)) & 255) })
+            secret.append(expectedCertificate)
+        } else { secret = try PAdESInputContract.pinLine(pin ?? "") }
         if field != nil, let appearance {
             guard !appearance.pdf.isEmpty else { throw SignumError.module("Appearance mancante.") }
             secret.append(contentsOf:(0..<4).reversed().map { UInt8((UInt32(appearance.pdf.count) >> ($0*8)) & 255) })
@@ -115,6 +124,8 @@ enum SignumPAdESHelper {
         operation?.transition(to: .signing)
         let fingerprint = job.certificateSHA256
         // A bound GUI job never falls back to the explicit legacy v4 helper contract.
+        // Options are parsed from the end: the remote marker precedes the others.
+        if remoteSigner != nil { args += ["--remote-signer-v1", "1"] }
         if let identity = job.destinationDirectoryIdentity { args += ["--expected-output-directory-v1", identity.wire] }
         if let binding = job.providerContext {
             guard binding.valid, binding.padesWire.utf8.count <= 16384 else { throw SignumError.module("Contesto PAdES non valido.") }
@@ -128,8 +139,8 @@ enum SignumPAdESHelper {
                  "--expected-cert-sha256", fingerprint, job.providerContext == nil ? "--verified-output-v4" : "--verified-output-v5"]
         let outcome = PAdESHelperProcess.run(executable: engine, arguments: args, input: &secret,
             destination: output, timeout: timeout, expectedJobID: job.id, expectedProtocolVersion: job.providerContext == nil ? 4 : 5,
-            maximumInput: appearance == nil ? 512 : PAdESAppearanceRenderer.maximumPDFBytes+69,
-            isCancelled: { operation?.isCancellationRequested ?? false })
+            maximumInput: (appearance == nil ? 512 : PAdESAppearanceRenderer.maximumPDFBytes+69) + (remoteSigner == nil ? 0 : 65540),
+            isCancelled: { operation?.isCancellationRequested ?? false }, remoteSigner: remoteSigner)
         do { try PAdESHelperProcess.requirePublished(outcome) }
         catch {
             keepSnapshot = error.allowsNewPIN && !(operation?.isCancellationRequested ?? false)

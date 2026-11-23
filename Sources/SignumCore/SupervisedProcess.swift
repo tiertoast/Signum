@@ -39,6 +39,10 @@ public enum SupervisedProcess {
         }
     }
     private static let capacity = Capacity()
+    /// An error thrown by the interactive responder, preserved for the caller.
+    public struct ResponderFailure: Error { public let underlying: Error }
+    /// The only interactive request a child may make (PAdES remote signer).
+    public static let signRequestPrefix = Data("SIGNUM-SIGN-V1 ".utf8)
     static func acquire() -> Bool { capacity.acquire() }
     static func release() { capacity.release() }
 
@@ -46,7 +50,8 @@ public enum SupervisedProcess {
                            maximumInput: Int = 131072, maximumOutput: Int = 2 * 1024 * 1024,
                            maximumResidentBytes: UInt64? = nil,
                            timeout: TimeInterval = 30,
-                           isCancelled: () -> Bool = { false }) throws -> Data {
+                           isCancelled: () -> Bool = { false },
+                           respond: ((Data) throws -> Data)? = nil) throws -> Data {
         defer { input.resetBytes(in: 0..<input.count) }
         guard maximumInput > 0, maximumOutput > 0, input.count <= maximumInput,
               timeout.isFinite, timeout > 0 else { throw Failure.protocolViolation }
@@ -77,7 +82,25 @@ public enum SupervisedProcess {
         var result = Data(), sent = 0, writerClosed = false, failure: Failure?
         var stopAt: TimeInterval?, killed = false, unavailableRSSCount = 0
         var nextRSSSample: TimeInterval = 0
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        var deadline = ProcessInfo.processInfo.systemUptime + timeout
+        // Interactive mode: stdin stays open for exactly one answered request.
+        var answered = respond == nil, responderError: Error?
+        func serveRequest() {
+            guard let respond, failure == nil, result.starts(with: signRequestPrefix) else { return }
+            guard !answered else { failure = .protocolViolation; return } // A single request only.
+            guard let newline = result.firstIndex(of: 0x0A) else {
+                if result.count > 512 { failure = .protocolViolation }
+                return
+            }
+            let request = result.subdata(in: result.startIndex.advanced(by: signRequestPrefix.count)..<newline)
+            result.removeSubrange(result.startIndex...newline)
+            answered = true
+            do {
+                var answer = try respond(request); answer.append(0x0A)
+                input.append(answer); answer.resetBytes(in: 0..<answer.count)
+                deadline = ProcessInfo.processInfo.systemUptime + timeout // Device time is not helper time.
+            } catch { responderError = error; failure = .protocolViolation }
+        }
         var chunk = [UInt8](repeating: 0, count: 16384)
         func drain() {
             for _ in 0..<32 {
@@ -112,7 +135,7 @@ public enum SupervisedProcess {
                 if isCancelled() { failure = .cancelled }
                 else if now >= deadline { failure = .timeout }
             }
-            drain()
+            drain(); serveRequest()
             if failure == nil && !writerClosed {
                 if sent < input.count {
                     let count = input.withUnsafeBytes { bytes in
@@ -121,7 +144,7 @@ public enum SupervisedProcess {
                     if count > 0 { sent += count }
                     else if count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK { failure = .protocolViolation }
                 }
-                if sent == input.count { try? writer.close(); writerClosed = true; input.resetBytes(in: 0..<input.count) }
+                if sent == input.count && answered { try? writer.close(); writerClosed = true; input.resetBytes(in: 0..<input.count) }
             }
             if failure != nil {
                 if stopAt == nil { stopAt = now; process.terminate() }
@@ -138,11 +161,12 @@ public enum SupervisedProcess {
                 // Wake on pipe capacity/data rather than throttling every
                 // 16 KiB write by 5 ms (100 MiB otherwise exceeds 30 seconds).
                 var descriptors = [pollfd(fd: reader.fileDescriptor, events: Int16(POLLIN), revents: 0)]
-                if !writerClosed { descriptors.append(pollfd(fd: writer.fileDescriptor, events: Int16(POLLOUT), revents: 0)) }
+                if !writerClosed && sent < input.count { descriptors.append(pollfd(fd: writer.fileDescriptor, events: Int16(POLLOUT), revents: 0)) }
                 _ = descriptors.withUnsafeMutableBufferPointer { poll($0.baseAddress, nfds_t($0.count), 5) }
             } else { Thread.sleep(forTimeInterval: 0.005) }
         }
         process.waitUntilExit(); drain()
+        if let responderError { throw ResponderFailure(underlying: responderError) }
         if let failure { throw failure }
         guard !isCancelled() else { throw Failure.cancelled }
         guard process.terminationReason == .exit, process.terminationStatus == 0,

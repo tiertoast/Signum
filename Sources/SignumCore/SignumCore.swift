@@ -137,7 +137,8 @@ public final class PKCS11Module {
 
     // Dedicated worker only; the context never escapes to the GUI.
     func firstBatchSignature(slot: UInt, serial: String, certificate: SignumCertificate, der: Data,
-                             attributes: Data, pin: String) throws -> (Data, Bool) {
+                             attributes: Data, pin: String, encodedDigest: Bool = false) throws -> (Data, Bool) {
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var secret = Data(pin.utf8), output = [UInt8](repeating: 0, count: 8192), length = 0
         var reusable: Int32 = 0
         defer { secret.resetBytes(in: 0..<secret.count) }
@@ -155,8 +156,9 @@ public final class PKCS11Module {
         guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
         return (Data(output.prefix(length)), reusable == 1)
     }
-    func nextBatchSignature(attributes: Data) throws -> Data {
+    func nextBatchSignature(attributes: Data, encodedDigest: Bool = false) throws -> Data {
         guard let batchSession else { throw SignumError.module("Batch session closed") }
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var output = [UInt8](repeating: 0, count: 8192), length = 0
         try execute { error in attributes.withUnsafeBytes { bytes in
             sg_batch_next(batchSession, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
@@ -168,7 +170,8 @@ public final class PKCS11Module {
 
     var batchRequiresPIN: Bool { sg_batch_requires_pin(batchSession) == 1 }
     func firstTemporaryBatchSignature(slot: UInt, serial: String, certificate: SignumCertificate, der: Data,
-                                     attributes: Data, pin: WorkerBatchPINContext) throws -> (Data, Bool) {
+                                     attributes: Data, pin: WorkerBatchPINContext, encodedDigest: Bool = false) throws -> (Data, Bool) {
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var output = [UInt8](repeating: 0, count: 8192), length = 0, reusable: Int32 = 0
         try executeSigning { error in certificate.identifier.withUnsafeBytes { id in der.withUnsafeBytes { approved in
             attributes.withUnsafeBytes { message in
@@ -181,8 +184,9 @@ public final class PKCS11Module {
         guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
         return (Data(output.prefix(length)), reusable == 1)
     }
-    func nextTemporaryBatchSignature(attributes: Data, pin: WorkerBatchPINContext) throws -> Data {
+    func nextTemporaryBatchSignature(attributes: Data, pin: WorkerBatchPINContext, encodedDigest: Bool = false) throws -> Data {
         guard let batchSession else { throw SignumError.module("Batch session closed") }
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var output = [UInt8](repeating: 0, count: 8192), length = 0
         try execute { error in attributes.withUnsafeBytes { bytes in
             sg_batch_next_temporary(batchSession, pin.bytes, pin.length,

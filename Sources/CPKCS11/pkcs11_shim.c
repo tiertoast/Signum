@@ -31,6 +31,7 @@ struct SGContext {
     /* Outcome of the latest signing request on this context, written only while
      * the provider operation lock is held. Never contains credential material. */
     int sign_called;
+    int batch_encoded_digest; /* next batch signature: SHA-256 DigestInfo, CKM_RSA_PKCS */
     CK_RV login_rv;
     CK_FLAGS login_token_flags;
 };
@@ -734,10 +735,18 @@ static int batch_pin_current(SGBatchSession *s) {
     double now = sg_batch_monotonic_now();
     return now >= 0 && now < s->pin_deadline;
 }
+static const uint8_t sha256_digest_info_prefix[] = {
+    0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,
+    0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
+};
 static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t pin_length,
     const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
     if (!message || !message_length || message_length > 4096 || !signature || capacity < 8192 || !length || s->failed)
         return invalid(error, size, "Invalid/retired batch signature request");
+    /* Raw RSA only over an exact SHA-256 DigestInfo (PAdES CMS); never arbitrary data. */
+    const int encoded = s->ctx->batch_encoded_digest;
+    if (encoded && (message_length != 51 || memcmp(message, sha256_digest_info_prefix, sizeof(sha256_digest_info_prefix))))
+        return invalid(error, size, "Expected DER SHA-256 DigestInfo for batch digest signature");
     *length = 0;
     int status = batch_token(s, 0, NULL, error, size);
     CK_SESSION_INFO info;
@@ -766,7 +775,7 @@ static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t p
         if (first) { s->auth_known = known; s->auth = auth; s->key = key; }
     }
     if (!status) {
-        CK_MECHANISM mechanism = { CKM_SHA256_RSA_PKCS, NULL, 0 };
+        CK_MECHANISM mechanism = { encoded ? CKM_RSA_PKCS : CKM_SHA256_RSA_PKCS, NULL, 0 };
         rv = s->ctx->api->C_SignInit(s->handle, &mechanism, key);
         if (rv != CKR_OK) status = failed(error, size, "Batch C_SignInit", rv);
         if (!status && known && auth == CK_TRUE) {
@@ -834,6 +843,11 @@ int sg_batch_first_temporary(SGContext *ctx, unsigned long slot, const char *ser
     if (!isfinite(deadline) || deadline <= 0) return invalid(error, size, "Invalid PIN deadline");
     return batch_first(ctx, slot, serial, id, id_length, der, der_length, pin, pin_length, message, message_length,
         out, reusable, signature, capacity, length, error, size, 1, deadline);
+}
+int sg_batch_use_encoded_digest(SGContext *ctx, int enabled) {
+    if (!ctx) return -1;
+    ctx->batch_encoded_digest = enabled ? 1 : 0;
+    return 0;
 }
 int sg_batch_requires_pin(SGBatchSession *s) {
     return s && !s->failed && s->reusable && s->temporary_pin && s->auth_known && s->auth == CK_TRUE;

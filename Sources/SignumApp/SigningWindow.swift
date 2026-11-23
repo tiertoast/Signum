@@ -756,7 +756,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 authenticationSession = try BatchCAdESSession(approval: plan, serial: route.token.serial,
                     moduleIdentity: route.moduleIdentity, automaticModule: route.origin == .known,
                     temporaryPIN: approvedAuthenticationMode == .temporaryPIN,
-                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)), executable: worker.executable)
+                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)), executable: worker.executable,
+                    padesRunner: SignumPAdESHelper.available ? { job, operation, signer in
+                        // The helper loads no middleware and never receives the PIN.
+                        try SignumPAdESHelper.sign(job: job, pin: nil, appearanceName: holder, field: nil, operation: operation,
+                                                   appearance: job.padesAppearance, remoteSigner: signer)
+                    } : nil)
             } catch { provider.pin = ""; status = error.localizedDescription; return }
         }
         let session = authenticationSession
@@ -765,7 +770,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         let submission = interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
             guard job.providerContext != nil else { throw SignumError.module("Contesto dispositivo approvato mancante.") }
             try route.requireCurrentModule()
-            if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
+            if let session { try session.sign(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: worker, pin: pin, operation: operation) }
             else if job.format.isAdvancedCAdES { try job.signAdvancedCAdES(using:worker,pin:pin,operation:operation) }
             else if job.format == .xades || job.format.isASiC { try job.signXAdES(using:worker,pin:pin,operation:operation) }

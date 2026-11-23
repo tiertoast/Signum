@@ -58,7 +58,8 @@
       "SigningOperationTests",
       "SigningReviewTests",
       "SigningSessionReleaseTests",
-      "SigningAuthenticationFailureTests"
+      "SigningAuthenticationFailureTests",
+      "BatchPAdESSessionTests"
     ],
     "integration": [
       "AutomaticSelectionConsentTests",

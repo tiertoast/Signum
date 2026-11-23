@@ -42,7 +42,10 @@ is frozen, and every stamp is bound to the selected certificate and reviewed.
 The middleware runs in processes with the user's permissions. Isolation limits
 crash/hang impact but does not make arbitrary vendor code trustworthy or sandbox it.
 The app uses Apple PDFKit/CoreGraphics/CoreText for preview and appearance;
-PoDoFo applies the native PDF signature. XML uses libxml2/xmlsec with explicit
+PoDoFo applies the native PDF signature. A single PDF is signed by the helper's
+own PKCS#11 session; in an authenticated batch (one PIN for PDF and .p7m jobs) the
+helper asks the app for each signature over its status pipe and the batch worker
+signs the DigestInfo, so the middleware is loaded only once. XML uses libxml2/xmlsec with explicit
 reference, transform and resource restrictions. ASiC uses a bounded ZIP32 layer
 and the supported detached XAdES profile.
 

@@ -99,6 +99,10 @@ int sg_batch_first_temporary(SGContext *, unsigned long, const char *, const uin
     const uint8_t *, size_t, SGBatchSession **, int *, uint8_t *, size_t, size_t *, char *, size_t);
 int sg_batch_next_temporary(SGBatchSession *, const uint8_t *, size_t,
     const uint8_t *, size_t, uint8_t *, size_t, size_t *, char *, size_t);
+/* Worker-only, set before each batch signature: when enabled the message must
+ * be an exact DER SHA-256 DigestInfo (PAdES CMS) and is signed with CKM_RSA_PKCS;
+ * otherwise the message is hashed by the token (CKM_SHA256_RSA_PKCS). */
+int sg_batch_use_encoded_digest(SGContext *context, int enabled);
 int sg_batch_requires_pin(SGBatchSession *); // only public policy, never secret bytes
 int sg_batch_close(SGBatchSession *session, char *error, size_t error_size);
 

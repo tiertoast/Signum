@@ -11,7 +11,10 @@ independent certification, universal interoperability or a legal opinion.
 - PKCS#11 operations use supervised workers. Private keys remain in the
   token/provider; PINs are not command-line arguments, environment settings or
   persistent preferences. Optional temporary batch PIN retention increases
-  in-memory exposure and is restricted to approved attached CAdES batches.
+  in-memory exposure and is restricted to approved attached CAdES and PAdES
+  batches. In an authenticated batch the PDF helper runs as a remote signer: it
+  loads no middleware and never receives the PIN; the worker signs only an exact
+  SHA-256 DigestInfo (CKM_RSA_PKCS) for a PDF job named in the approved manifest.
 - Output is staged, checked and published exclusively; existing files are not
   silently overwritten. Uncertain private operations do not trigger retries.
 - A provider refusal that the worker proves happened before any `C_Sign` (for
