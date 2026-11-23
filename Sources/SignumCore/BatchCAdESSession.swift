@@ -150,6 +150,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
             retireConnection()
             state.lock(); stopped = true; state.unlock()
             if error is BatchSignatureConnection.Failure { throw error } // Explicit pre-login refusal, not an uncertain Sign.
+            if error.provablyNotSigned { throw error } // Worker proved that no C_Sign was issued.
             if submitted && !receivedSignature {
                 throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Non ripetere automaticamente questo job.")
             }

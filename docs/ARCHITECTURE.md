@@ -50,8 +50,9 @@ FreeType is part of the native build and need not appear as a separate dylib.
 PoDoFo's incorporated components carry their own notices; the complete inventory
 is in the shipped notice/source material rather than a claim of independently
 installed versions for every embedded component. Java and Homebrew are not
-application runtime dependencies. The legacy `verify-cades` CLI command uses
-system `/usr/bin/openssl`; the unified native verifier uses the bundled backend.
+application runtime dependencies. CAdES post-signing verification and the
+`verify-cades` CLI command use the bundled OpenSSL in-process; no system
+`/usr/bin/openssl` is required at runtime.
 
 ## Licensing and corresponding source
 

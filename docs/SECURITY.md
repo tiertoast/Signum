@@ -14,6 +14,11 @@ independent certification, universal interoperability or a legal opinion.
   in-memory exposure and is restricted to approved attached CAdES batches.
 - Output is staged, checked and published exclusively; existing files are not
   silently overwritten. Uncertain private operations do not trigger retries.
+- A provider refusal that the worker proves happened before any `C_Sign` (for
+  example an incorrect, invalid or locked PIN) is an ordinary failure, not an
+  uncertain outcome. After an incorrect PIN the same approved document can be
+  authorized again; Signum reports low/final attempt counters when the token
+  publishes them and never retries automatically.
 - Worker isolation reduces crash/hang impact but is not a privilege sandbox.
   A malicious middleware library still runs as the user; install only trusted modules.
 - Real PIN changes and PUK unblocking remain disabled/unqualified.
@@ -47,6 +52,10 @@ Trust-list acquisition and online OCSP/CRL checks contact their configured or
 validated endpoints and reveal normal network metadata. OCSP requests identify
 the certificate being checked; they are not anonymous. Offline assessment needs
 sufficient authenticated cached or embedded evidence and may be indeterminate.
+OCSP/CRL endpoints whose addresses are all public are tried over IPv4 first and
+then IPv6. A manual HTTP/HTTPS proxy from the macOS network settings is used,
+honouring its bypass list; PAC/WPAD, SOCKS and authenticated proxies are not
+supported and fall back to a direct connection.
 
 PINs, private documents and identifying certificate data do not belong in issue
 reports. Exported verification reports intentionally contain signer/certificate

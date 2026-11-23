@@ -122,6 +122,8 @@ struct PKCS11 {
     std::array<char, 512> error{};
     bool& cleanupConfirmed;
     std::vector<uint8_t>& ownedPIN;
+    // Set only when the shared shim proves that no C_Sign was issued.
+    const char* refusal = nullptr;
     explicit PKCS11(const char* path, bool& cleanup, std::vector<uint8_t>& pin) : cleanupConfirmed(cleanup), ownedPIN(pin) {
         if (sg_open(path, &context, error.data(), error.size()) != 0)
             throw std::runtime_error(error.data());
@@ -164,8 +166,11 @@ struct PKCS11 {
                                    reinterpret_cast<const uint8_t*>(approved.data()), approved.size(),
                                    pin.data(), pin.size(), message, digestInfo.size(),
                                    signature.data(), signature.size(), &length,
-                                   error.data(), error.size()) != 0)
+                                   error.data(), error.size()) != 0) {
+            unsigned long rv = 0, flags = 0;
+            refusal = sg_sign_refusal_name(sg_last_sign_outcome(context, &rv, &flags), rv, flags);
             throw std::runtime_error("PKCS#11 signing: " + std::string(error.data()));
+        }
         if (!length || length > signature.size()) throw std::runtime_error("Invalid returned signature length");
         signedHash.assign(reinterpret_cast<const char*>(signature.data()),
                           reinterpret_cast<const char*>(signature.data() + length));
@@ -303,6 +308,7 @@ int main(int argc, char** argv) {
     }
     fs::path output;
     bool authenticationMayHaveStarted = false;
+    std::string authenticationRefusal; // "auth.<kind>" only when no C_Sign was issued.
     const char* rejectionReason = "preflight";
     try {
         const fs::path input = argv[1];
@@ -454,7 +460,8 @@ int main(int argc, char** argv) {
                 }
                 primaryPhase = "signing";
                 authenticationMayHaveStarted = true; // Before any possible Login; never reset on error.
-                token.sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash);
+                try { token.sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash); }
+                catch (...) { if (token.refusal) authenticationRefusal = std::string("auth.") + token.refusal; throw; }
             };
             PdfSignerCms signer(der, params);
             PoDoFo::SignDocument(doc, *io, signer, field);
@@ -477,6 +484,8 @@ int main(int argc, char** argv) {
         // Crash, hang or a lost/truncated response carries no such proof.
         if (statusProtocol) {
             if (!cleanupConfirmed) return respond("uncertain", cleanupOnlyFailure ? "cleanupUnconfirmed" : "primaryAndCleanupUnconfirmed");
+            // Fixed literal names from the shim; nothing was signed or published.
+            if (!authenticationRefusal.empty() && !documentPublished) return respond("authenticationRefused", authenticationRefusal.c_str());
             return respond(authenticationMayHaveStarted ? "uncertain" : "rejectedBeforeAuthentication",
                            authenticationMayHaveStarted ? "interrupted" : rejectionReason);
         }

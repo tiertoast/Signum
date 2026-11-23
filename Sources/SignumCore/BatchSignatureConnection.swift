@@ -52,6 +52,12 @@ final class BatchSignatureConnection: BatchSigningConnection {
                 try channel?.waitForExit()
                 throw Failure.temporaryPINUnavailable
             }
+            if next == 0, reply.version == 2, reply.batchID == manifest.batchID, reply.jobID == jobID,
+               reply.index == 0, !reply.succeeded, reply.closed, !reply.reusable, reply.signature == nil,
+               let refusal = SigningAuthenticationFailure(wire: reply.failureKind) {
+                try channel?.waitForExit()
+                throw refusal
+            }
             guard reply.failureKind == nil, reply.version == 2, reply.batchID == manifest.batchID, reply.jobID == jobID,
                   reply.index == next, reply.succeeded, reply.reusable != reply.closed,
                   let signature = reply.signature, (128...1024).contains(signature.count),

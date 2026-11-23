@@ -25,7 +25,9 @@ enum SignumPAdESHelper {
 
     static func sign(job: SigningJob, pin: String, appearanceName: String, field: Field?, operation: SigningOperation? = nil,
                      executable: URL? = nil, timeout: TimeInterval = 120, appearance: RenderedPAdESAppearance? = nil) throws {
-        defer { job.snapshot.close() }
+        // A PIN refusal proven before C_Sign keeps the approved snapshot for a new PIN.
+        var keepSnapshot = false
+        defer { if !keepSnapshot { job.snapshot.close() } }
         guard job.format == .pades else { throw SignumError.module("Formato del job non compatibile con PAdES.") }
         guard PAdESInputContract.validPIN(pin) else { throw SignumError.module("PIN non rappresentabile nel trasporto PAdES.") }
         if let frozen = job.padesAppearance, let appearance, frozen.approvalIdentity != appearance.approvalIdentity {
@@ -130,6 +132,7 @@ enum SignumPAdESHelper {
             isCancelled: { operation?.isCancellationRequested ?? false })
         do { try PAdESHelperProcess.requirePublished(outcome) }
         catch {
+            keepSnapshot = error.allowsNewPIN && !(operation?.isCancellationRequested ?? false)
             if case SignumError.outputUncertain = error { operation?.transition(to: .outcomeUncertain) }
             else if (error as? SupervisedProcess.Failure) == .cancelled { operation?.transition(to: .cancelled) }
             else { operation?.transition(to: .failed) }

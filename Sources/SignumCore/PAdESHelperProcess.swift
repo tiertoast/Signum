@@ -7,6 +7,7 @@ import Darwin
 public enum PAdESHelperProcess {
     public enum Outcome: Equatable {
         case published, failed(String), cancelled(String), uncertain(String)
+        case authenticationRefused(SigningAuthenticationFailure)
     }
     private struct Status: Decodable {
         let version: Int, jobID: UUID
@@ -20,6 +21,7 @@ public enum PAdESHelperProcess {
         case .failed(let message): throw SignumError.module(message)
         case .cancelled: throw SupervisedProcess.Failure.cancelled
         case .uncertain(let message): throw SignumError.outputUncertain(message)
+        case .authenticationRefused(let refusal): throw refusal
         }
     }
     public static func run(executable: URL, arguments: [String], input: inout Data,
@@ -45,6 +47,10 @@ public enum PAdESHelperProcess {
                     let primary = status.reason == "primaryAndCleanupUnconfirmed"
                         ? (status.primaryFailure == "verification" ? "Errore principale durante la verifica del PDF. " : "Errore principale durante la firma o la preparazione. ") : ""
                     return .uncertain(primary + document + "Chiusura del dispositivo non confermata. Verifica l’esito prima di continuare; non ripetere automaticamente il PIN.")
+                }
+                // The helper proved (via the shared shim) that no C_Sign was issued.
+                if status.outcome == "authenticationRefused", let refusal = SigningAuthenticationFailure(wire: status.reason), !exists() {
+                    return .authenticationRefused(refusal)
                 }
                 if status.outcome == "rejectedBeforeAuthentication", ["busy", "coordination", "preflight"].contains(status.reason), !exists() {
                     return .failed(status.reason == "busy"

@@ -55,6 +55,39 @@ import CoreGraphics
             XCTAssertTrue(batch.sessionReport.contains("Completato"))
         }
     }
+    func testIncorrectPINKeepsDocumentAuthorizableWithSameSnapshot() async throws {
+        try await fixture { root, signer, mock, batch, paths in
+            await batch.addDocuments([paths[0]], format: .cades)
+            let approval = try await approve(batch, root: root, signer: signer, mock: mock)
+            let snapshot = try XCTUnwrap(batch.documents.first?.snapshot)
+            do {
+                try await batch.authorizeNext(pin: "wrong-fixture") { _, _, _ in throw SigningAuthenticationFailure.pinIncorrect }
+            } catch { XCTFail("unexpected \(error)") }
+            XCTAssertEqual(batch.documents.first?.state, .waitingForAuthorization)
+            XCTAssertFalse(batch.needsOutcomeReview)
+            XCTAssertFalse(snapshot.isRetired)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: snapshot.fileURL.path))
+            XCTAssertEqual(batch.documents.first?.result, SigningAuthenticationFailure.pinIncorrect.localizedDescription)
+            let worker = worker
+            try await batch.authorizeNext(pin: "synthetic-fixture") { job, pin, operation in
+                try job.signCAdES(using: IsolatedPKCS11Client(executable: worker), pin: pin, operation: operation)
+            }
+            XCTAssertEqual(batch.documents.first?.state, .completed)
+            XCTAssertEqual(audit(mock, "16"), 1)
+            XCTAssertEqual(try CAdESVerifier.verify(file: approval.jobs[0].destination).originalDocument, Data("Approved synthetic document 0".utf8))
+        }
+    }
+    func testLockedPINEndsDocumentAsOrdinaryFailure() async throws {
+        try await fixture { root, signer, mock, batch, paths in
+            await batch.addDocuments([paths[0]], format: .cades)
+            _ = try await approve(batch, root: root, signer: signer, mock: mock)
+            let snapshot = try XCTUnwrap(batch.documents.first?.snapshot)
+            try await batch.authorizeNext(pin: "wrong-fixture") { _, _, _ in throw SigningAuthenticationFailure.pinLocked }
+            XCTAssertEqual(batch.documents.first?.state, .failed)
+            XCTAssertFalse(batch.needsOutcomeReview)
+            XCTAssertTrue(snapshot.isRetired)
+        }
+    }
     func testDuplicateRemovalOrderAndExistingDestinationAreSafe() async throws {
         try await fixture { root, signer, mock, batch, paths in
             let duplicate = root.appendingPathComponent("different-name.txt")

@@ -41,6 +41,7 @@ public enum PKCS11WorkerEntrypoint {
         catch IsolatedPKCS11Client.Failure.busy { response.failureKind = "busy" }
         catch IsolatedPKCS11Client.Failure.authenticationRequired { response.failureKind = "authenticationRequired" }
         catch is MiddlewareFileSecurity.Failure { if request.version == 2 { response.failureKind = "contextChanged" } }
+        catch let refusal as SigningAuthenticationFailure where request.action == .rsaSHA256 { response.failureKind = refusal.wire }
         catch { /* Never return vendor diagnostics or request bytes. */ }
         guard var output = try? JSONEncoder().encode(response), output.count <= 2 * 1024 * 1024 else { return 2 }
         defer { output.resetBytes(in: 0..<output.count) }
@@ -81,13 +82,20 @@ public enum PKCS11WorkerEntrypoint {
                 }
             case .rsaSHA256:
                 let certificate = request.certificate!
-                if let binding = request.providerContext {
-                    try binding.requireCurrentModule()
-                    try binding.requireCurrentToken(module)
+                do {
+                    if let binding = request.providerContext {
+                        try binding.requireCurrentModule()
+                        try binding.requireCurrentToken(module)
+                    }
+                    try CertificateEligibility.requireEligible(certificateDER: certificate.der)
+                    signature = try module.signRSASHA256(slot: request.slot!, certificate: certificate.value,
+                        pin: request.pin!, message: request.attributes!, expectedCertificateDER: certificate.der)
+                } catch {
+                    // Context/busy refusals keep their own kinds. Anything else is
+                    // classified by the shim: typed only if C_Sign was never issued.
+                    if error is MiddlewareFileSecurity.Failure || error is IsolatedPKCS11Client.Failure { throw error }
+                    throw module.signingFailure(for: error)
                 }
-                try CertificateEligibility.requireEligible(certificateDER: certificate.der)
-                signature = try module.signRSASHA256(slot: request.slot!, certificate: certificate.value,
-                    pin: request.pin!, message: request.attributes!, expectedCertificateDER: certificate.der)
             }
             return PKCS11WorkerResponse(version: request.version, id: request.id, action: request.action, provider: module.modulePath,
                 tokens: tokens, unavailable: unavailable, certificates: certificates, signature: signature, succeeded: true,

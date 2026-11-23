@@ -81,7 +81,19 @@ final class BatchAuthenticationTests: XCTestCase {
     func testLoginFailureDoesNotRetryOrSign() throws {
         try fixture(phase: 8, effect: 4) { mock, session in
             let first = session.manifest.jobs[0]
-            XCTAssertThrowsError(try session.sign(jobID: first.id, attributes: first.attributes, pin: "synthetic-fixture"))
+            XCTAssertThrowsError(try session.sign(jobID: first.id, attributes: first.attributes, pin: "synthetic-fixture")) {
+                // Rejected before C_Sign: a typed ordinary refusal, not an uncertain outcome.
+                XCTAssertEqual($0 as? SigningAuthenticationFailure, .notSigned)
+            }
+            XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 16), 0)
+        }
+    }
+    func testIncorrectFirstPINIsReportedWithoutSigning() throws {
+        try fixture(phase: 8, effect: 10) { mock, session in
+            let first = session.manifest.jobs[0]
+            XCTAssertThrowsError(try session.sign(jobID: first.id, attributes: first.attributes, pin: "wrong-fixture")) {
+                XCTAssertEqual($0 as? SigningAuthenticationFailure, .pinIncorrect)
+            }
             XCTAssertEqual(count(mock, 8), 1); XCTAssertEqual(count(mock, 16), 0)
         }
     }

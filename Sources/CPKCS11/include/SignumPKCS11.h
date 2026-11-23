@@ -67,6 +67,18 @@ int sg_sign_encoded_digest_checked(SGContext *context, unsigned long slot, const
     const uint8_t *digestinfo, size_t digestinfo_length, uint8_t *signature, size_t capacity,
     size_t *length, char *error, size_t error_size);
 
+/* Outcome of the latest checked/batch signing request on this context, for the
+ * same thread that issued it. Returns 1 if C_Sign may have been invoked (or the
+ * context is unknown), 0 if the request provably ended before any C_Sign. When
+ * C_Login was rejected, login_rv holds its CK_RV and token_flags the token's
+ * public flags (PIN counters); both are 0 otherwise. No credential data. */
+int sg_last_sign_outcome(SGContext *context, unsigned long *login_rv, unsigned long *token_flags);
+/* Pure classification shared by Swift workers and the PAdES helper: NULL when
+ * C_Sign may have been invoked, otherwise a stable refusal name (pinIncorrect,
+ * pinIncorrectCountLow, pinIncorrectFinalTry, pinLocked, pinInvalid, pinExpired,
+ * notSigned). The string is a static literal. */
+const char *sg_sign_refusal_name(int sign_called, unsigned long login_rv, unsigned long token_flags);
+
 /* Worker-only, single batch owner. First PIN is used only for the first job;
  * later calls accept NO PIN and require a readable false ALWAYS_AUTHENTICATE.
  * Close the batch session before releasing its SGContext. No implicit retries. */

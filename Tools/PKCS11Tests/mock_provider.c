@@ -130,6 +130,8 @@ static CK_RV begin(int op) {
         faults[op] = CKR_GENERAL_ERROR;
 #elif SIGNUM_MOCK_WORKER_EFFECT == 8
         faults[op] = CKR_DEVICE_REMOVED;
+#elif SIGNUM_MOCK_WORKER_EFFECT == 10
+        faults[op] = CKR_PIN_INCORRECT;
 #elif SIGNUM_MOCK_WORKER_EFFECT == 6
         faults[op] = CKR_USER_NOT_LOGGED_IN;
 #elif SIGNUM_MOCK_WORKER_EFFECT == 7

@@ -745,10 +745,18 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     })
                 } else {
                     let retirement = batch.retireAuthenticatedSession(using: session)
+                    let newPINAllowed: Bool = { if case .failure(let error) = result { return error.allowsNewPIN }; return false }()
                     self.session.own(Task { @MainActor in
                         await retirement.value
                         if authenticationSession === session { authenticationSession = nil }
                         guard self.session.accepts(generation) else { return }
+                        if newPINAllowed, case .failure(let error) = result {
+                            // Nothing was signed: the next PIN may start a new session for the same batch.
+                            authenticationAttempted = false
+                            authenticationStatus = error.localizedDescription
+                            status = error.localizedDescription
+                            return
+                        }
                         authenticationStatus = batch.authenticationNotice.isEmpty
                             ? (batch.documents.contains(where: { $0.state == .failed || $0.state == .uncertain })
                                 ? "Batch interrotto. Consulta i dettagli; nessun tentativo viene ripetuto."

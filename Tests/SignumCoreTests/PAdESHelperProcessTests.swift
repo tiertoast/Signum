@@ -129,6 +129,23 @@ final class PAdESHelperProcessTests: XCTestCase {
             guard case .failed = result else { return XCTFail("Bound pre-authentication rejection lost") }
         }
     }
+    func testProvenPINRefusalIsTypedAndUnknownRefusalStaysUncertain() throws {
+        try fixture { output in
+            let job = UUID()
+            func reply(_ reason: String, cleanup: Bool = true) -> PAdESHelperProcess.Outcome {
+                var input = Data()
+                let message = "{\"version\":5,\"jobID\":\"\(job)\",\"outcome\":\"authenticationRefused\",\"reason\":\"\(reason)\",\"cleanupConfirmed\":\(cleanup),\"documentVerified\":false,\"documentPublished\":false}"
+                return PAdESHelperProcess.run(executable: URL(fileURLWithPath: "/bin/echo"), arguments: [message],
+                    input: &input, destination: output, expectedJobID: job, expectedProtocolVersion: 5)
+            }
+            XCTAssertEqual(reply("auth.pinIncorrectFinalTry"), .authenticationRefused(.pinIncorrectFinalTry))
+            XCTAssertThrowsError(try PAdESHelperProcess.requirePublished(reply("auth.pinIncorrect"))) {
+                XCTAssertEqual($0 as? SigningAuthenticationFailure, .pinIncorrect)
+            }
+            guard case .uncertain = reply("auth.unknown") else { return XCTFail("Unknown refusal must stay uncertain") }
+            guard case .uncertain = reply("auth.pinIncorrect", cleanup: false) else { return XCTFail("Unconfirmed cleanup must stay uncertain") }
+        }
+    }
 
 }
 #endif

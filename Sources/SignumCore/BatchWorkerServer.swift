@@ -88,6 +88,15 @@ enum BatchWorkerServer {
                         certificate: start.certificate.value, der: start.certificate.der,
                         attributes: start.jobs[0].attributes, pin: start.pin!)
                 }
+            } catch let refusal as SigningAuthenticationFailure {
+                // Provably before any C_Sign: report the typed refusal only after
+                // checked teardown, so the parent can treat it as an ordinary failure.
+                securePIN?.erase()
+                module = nil
+                do { try loaded.closeInWorker() } catch { return 2 }
+                try write(.init(version: 2, batchID: start.batchID, jobID: start.jobs[0].id, index: 0,
+                    signature: nil, reusable: false, closed: true, succeeded: false, failureKind: refusal.wire), to: reply)
+                return 0
             }
             if !first.1 {
                 securePIN?.erase()

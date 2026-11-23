@@ -434,8 +434,7 @@ public struct BatchApproval: Sendable {
         activeOperation = operation
         let outcome = await withTaskCancellationHandler(operation: {
             await Task.detached(priority: .userInitiated) {
-            defer { job.snapshot.close() }
-            return Result {
+            let result = Result {
                 var info = stat()
                 try operation.checkCancellation()
                 try job.requireAvailableDestination()
@@ -448,6 +447,13 @@ public struct BatchApproval: Sendable {
                     throw SignumError.outputUncertain("Il motore non ha confermato una pubblicazione verificata. Controllare l'esito senza ripetere questa firma.")
                 }
             }
+            // A PIN refusal proven before C_Sign keeps the same approved snapshot
+            // and job so the user can authorize this document again.
+            let keepForNewPIN: Bool
+            if case .failure(let error) = result { keepForNewPIN = error.allowsNewPIN && !operation.isCancellationRequested }
+            else { keepForNewPIN = false }
+            if !keepForNewPIN { job.snapshot.close() }
+            return result
             }.value
         }, onCancel: { operation.requestCancellation(preservingPrivateOutcome: true) })
         activeID = nil; activeOperation = nil; isRunning = false
@@ -460,6 +466,10 @@ public struct BatchApproval: Sendable {
                !documents.contains(where: { $0.state == .uncertain }) {
                 needsOutcomeReview = false; authenticationNotice = ""
             }
+        case .failure(let error) where error.allowsNewPIN && !removalRequests.contains(next.id) && !job.snapshot.isRetired:
+            operation.transition(to: .failed)
+            documents[index].state = .pending
+            documents[index].result = error.localizedDescription
         case .failure(let error):
             if case SignumError.outputUncertain = error {
                 operation.transition(to: .outcomeUncertain)
