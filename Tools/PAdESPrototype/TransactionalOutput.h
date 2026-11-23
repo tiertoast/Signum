@@ -35,6 +35,7 @@ private:
     std::string directoryName, destinationName;
     struct stat directoryIdentity{}, fileIdentity{};
     bool haveDirectory = false, haveFile = false, written = false;
+    bool strict = true; // APFS/HFS+: enforce modes and ACLs (see sg_output_volume_is_strict)
     acl_t finalACL = nullptr;
     OutputOperations ops;
     void cleanup() noexcept;

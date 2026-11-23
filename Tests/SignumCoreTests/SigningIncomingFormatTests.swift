@@ -21,6 +21,24 @@ import XCTest
             XCTAssertEqual(SigningIncomingFormat.resolve(override: nil, selected: batch.documents[0].format, fallback: .cades), .pades)
         }
     }
+    func testBatchWideFormatAppliesOnlyToCompatibleDocuments() async throws {
+        try await SigningFormatStabilizationTests().fixture { root, batch, pdf in
+            let second = root.appendingPathComponent("second.pdf")
+            var bytes = try Data(contentsOf: pdf); bytes.append(Data("\n% second document".utf8)); try bytes.write(to: second)
+            let text = root.appendingPathComponent("notes.txt"); try Data("Synthetic text".utf8).write(to: text)
+            await batch.addDocuments([pdf, second, text], format: .cades)
+            XCTAssertEqual(batch.documents.map(\.format), [.cades, .cades, .cades])
+            let result = batch.setFormatForAll(.pades)
+            XCTAssertEqual(batch.documents.map(\.format), [.pades, .pades, .cades])
+            XCTAssertEqual(result.changed.count, 2); XCTAssertEqual(result.kept, [batch.documents[2].id])
+            let back = batch.setFormatForAll(.cadesDetached)
+            XCTAssertEqual(batch.documents.map(\.format), [.cadesDetached, .cadesDetached, .cadesDetached])
+            XCTAssertEqual(back.changed.count, 3)
+            XCTAssertEqual(batch.setFormatForAll(.cadesCoSign).kept.count, 3) // No CMS input: co-signature impossible.
+            XCTAssertEqual(batch.setFormatForAll(.xades).kept.count, 3)
+            XCTAssertFalse(DocumentSigningConfiguration.canApply(.asics, to: batch.documents[0].snapshot))
+        }
+    }
     func testSystemEventsSurviveColdStartAndStayOrderedWithoutAuthorizingSigning() {
         let inbox = SystemDocuments()
         let files = (0..<40).map { URL(fileURLWithPath: "/synthetic/input-\($0).p7m") }

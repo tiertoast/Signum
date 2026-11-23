@@ -13,6 +13,14 @@ acl_t sg_output_inherited_acl(int parent, int stage);
 int sg_output_apply_acl(int fd, acl_t acl);
 /* Conservative recovery of the empty inheritance fixture after a crash. */
 int sg_output_cleanup_permissions(int stage);
+/* 1 when the volume enforces POSIX modes, ACLs and exclusive rename (APFS,
+ * HFS+). FAT, exFAT, SMB, AFP, NFS and WebDAV report fake or unsupported
+ * permissions: writers keep identity checks but skip the privacy policy. */
+int sg_output_volume_is_strict(int fd);
+/* Never replaces an existing name. Uses RENAME_EXCL; where the volume lacks
+ * it, reserves the name with O_EXCL and renames over that reservation only
+ * while it is still the same empty file. Returns -1/EEXIST if the name exists. */
+int sg_output_publish_exclusive(int stage, const char *from, int parent, const char *to);
 /* Read-only check: 1 = no extended ACL write grants, 0 = unsafe, -1 = error. */
 int sg_discovery_acl_safe(const char *path);
 #ifdef __cplusplus

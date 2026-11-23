@@ -26,6 +26,12 @@ The source snapshot is a private copy taken through the pinned source
 descriptor: a copy-on-write clone on the private area's volume, a bounded
 descriptor copy (re-read and compared) on other volumes or for Finder-locked
 files. Preview, hash and signature always cover that private copy.
+Signed output is staged next to the destination and published without ever
+replacing an existing name. On APFS/HFS+ the staging is private (0700/0600, empty
+ACL, inherited final ACL) and published with `RENAME_EXCL`. On volumes without real
+permissions or exclusive rename (FAT, exFAT, SMB, NFS) the privacy policy is
+skipped, identity checks remain, and the name is reserved with `O_EXCL` before a
+rename over that still-empty reservation (`sg_output_publish_exclusive`).
 In a PDF batch, one approved visible stamp can be re-rendered for the other PDFs
 (same rectangle on an identical page, otherwise the default corner); each result
 is bound to the selected certificate and goes through the normal review.

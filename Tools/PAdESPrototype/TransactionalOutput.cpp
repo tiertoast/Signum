@@ -90,6 +90,9 @@ TransactionalOutput::TransactionalOutput(const std::string& destination, OutputO
             requireApprovedPath();
         }
         recover(parent);
+        // FAT/exFAT/SMB/NFS: no real modes, ACLs or RENAME_EXCL. Keep identity
+        // checks and exclusive publication; skip only the privacy policy.
+        strict = sg_output_volume_is_strict(parent) == 1;
         struct stat existing{};
         const int exists = fstatat(parent, destinationName.c_str(), &existing, AT_SYMLINK_NOFOLLOW);
         check(exists < 0 && errno == ENOENT, "Destination exists or cannot be inspected");
@@ -99,14 +102,16 @@ TransactionalOutput::TransactionalOutput(const std::string& destination, OutputO
         stage = openat(parent, directoryName.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
         check(stage >= 0 && fstat(stage, &directoryIdentity) == 0, "Cannot identify private staging");
         haveDirectory = true;
-        check(flock(stage, LOCK_EX | LOCK_NB) == 0, "Cannot lock private staging");
-        check(ops.harden(stage, 0700) == 0 && sg_output_is_private(stage, 0700) == 0, "Cannot harden private staging");
-        finalACL = sg_output_inherited_acl(parent, stage);
-        check(finalACL != nullptr, "Cannot determine destination sharing");
+        check(flock(stage, LOCK_EX | LOCK_NB) == 0 || !strict, "Cannot lock private staging");
+        if (strict) {
+            check(ops.harden(stage, 0700) == 0 && sg_output_is_private(stage, 0700) == 0, "Cannot harden private staging");
+            finalACL = sg_output_inherited_acl(parent, stage);
+            check(finalACL != nullptr, "Cannot determine destination sharing");
+        }
         file = openat(stage, payload, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
         check(file >= 0 && fstat(file, &fileIdentity) == 0, "Cannot create staged PDF");
         haveFile = true;
-        check(ops.harden(file, 0600) == 0 && sg_output_is_private(file, 0600) == 0, "Cannot harden staged PDF");
+        if (strict) check(ops.harden(file, 0600) == 0 && sg_output_is_private(file, 0600) == 0, "Cannot harden staged PDF");
     } catch (...) { cleanup(); throw; }
 }
 void TransactionalOutput::requireApprovedPath() {
@@ -145,6 +150,8 @@ void TransactionalOutput::verifyAndPublish(const Bytes& source, const std::strin
     check(written && file >= 0, "PDF not staged");
     struct stat info{};
     check(fstat(file, &info) == 0 && info.st_size > 0 && static_cast<uint64_t>(info.st_size) <= maxOutput, "Invalid staged PDF size");
+    // FAT/exFAT derive the inode from the first cluster, assigned on write.
+    if (!strict) fileIdentity = info;
     Bytes bytes(static_cast<size_t>(info.st_size));
     size_t offset = 0;
     while (offset < bytes.size()) {
@@ -155,15 +162,16 @@ void TransactionalOutput::verifyAndPublish(const Bytes& source, const std::strin
     }
     verifyPDF(bytes, source, expectedCertificate);
     // Sharing is restored while the ancestor remains inaccessible to other users.
-    check(sg_output_is_private(stage, 0700) == 0 && same(parent, directoryName, directoryIdentity) &&
-          ops.applyACL(file, finalACL) == 0, "Cannot set final PDF sharing");
+    check((!strict || sg_output_is_private(stage, 0700) == 0) && same(parent, directoryName, directoryIdentity) &&
+          (!strict || ops.applyACL(file, finalACL) == 0), "Cannot set final PDF sharing");
+    if (!strict) (void)fchmod(file, 0644); // Portable volume: ordinary sharing, best effort.
     // Do not retry close even on error; the descriptor may already be released.
     const int closing = file; file = -1;
     check(ops.close(closing) == 0, "PDF close failed");
-    check(sg_output_is_private(stage, 0700) == 0 && same(parent, directoryName, directoryIdentity) && same(stage, payload, fileIdentity), "Staged PDF was replaced");
+    check((!strict || sg_output_is_private(stage, 0700) == 0) && same(parent, directoryName, directoryIdentity) && same(stage, payload, fileIdentity), "Staged PDF was replaced");
     ops.beforePublish();
     requireApprovedPath();
-    check(renameatx_np(stage, payload, parent, destinationName.c_str(), RENAME_EXCL) == 0, "Cannot publish PDF exclusively");
+    check(sg_output_publish_exclusive(stage, payload, parent, destinationName.c_str()) == 0, "Cannot publish PDF exclusively");
     // A post-commit path change is uncertain, never an ordinary retryable failure.
     // Cleanup only targets private staging; the published inode is preserved.
     ops.afterPublish();

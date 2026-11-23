@@ -45,15 +45,13 @@ extension SignumWindow {
                                 .modifier(SignumFlexibleControl())
                                 .disabled(interfaceLocked || batch.isFrozen || selectedDocument?.format.isASiC == true)
                             Text(formatDetails + "\n" + authenticationExplanation).font(.caption).foregroundStyle(.secondary)
-                            Text("Documenti successivi").font(.caption).foregroundStyle(.secondary)
-                            Picker("Documenti successivi", selection: $subsequentFormat) {
-                                Text("Automatico — usa il formato selezionato sopra").tag(Optional<SignumFormat>.none)
-                                ForEach(SignumFormat.allCases, id: \.self) { value in
-                                    Text(value.displayTitle).tag(Optional(value))
-                                }
-                            }.pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity)
-                                .modifier(SignumFlexibleControl())
+                            Toggle("Applica a tutti i documenti", isOn: Binding(get: { applyFormatToAll }, set: { value in
+                                applyFormatToAll = value
+                                subsequentFormat = value ? formatBinding.wrappedValue : nil
+                            }))
                                 .disabled(interfaceLocked || batch.isFrozen)
+                                .help("Il formato scelto vale per tutti i documenti compatibili, anche per quelli aggiunti dopo. Disattiva per scegliere il formato di un solo documento.")
+                                .accessibilityIdentifier("signum.format-apply-all")
                             counterSignatureSelection
                         }
                         Divider()
@@ -87,7 +85,8 @@ extension SignumWindow {
         if !review.issue.isEmpty { return review.issue }
         if !saveAlongsideOriginal && customDirectory == nil { return "Scegli la cartella di destinazione" }
         if workspace.showingPDFPreview || batch.documents.contains(where: { $0.format == .pades && !readyPreviews.contains($0.id) }) {
-            return "Controlla e conferma l’anteprima di ogni PDF"
+            let pdfs = batch.documents.filter { $0.format == .pades && !$0.state.isTerminal }.count
+            return pdfs > 1 ? "Conferma il timbro su un PDF, poi usalo per gli altri" : "Controlla e conferma l’anteprima del PDF"
         }
         if review.isPreparing { return "Verifica dei documenti e del certificato…" }
         return canApproveBatch ? "Pronto per la firma" : status
@@ -287,12 +286,12 @@ extension SignumWindow {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// First approved visible stamp for the selected certificate, used as template.
+    /// First confirmed visible stamp, used as template for the other PDFs.
     var placementTemplate: (snapshot: DocumentSnapshot, appearance: RenderedPAdESAppearance)? {
-        guard let fingerprint = devices.selectedRoute?.certificateFingerprint else { return nil }
+        // The stamp is re-rendered for the selected certificate on each target.
+        guard devices.selectedRoute != nil else { return nil }
         for entry in batch.documents where entry.format == .pades && readyPreviews.contains(entry.id) {
-            if let rendered = placements[entry.id]?.appearance, rendered.configuration.visible,
-               rendered.certificateSHA256 == fingerprint { return (entry.snapshot, rendered) }
+            if let rendered = placements[entry.id]?.appearance, rendered.configuration.visible { return (entry.snapshot, rendered) }
         }
         return nil
     }
@@ -302,13 +301,22 @@ extension SignumWindow {
 
     @ViewBuilder var placementPropagationControl: some View {
         let waiting = pdfsAwaitingPlacement.count
-        if waiting > 0, placementTemplate != nil, !workspace.showingPDFPreview, !batch.isFrozen {
+        let pdfs = batch.documents.filter { $0.format == .pades && !$0.state.isTerminal }.count
+        if pdfs > 1, waiting > 0, !batch.isFrozen {
+            let ready = placementTemplate != nil && !workspace.showingPDFPreview
             Button(propagatingPlacements ? "Applicazione del timbro…" :
                     (waiting == 1 ? "Usa lo stesso timbro per l’altro PDF" : "Usa lo stesso timbro per gli altri \(waiting) PDF")) {
                 applyPlacementToOtherPDFs()
             }
-            .disabled(interfaceLocked || propagatingPlacements)
+            .disabled(!ready || interfaceLocked || propagatingPlacements)
             .accessibilityIdentifier("signum.apply-placement-all")
+            if !ready {
+                Text(workspace.showingPDFPreview && placementTemplate == nil
+                     ? "Posiziona il timbro e premi “Conferma anteprima”: poi potrai usarlo per gli altri PDF."
+                     : workspace.showingPDFPreview ? "Premi “Conferma anteprima” per usare questo timbro sugli altri PDF."
+                     : "Apri “Modifica aspetto…” su un PDF, posiziona il timbro e conferma: poi potrai usarlo per gli altri.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
         if !placementPropagationNotice.isEmpty {
             Text(placementPropagationNotice).font(.caption).foregroundStyle(.secondary)

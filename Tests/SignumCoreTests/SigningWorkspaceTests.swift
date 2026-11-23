@@ -92,7 +92,7 @@ import CoreGraphics
             let workspace = SigningWorkspaceSelection(snapshot: batch.documents[0].snapshot, format: .pades)
             let pdfConsent = SignumWindow(batch: batch, initialDevices: devices, initialProvider: provider,
                 automaticallyDiscover: false, defaults: defaults, workspace: workspace)
-            XCTAssertEqual(pdfConsent.signingAvailability, "Controlla e conferma l’anteprima di ogni PDF")
+            XCTAssertEqual(pdfConsent.signingAvailability, "Controlla e conferma l’anteprima del PDF")
             XCTAssertFalse(batch.isApproved); XCTAssertFalse(batch.isFrozen)
         }
     }

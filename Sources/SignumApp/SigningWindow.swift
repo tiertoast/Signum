@@ -60,6 +60,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
     @State var format: SignumFormat = .cades
     @State var subsequentFormat: SignumFormat?
+    @AppStorage("signum.format.applyToAll") var applyFormatToAll = true
     @State var showingDocumentDetails = false
     @State var pdfPlacement: PAdESPlacement?
     @StateObject var workspace: SigningWorkspaceSelection
@@ -372,7 +373,10 @@ enum SignumFormat: String, Hashable, CaseIterable {
         Binding(get: { selectedDocument.flatMap { SignumFormat(rawValue:$0.format.rawValue) } ?? format },
                 set: { value in
                     guard let kind=SigningFormat(rawValue:value.rawValue) else { return }
-                    if let current=selectedDocument { setDocumentFormat(kind,for:current.id) }
+                    if applyFormatToAll {
+                        format=value; subsequentFormat=value
+                        if selectedDocument != nil { setFormatForAllDocuments(kind) }
+                    } else if let current=selectedDocument { setDocumentFormat(kind,for:current.id) }
                     else { format=value }
                 })
     }
@@ -387,6 +391,24 @@ enum SignumFormat: String, Hashable, CaseIterable {
         } catch { status=error.localizedDescription }
     }
 
+
+    /// Batch-wide choice: every compatible pending document gets the format;
+    /// incompatible ones keep theirs and are counted in the status.
+    func setFormatForAllDocuments(_ kind: SigningFormat) {
+        guard !interfaceLocked, !batch.isFrozen else { return }
+        let names = Dictionary(uniqueKeysWithValues: batch.documents.map { ($0.id, $0.snapshot.originalURL.lastPathComponent) })
+        let result = batch.setFormatForAll(kind)
+        for id in result.changed {
+            placements[id] = nil; readyPreviews.remove(id)
+            if documentSnapshot?.identity.id == id { pdfPlacement = nil; workspace.updateFormat(kind) }
+        }
+        provider.pin = ""
+        let title = SignumFormat(rawValue: kind.rawValue)?.displayTitle ?? kind.rawValue
+        let kept = result.kept.compactMap { names[$0] }
+        status = kept.isEmpty
+            ? "Formato \(title) applicato a tutti i documenti."
+            : "Formato \(title) applicato a \(result.changed.count) documenti. Mantengono il formato attuale perché non compatibili: \(kept.joined(separator: ", "))."
+    }
 
     func documentRow(_ entry: BatchDocument) -> some View {
         let job = (batch.approval ?? review.approval)?.jobs.first { $0.snapshotIdentity.id == entry.id }
@@ -637,6 +659,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
         session.own(Task { @MainActor in
             await acquisition.value
             guard session.accepts(generation) else { return }
+            // A batch-wide PDF/XML choice never forces an incompatible file:
+            // e.g. a .docx dropped into a PAdES batch is signed as CAdES .p7m.
+            for entry in batch.documents where !entry.state.isTerminal && [.pades, .xades].contains(entry.format)
+                && !DocumentSigningConfiguration.canApply(entry.format, to: entry.snapshot) {
+                try? batch.setFormat(.cades, for: entry.id)
+            }
             if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
             status = "\(batch.documents.count) documenti nella selezione. Controlla il riepilogo prima di firmare."
         })

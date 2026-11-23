@@ -109,6 +109,19 @@ public struct BatchApproval: Sendable {
         documents[index].destination = nil
     }
 
+    /// Batch-wide format choice. Compatible pending documents get `format`;
+    /// incompatible ones keep theirs. Returns the changed and the kept documents.
+    @discardableResult
+    public func setFormatForAll(_ format: SigningFormat) -> (changed: [UUID], kept: [UUID]) {
+        var changed: [UUID] = [], kept: [UUID] = []
+        for entry in documents where !entry.state.isTerminal && entry.format != format {
+            guard DocumentSigningConfiguration.canApply(format, to: entry.snapshot),
+                  (try? setFormat(format, for: entry.id)) != nil else { kept.append(entry.id); continue }
+            changed.append(entry.id)
+        }
+        return (changed, kept)
+    }
+
     public func selectCounterSignature(_ key: String, for id: UUID) throws {
         guard !isFrozen,!isPreparing,!isRunning,let index=documents.firstIndex(where:{$0.id==id}),
               documents[index].format == .cadesCounterSign,

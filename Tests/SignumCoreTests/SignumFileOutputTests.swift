@@ -476,6 +476,42 @@ final class SignumFileOutputTests: XCTestCase {
         }
     }
 
+    func testPortableVolumeModeSkipsPrivacyPolicyButNeverOverwrites() throws {
+        try inFolder { folder, output in
+            var io = SignumFileOutput.OutputIO()
+            io.strictVolume = { _ in false }
+            var hardened = 0, acl = 0
+            io.harden = { _, _ in hardened += 1; errno = ENOTSUP; return -1 }
+            io.applyACL = { _, _ in acl += 1; errno = ENOTSUP; return -1 }
+            try SignumFileOutput.writeNew(bytes, to: output, io: io)
+            XCTAssertEqual(try Data(contentsOf: output), bytes)
+            XCTAssertEqual(hardened, 0); XCTAssertEqual(acl, 0)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [output.lastPathComponent])
+            XCTAssertThrowsError(try SignumFileOutput.writeNew(Data("other".utf8), to: output, io: io))
+            XCTAssertEqual(try Data(contentsOf: output), bytes)
+            let foreign = Data("Concurrent winner".utf8), second = folder.appendingPathComponent("second.p7m")
+            XCTAssertThrowsError(try SignumFileOutput.writeNew(bytes, to: second, io: io) { _ in try foreign.write(to: second) })
+            XCTAssertEqual(try Data(contentsOf: second), foreign)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(), [second.lastPathComponent, output.lastPathComponent].sorted())
+        }
+    }
+    /// Real FAT/exFAT/SMB folder (no ACLs, no RENAME_EXCL), e.g. a mounted
+    /// disk image: SIGNUM_TEST_PORTABLE_VOLUME=/Volumes/... Skipped otherwise.
+    func testRealPortableVolumePublishesExclusively() throws {
+        guard let path = ProcessInfo.processInfo.environment["SIGNUM_TEST_PORTABLE_VOLUME"] else { throw XCTSkip("no portable volume") }
+        let folder = URL(fileURLWithPath: path).appendingPathComponent("signum-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let fd = Darwin.open(folder.path, O_RDONLY | O_DIRECTORY); defer { Darwin.close(fd) }
+        XCTAssertEqual(sg_output_volume_is_strict(fd), 0)
+        let output = folder.appendingPathComponent("signed.p7m")
+        let expected = try OutputDirectoryIdentity.inspect(folder).1
+        try SignumFileOutput.writeNew(bytes, to: output, expectedDirectory: expected)
+        XCTAssertEqual(try Data(contentsOf: output), bytes)
+        XCTAssertThrowsError(try SignumFileOutput.writeNew(bytes, to: output, expectedDirectory: expected))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [output.lastPathComponent])
+    }
+
     func testDanglingDestinationSymlinkIsPreserved() throws {
         try inFolder { folder, output in
             try setInheritedACL(folder, write: true)
