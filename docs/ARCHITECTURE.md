@@ -22,6 +22,14 @@ private keys stay with the token/provider. Parent-side checks bind the result ba
 to the expected key and document before exclusive staged publication.
 Cancellation, timeouts and uncertain results do not authorize an automatic retry.
 
+The source snapshot is a private copy taken through the pinned source
+descriptor: a copy-on-write clone on the private area's volume, a bounded
+descriptor copy (re-read and compared) on other volumes or for Finder-locked
+files. Preview, hash and signature always cover that private copy.
+In a PDF batch, one approved visible stamp can be re-rendered for the other PDFs
+(same rectangle on an identical page, otherwise the default corner); each result
+is bound to the selected certificate and goes through the normal review.
+
 The middleware runs in processes with the user's permissions. Isolation limits
 crash/hang impact but does not make arbitrary vendor code trustworthy or sandbox it.
 The app uses Apple PDFKit/CoreGraphics/CoreText for preview and appearance;

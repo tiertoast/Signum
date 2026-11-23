@@ -38,6 +38,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @State var customDirectory: URL?
     @State var placements: [UUID: PAdESPlacement] = [:]
     @State var readyPreviews = Set<UUID>()
+    @State var propagatingPlacements = false
+    @State var placementPropagationNotice = ""
     @State var approvedHolder = ""
     @State var approvedRoute: DeviceCertificateRoute?
     @State var provider: ProviderSelection
@@ -280,7 +282,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         discoveryOperation?.requestCancellation(); discoveryOperation = nil
         batch.revokeForWindowClosure(); refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
         selectionRequestID = UUID(); workspace.select(nil); inputFile = nil
-        placements = [:]; readyPreviews = []; pdfPlacement = nil; previewSnapshotID = nil
+        placements = [:]; readyPreviews = []; placementPropagationNotice = ""; pdfPlacement = nil; previewSnapshotID = nil
         approvedRoute = nil; approvedHolder = ""; authorizedManualPaths = []; manualPath = ""
         authenticationAttempted = false; authenticationStatus = ""; busy = false; pinFocused = false
         showDeviceConfiguration = false; showDefaultApplications = false
@@ -457,7 +459,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             hasAuthenticationContext: authenticationSession != nil, otherWork: busy) {
             review.cancel(); provider.pin = ""; approvedRoute = nil; approvedHolder = ""
             authenticationAttempted = false; authenticationStatus = ""
-            placements = [:]; readyPreviews = []; workspace.select(nil); pdfPlacement = nil
+            placements = [:]; readyPreviews = []; placementPropagationNotice = ""; workspace.select(nil); pdfPlacement = nil
             status = "Sessione conclusa. Gli esiti sono conservati; puoi firmare altri documenti o aprire Verifica."
         }
     }
@@ -466,7 +468,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         guard !interfaceLocked else { return }
         authenticationSession?.requestStop(); authenticationSession = nil
         authenticationAttempted = false; authenticationStatus = ""
-        batch.reset(); placements = [:]; readyPreviews = []; approvedRoute = nil
+        batch.reset(); placements = [:]; readyPreviews = []; placementPropagationNotice = ""; approvedRoute = nil
         showDocument(nil); provider.pin = ""; lastSignedFile = nil
         status = "Nuova sessione. Scegli i documenti da firmare."
     }

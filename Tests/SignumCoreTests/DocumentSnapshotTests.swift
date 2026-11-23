@@ -161,6 +161,55 @@ final class DocumentSnapshotTests: XCTestCase {
             }
         }
     }
+    func testDescriptorCopyPathMatchesCloneAndCleansUp() throws {
+        try inFolder { folder, source in
+            var io = DocumentSnapshot.CaptureIO(); io.forceCopy = true
+            var clones = 0; io.clone = { _, _, _ in clones += 1; errno = ENOTSUP; return -1 }
+            let snapshot = try capture(source, folder, io: io)
+            XCTAssertEqual(clones, 0)
+            XCTAssertEqual(snapshot.approvedBytes, bytes)
+            XCTAssertEqual(try snapshot.verifiedBytes(), bytes)
+            XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: snapshot.fileURL.path)[.posixPermissions] as? NSNumber)?.intValue, 0o400)
+            snapshot.close()
+            XCTAssertEqual(try entries(folder), ["source.bin"])
+            XCTAssertEqual(try Data(contentsOf: source), bytes)
+        }
+    }
+    func testDescriptorCopyRejectsInPlaceWriteAndReadErrors() throws {
+        for phase in 0..<2 {
+            try inFolder { folder, source in
+                var io = DocumentSnapshot.CaptureIO(); io.forceCopy = true
+                var modified = false
+                io.read = { fd, pointer, count in
+                    if phase == 1 { errno = EIO; return -1 }
+                    if !modified {
+                        modified = true
+                        let writer = Darwin.open(source.path, O_WRONLY)
+                        let changed = [UInt8](repeating: 0x58, count: 160_000)
+                        _ = changed.withUnsafeBytes { Darwin.write(writer, $0.baseAddress!, $0.count) }
+                        Darwin.close(writer)
+                    }
+                    return Darwin.read(fd, pointer, count)
+                }
+                XCTAssertThrowsError(try capture(source, folder, io: io))
+                XCTAssertEqual(try entries(folder), ["source.bin"])
+            }
+        }
+    }
+    func testFinderLockedSourceIsCopiedWithoutInheritingTheLock() throws {
+        try inFolder { folder, source in
+            XCTAssertEqual(chflags(source.path, UInt32(UF_IMMUTABLE)), 0)
+            defer { _ = chflags(source.path, 0) }
+            let snapshot = try capture(source, folder)
+            XCTAssertEqual(try snapshot.verifiedBytes(), bytes)
+            var info = stat(); XCTAssertEqual(lstat(snapshot.fileURL.path, &info), 0)
+            XCTAssertEqual(info.st_flags & UInt32(UF_IMMUTABLE), 0)
+            snapshot.close()
+            XCTAssertEqual(try entries(folder), ["source.bin"])
+            XCTAssertEqual(lstat(source.path, &info), 0)
+            XCTAssertNotEqual(info.st_flags & UInt32(UF_IMMUTABLE), 0)
+        }
+    }
     func testEmptyOversizedAndNonRegularSourcesAreRejected() throws {
         try inFolder { folder, source in
             try Data().write(to: source)

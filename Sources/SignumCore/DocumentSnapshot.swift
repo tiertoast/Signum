@@ -25,8 +25,11 @@ public enum SigningFormat: String, Sendable {
 }
 
 /// A private CoW acquisition, immutable approved bytes and a retained descriptor.
-/// Never reopens the original after capture. Only macOS file cloning is accepted;
-/// there is deliberately no unsafe streaming-copy fallback on unsupported volumes.
+/// Never reopens the original after capture. On the private area's volume the
+/// bytes are a CoW clone; on other volumes (USB, external, network) or for
+/// Finder-locked files they are copied through the pinned source descriptor.
+/// Either way the approved bytes are the private copy, re-read and compared,
+/// so the preview, the hash and the signature always cover the same bytes.
 public final class DocumentSnapshot: @unchecked Sendable {
     public struct Identity: Equatable, Sendable {
         public let id: UUID
@@ -61,6 +64,8 @@ public final class DocumentSnapshot: @unchecked Sendable {
         var clone: (Int32, Int32, String) -> Int32 = { fclonefileat($0, $1, $2, UInt32(CLONE_NOOWNERCOPY)) }
         var read: (Int32, UnsafeMutableRawPointer, Int) -> Int = { Darwin.read($0, $1, $2) }
         var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        /// Test seam: take the descriptor-copy path even on the same volume.
+        var forceCopy = false
     }
 
     public static func capture(source: URL, format: SigningFormat, timeout: TimeInterval = 30,
@@ -97,9 +102,9 @@ public final class DocumentSnapshot: @unchecked Sendable {
         guard fstat(sourceFD, &sourceIdentity) == 0 else { throw DocumentAcquisitionFailure.system("stat source") }
         guard sourceIdentity.st_mode & S_IFMT == S_IFREG, sourceIdentity.st_size > 0 else { throw DocumentAcquisitionFailure(.read, "source is empty or not regular") }
         guard sourceIdentity.st_size <= format.maximumDocumentBytes else { throw DocumentAcquisitionFailure(.tooLarge, "source exceeds \(format.maximumDocumentBytes) bytes") }
-        guard sourceIdentity.st_flags & UInt32(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND) == 0 else {
-            throw error("Il file ha flag che impediscono la pulizia della copia. Crea una copia locale e riselezionala.")
-        }
+        // A clone inherits immutable/append-only flags and could not be removed
+        // afterwards; a descriptor copy does not inherit them.
+        let lockedSource = sourceIdentity.st_flags & UInt32(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND) != 0
         let root = Darwin.open(privateRoot.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_CLOEXEC)
         guard root >= 0 else { throw error("Area privata non disponibile.") }
         var keep = false
@@ -108,9 +113,7 @@ public final class DocumentSnapshot: @unchecked Sendable {
         guard fstat(root, &rootInfo) == 0, rootInfo.st_uid == getuid(), rootInfo.st_mode & 0o077 == 0 else {
             throw error("L'area dello snapshot deve essere privata dell'utente.")
         }
-        guard sourceIdentity.st_dev == rootInfo.st_dev else {
-            throw error("Snapshot coerente non disponibile su questa unità. Copia il documento sull'unità locale dell'area privata e riselezionalo.")
-        }
+        let copyThroughDescriptor = io.forceCopy || lockedSource || sourceIdentity.st_dev != rootInfo.st_dev
         recover(in: root)
         let name = prefix + UUID().uuidString
         guard mkdirat(root, name, 0o700) == 0 else { throw DocumentAcquisitionFailure.system("create private snapshot directory") }
@@ -142,8 +145,15 @@ public final class DocumentSnapshot: @unchecked Sendable {
         }
         try io.sourceOpened(sourceFD)
         try check()
-        guard io.clone(sourceFD, directory, payload) == 0 else {
-            throw DocumentAcquisitionFailure.system("fclonefileat")
+        var copiedBytes: Data?
+        if copyThroughDescriptor {
+            let source = try readBounded(sourceFD, maximum: format.maximumDocumentBytes, read: io.read, check: check)
+            try writeExclusive(source, in: directory, name: payload, check: check)
+            copiedBytes = source
+        } else {
+            guard io.clone(sourceFD, directory, payload) == 0 else {
+                throw DocumentAcquisitionFailure.system("fclonefileat")
+            }
         }
         var clonedIdentity = stat()
         guard fstatat(directory, payload, &clonedIdentity, AT_SYMLINK_NOFOLLOW) == 0 else {
@@ -161,13 +171,16 @@ public final class DocumentSnapshot: @unchecked Sendable {
             throw error("Identità o permessi dello snapshot non validi.")
         }
         let content = try readBounded(fd, maximum: format.maximumDocumentBytes, read: io.read, check: check)
+        if let copiedBytes, copiedBytes != content {
+            throw DocumentAcquisitionFailure(.changed, "private copy differs from the bytes read from the source")
+        }
         var after = stat()
         guard fstat(sourceFD, &after) == 0 else { throw DocumentAcquisitionFailure.system("stat source after clone") }
         guard sameContentAttributes(sourceIdentity, after), same(in: parent, name: original.lastPathComponent, identity: sourceIdentity) else {
             throw DocumentAcquisitionFailure(.changed, "source identity/size/mtime or pathname changed")
         }
         // A ctime-only change needs corroboration, not blind timestamp omission.
-        // Read the original through the pinned descriptor and compare with CoW.
+        // Read the original through the pinned descriptor and compare with the copy.
         if !unchanged(sourceIdentity, after) {
             let current = try readBounded(sourceFD, maximum: format.maximumDocumentBytes, check: check)
             guard current == content else { throw DocumentAcquisitionFailure(.changed, "source bytes differ from coherent clone") }
@@ -305,6 +318,28 @@ public final class DocumentSnapshot: @unchecked Sendable {
             throw DocumentAcquisitionFailure(.changed, "capture input changed or short read")
         }
         return result
+    }
+    /// Exclusive, no-follow creation of the private payload, fully flushed.
+    private static func writeExclusive(_ data: Data, in directory: Int32, name: String, check: () throws -> Void) throws {
+        let out = openat(directory, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard out >= 0 else { throw DocumentAcquisitionFailure.system("create private copy") }
+        defer { Darwin.close(out) }
+        var created = stat()
+        guard fstat(out, &created) == 0 else { _ = unlinkat(directory, name, 0); throw DocumentAcquisitionFailure.system("stat private copy") }
+        do { try writeAll(data, to: out, check: check) } catch { remove(in: directory, name: name, identity: created, flags: 0); throw error }
+    }
+    private static func writeAll(_ data: Data, to out: Int32, check: () throws -> Void) throws {
+        try data.withUnsafeBytes { raw in
+            var offset = 0
+            while offset < raw.count {
+                try check()
+                let count = Darwin.write(out, raw.baseAddress! + offset, min(1 << 20, raw.count - offset))
+                if count < 0 && errno == EINTR { continue }
+                guard count > 0 else { throw DocumentAcquisitionFailure.system("write private copy") }
+                offset += count
+            }
+        }
+        guard fsync(out) == 0 else { throw DocumentAcquisitionFailure.system("flush private copy") }
     }
     private static func same(in directory: Int32, name: String, identity: stat) -> Bool {
         var value = stat()

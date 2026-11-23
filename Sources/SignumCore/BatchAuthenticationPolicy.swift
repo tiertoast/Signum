@@ -23,8 +23,11 @@ public enum BatchAuthenticationPolicy {
     }
     public static func explanation(formats: [SigningFormat], serial: String, mode: BatchAuthenticationMode) -> String {
         if mode == .perSignature { return "PIN richiesto esplicitamente per ogni firma." }
-        if formats.contains(.pades) { return "PAdES e batch misti: PIN per ogni firma. La sessione condivisa è disponibile solo per CAdES." }
         if formats.count <= 1 { return "Per un solo documento è richiesta una sola autenticazione." }
+        // Mirrors canAttempt: only attached CAdES (.p7m) can share a session.
+        if formats.contains(where: { $0 != .cades }) {
+            return "Il batch contiene formati diversi da CAdES .p7m: PIN per ogni firma. La sessione condivisa è disponibile solo per CAdES .p7m."
+        }
         if !(1...16).contains(serial.utf8.count) || serial.utf8.contains(0) { return "Identità dispositivo insufficiente per una sessione condivisa: PIN per ogni firma." }
         if mode == .temporaryPIN { return "Il PIN viene conservato temporaneamente in memoria per autorizzare i documenti di questa sessione. Il dispositivo può richiedere autenticazioni distinte; errori o perdita della sessione interrompono il batch." }
         return "Al primo PIN verrà verificato se la sessione può essere riutilizzata per questo batch. Il dispositivo potrebbe richiedere altri PIN."

@@ -110,6 +110,7 @@
       "PAdESAppearanceTests",
       "PAdESDefaultPlacementTests",
       "PAdESGeometryStabilizationTests",
+      "PAdESPlacementPropagationTests",
       "PAdESOrientationPerformanceTests",
       "PAdESOrientationTests",
       "PAdESOrientationWorkflowTests",

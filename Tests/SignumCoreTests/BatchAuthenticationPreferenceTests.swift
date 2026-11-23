@@ -49,6 +49,11 @@ final class BatchAuthenticationPreferenceTests: XCTestCase {
         XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: Array(jobs.prefix(2)), serial: "synthetic", mode: .perSignature))
         XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .pades], serial: "x", mode: .automatic).contains("PIN per ogni firma"))
         XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .cades], serial: "x", mode: .automatic).contains("potrebbe"))
+        for other in [SigningFormat.xades, .asice, .cadesDetached, .cadesCoSign, .cadesCounterSign] {
+            let text = BatchAuthenticationPolicy.explanation(formats: [.cades, other], serial: "x", mode: .automatic)
+            XCTAssertTrue(text.contains("PIN per ogni firma"), "\(other)")
+            XCTAssertFalse(text.contains("potrebbe"), "\(other)")
+        }
     }
     func testTemporaryModeIsExplicitOptInWithHonestDescriptionAndNoStoredCredential() throws {
         let name = "Signum.synthetic.temp-auth." + UUID().uuidString
