@@ -32,9 +32,12 @@ ACL, inherited final ACL) and published with `RENAME_EXCL`. On volumes without r
 permissions or exclusive rename (FAT, exFAT, SMB, NFS) the privacy policy is
 skipped, identity checks remain, and the name is reserved with `O_EXCL` before a
 rename over that still-empty reservation (`sg_output_publish_exclusive`).
-In a PDF batch, one approved visible stamp can be re-rendered for the other PDFs
-(same rectangle on an identical page, otherwise the default corner); each result
-is bound to the selected certificate and goes through the normal review.
+Visible PDF stamps of a session have one owner, `PDFStampBoard` (SignumApp). The
+stamp last confirmed in the editor is the template; "Applica a tutti" copies it to
+every other pending PDF at the same visible margins (last page follows last page)
+and keeps copies in sync with added PDFs, template edits and certificate changes.
+The PDF open in the editor is never overwritten, nothing changes while the batch
+is frozen, and every stamp is bound to the selected certificate and reviewed.
 
 The middleware runs in processes with the user's permissions. Isolation limits
 crash/hang impact but does not make arbitrary vendor code trustworthy or sandbox it.

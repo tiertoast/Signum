@@ -111,6 +111,7 @@
       "PAdESDefaultPlacementTests",
       "PAdESGeometryStabilizationTests",
       "PAdESPlacementPropagationTests",
+      "PDFStampBoardTests",
       "PAdESOrientationPerformanceTests",
       "PAdESOrientationTests",
       "PAdESOrientationWorkflowTests",

@@ -57,8 +57,9 @@ extension SignumWindow {
                                 }
                             if entry.format == .pades {
                                 Button(workspace.showingPDFPreview ? "Conferma anteprima" : "Modifica aspetto…") {
+                                    if workspace.showingPDFPreview { stamps.confirmStamp(entry.id, in: batch.documents) }
                                     workspace.showingPDFPreview.toggle()
-                                }.disabled(interfaceLocked || batch.isFrozen || (workspace.showingPDFPreview && !readyPreviews.contains(entry.id)))
+                                }.disabled(interfaceLocked || batch.isFrozen || (workspace.showingPDFPreview && !stamps.isConfirmed(entry.id)))
                             }
                         }
                         Text(verbatim: destination.url?.path ?? "Scegli la cartella di destinazione nell’inspector.")
@@ -69,7 +70,7 @@ extension SignumWindow {
                         ScrollView { pdfWorkspace.frame(minHeight: 540) }
                     } else if DocumentSigningConfiguration.canSelectPAdES(for: entry.snapshot) {
                         ReadOnlyDocumentPreview(snapshot: entry.snapshot,
-                            appearance: entry.format == .pades && readyPreviews.contains(entry.id) ? placements[entry.id]?.appearance : nil).id(entry.id)
+                            appearance: entry.format == .pades ? stamps.confirmedAppearance(entry.id) : nil).id(entry.id)
                     } else {
                         VStack(spacing: 12) {
                             Image(systemName: "doc.text").font(.system(size: 44)).foregroundStyle(.secondary)

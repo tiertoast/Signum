@@ -163,7 +163,7 @@ extension S04WindowRevocationTests {
                     XCTAssertTrue(f.installed.appearanceRenderer === renderer)
                     await close(route,f); gate.release(); await drained(f.session)
                     XCTAssertTrue(cancellation.withValue { $0 }); XCTAssertTrue(renderer.isIdle)
-                    XCTAssertEqual(renderer.published,0); XCTAssertTrue(f.installed.readyPreviews.isEmpty)
+                    XCTAssertEqual(renderer.published,0); XCTAssertTrue(f.installed.stamps.confirmed.isEmpty)
                     XCTAssertNil(f.workspace.snapshot); XCTAssertEqual(count(f,16),0)
                 }
             }

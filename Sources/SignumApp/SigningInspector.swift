@@ -84,7 +84,8 @@ extension SignumWindow {
         guard devices.selectedRoute != nil else { return "Seleziona un certificato per firmare" }
         if !review.issue.isEmpty { return review.issue }
         if !saveAlongsideOriginal && customDirectory == nil { return "Scegli la cartella di destinazione" }
-        if workspace.showingPDFPreview || batch.documents.contains(where: { $0.format == .pades && !readyPreviews.contains($0.id) }) {
+        if stamps.isWorking { return "Applicazione del timbro…" }
+        if workspace.showingPDFPreview || batch.documents.contains(where: { $0.format == .pades && !$0.state.isTerminal && !stamps.isConfirmed($0.id) }) {
             let pdfs = batch.documents.filter { $0.format == .pades && !$0.state.isTerminal }.count
             return pdfs > 1 ? "Conferma il timbro su un PDF, poi usalo per gli altri" : "Controlla e conferma l’anteprima del PDF"
         }
@@ -286,88 +287,38 @@ extension SignumWindow {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// First confirmed visible stamp, used as template for the other PDFs.
-    var placementTemplate: (snapshot: DocumentSnapshot, appearance: RenderedPAdESAppearance)? {
-        // The stamp is re-rendered for the selected certificate on each target.
-        guard devices.selectedRoute != nil else { return nil }
-        for entry in batch.documents where entry.format == .pades && readyPreviews.contains(entry.id) {
-            if let rendered = placements[entry.id]?.appearance, rendered.configuration.visible { return (entry.snapshot, rendered) }
-        }
-        return nil
-    }
-    var pdfsAwaitingPlacement: [BatchDocument] {
-        batch.documents.filter { $0.format == .pades && !$0.state.isTerminal && !readyPreviews.contains($0.id) }
-    }
+    var pendingPDFCount: Int { batch.documents.filter { $0.format == .pades && !$0.state.isTerminal }.count }
 
+    /// Always available in a PDF batch before approval; explains what is missing.
     @ViewBuilder var placementPropagationControl: some View {
-        let waiting = pdfsAwaitingPlacement.count
-        let pdfs = batch.documents.filter { $0.format == .pades && !$0.state.isTerminal }.count
-        if pdfs > 1, waiting > 0, !batch.isFrozen {
-            let ready = placementTemplate != nil && !workspace.showingPDFPreview
-            Button(propagatingPlacements ? "Applicazione del timbro…" :
-                    (waiting == 1 ? "Usa lo stesso timbro per l’altro PDF" : "Usa lo stesso timbro per gli altri \(waiting) PDF")) {
-                applyPlacementToOtherPDFs()
+        if pendingPDFCount > 1, !batch.isFrozen {
+            let template = stamps.template
+            let ready = template != nil && devices.selectedRoute != nil && !workspace.showingPDFPreview
+            Button(stamps.isWorking ? "Applicazione del timbro…" : "Applica questo timbro a tutti i PDF") {
+                stamps.applyToAll(in: batch.documents)
             }
-            .disabled(!ready || interfaceLocked || propagatingPlacements)
+            .disabled(!ready || interfaceLocked || stamps.isWorking)
+            .help(template.flatMap { t in batch.documents.first { $0.id == t.id } }.map { "Modello: " + $0.snapshot.originalURL.lastPathComponent } ?? "")
             .accessibilityIdentifier("signum.apply-placement-all")
-            if !ready {
-                Text(workspace.showingPDFPreview && placementTemplate == nil
-                     ? "Posiziona il timbro e premi “Conferma anteprima”: poi potrai usarlo per gli altri PDF."
-                     : workspace.showingPDFPreview ? "Premi “Conferma anteprima” per usare questo timbro sugli altri PDF."
-                     : "Apri “Modifica aspetto…” su un PDF, posiziona il timbro e conferma: poi potrai usarlo per gli altri.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+            Text(placementHint(ready: ready)).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        if !placementPropagationNotice.isEmpty {
-            Text(placementPropagationNotice).font(.caption).foregroundStyle(.secondary)
+        if !stamps.notice.isEmpty {
+            Text(stamps.notice).font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
-
-    /// Render the template stamp on every PDF still waiting for a preview. Each
-    /// result is bound to the same certificate and checked by the normal review.
-    func applyPlacementToOtherPDFs() {
-        guard !interfaceLocked, !batch.isFrozen, !workspace.showingPDFPreview, !propagatingPlacements,
-              let template = placementTemplate, let der = devices.selectedRoute?.der else { return }
-        let targets = pdfsAwaitingPlacement.map(\.snapshot)
-        guard !targets.isEmpty else { return }
-        let generation = session.generation, revision = batch.revision
-        let source = template.snapshot, appearance = template.appearance
-        propagatingPlacements = true; placementPropagationNotice = ""
-        Task {
-            let results = await Task.detached(priority: .userInitiated) { () -> [(UUID, RenderedPAdESAppearance?, String)] in
-                let templatePDF: Data
-                do { templatePDF = try source.verifiedBytes() }
-                catch { return targets.map { ($0.identity.id, nil, error.localizedDescription) } }
-                return targets.map { target in
-                    do {
-                        return (target.identity.id, try PAdESPlacementPropagation.appearance(
-                            from: appearance, templatePDF: templatePDF,
-                            targetPDF: target.verifiedBytes(isCancelled: { target.isRetired }), certificateDER: der), "")
-                    } catch { return (target.identity.id, nil, error.localizedDescription) }
-                }
-            }.value
-            propagatingPlacements = false
-            guard session.accepts(generation), batch.revision == revision, !batch.isFrozen,
-                  devices.selectedRoute?.der == der else {
-                placementPropagationNotice = "I documenti o il certificato sono cambiati: riprova."
-                return
-            }
-            var applied = 0, failed: [String] = []
-            for (id, rendered, reason) in results {
-                guard let entry = batch.documents.first(where: { $0.id == id }), entry.format == .pades,
-                      !entry.state.isTerminal, !readyPreviews.contains(id) else { continue }
-                guard let rendered else { failed.append(entry.snapshot.originalURL.lastPathComponent + " (" + reason + ")"); continue }
-                let value = PAdESPlacement(pageIndex: rendered.configuration.pageIndex, rectangle: rendered.configuration.rectangle,
-                                           appearance: rendered, draft: rendered.configuration)
-                placements[id] = value
-                if documentSnapshot?.identity.id == id { pdfPlacement = value }
-                readyPreviews.insert(id); applied += 1
-            }
-            placementPropagationNotice = failed.isEmpty
-                ? "Timbro applicato a \(applied) PDF: lo vedi nell’anteprima di ciascun documento."
-                : "Timbro non applicabile a: \(failed.joined(separator: "; ")). Posizionalo con “Modifica aspetto…”."
+    func placementHint(ready: Bool) -> String {
+        if devices.selectedRoute == nil { return "Scegli il certificato: il timbro ne riporta il nome." }
+        if workspace.showingPDFPreview {
+            return "Posiziona il timbro e premi “Conferma anteprima”: potrai applicarlo a tutti i PDF."
         }
+        if stamps.template == nil {
+            return "Apri “Modifica aspetto…” su un PDF, posiziona il timbro e conferma: potrai applicarlo a tutti."
+        }
+        return stamps.followsTemplate
+            ? "Il timbro viene applicato anche ai PDF aggiunti e segue le modifiche al modello."
+            : "Copia il timbro confermato, nella stessa posizione, su tutti gli altri PDF."
     }
 
     @ViewBuilder
@@ -378,16 +329,17 @@ extension SignumWindow {
                 snapshot: snapshot,
                 previewReady: { id, ready in
                     guard session.isActive, workspace.accepts(id, generation: generation) else { return }
-                    if ready { previewSnapshotID = id; readyPreviews.insert(id) }
+                    stamps.previewReady(id, ready)
+                    if ready { previewSnapshotID = id }
                     if !ready {
-                        readyPreviews.remove(id); provider.pin = ""
+                        provider.pin = ""
                         status = "Anteprima in preparazione o appearance da correggere."
                     }
                 },
                 holder: selectedHolder, certificateDER: devices.selectedRoute?.der,
-                placement: Binding(get: { pdfPlacement }, set: { value in
+                placement: Binding(get: { stamps.placement(snapshot.identity.id) }, set: { value in
                     guard !interfaceLocked, !batch.isFrozen, workspace.accepts(snapshot.identity.id, generation: generation) else { return }
-                    pdfPlacement = value; placements[snapshot.identity.id] = value
+                    stamps.edit(value, for: snapshot.identity.id)
                 }), renderCoordinator: appearanceRenderer
             )
             .id(generation)

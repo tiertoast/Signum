@@ -36,10 +36,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) var showExcludedCertificates = false
     @AppStorage(SigningExperiencePreferences.Keys.alongsideOriginal) var saveAlongsideOriginal = true
     @State var customDirectory: URL?
-    @State var placements: [UUID: PAdESPlacement] = [:]
-    @State var readyPreviews = Set<UUID>()
-    @State var propagatingPlacements = false
-    @State var placementPropagationNotice = ""
+    /// Every visible PAdES stamp of the session; see PDFStampBoard for the rules.
+    @StateObject var stamps = PDFStampBoard()
     @State var approvedHolder = ""
     @State var approvedRoute: DeviceCertificateRoute?
     @State var provider: ProviderSelection
@@ -62,7 +60,6 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @State var subsequentFormat: SignumFormat?
     @AppStorage("signum.format.applyToAll") var applyFormatToAll = true
     @State var showingDocumentDetails = false
-    @State var pdfPlacement: PAdESPlacement?
     @StateObject var workspace: SigningWorkspaceSelection
     var documentSnapshot: DocumentSnapshot? { workspace.snapshot }
     var selectedDocument: BatchDocument? { batch.documents.first { $0.id == documentSnapshot?.identity.id } }
@@ -136,9 +133,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
               let certificate = provider.certificates.first(where: { $0.id == id }),
               let der = provider.certificateDERs[id], provider.certificateAssessments[id]?.permitsSigning == true,
               batch.documents.filter({ !$0.state.isTerminal }).allSatisfy({ ($0.format != .pades ||
-                (readyPreviews.contains($0.id) && placements[$0.id]?.appearance?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
+                (stamps.confirmedAppearance($0.id)?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
         return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
-                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity },
+                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: stamps.appearances.mapValues(\.approvalIdentity),
                      providerContext: route.signingContext(discoveryID: devices.requestID), includeSigningTime: includeSigningTime)
     }
     var canApproveBatch: Bool {
@@ -237,7 +234,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             let activity = session.beginActivity(); defer { session.endActivity(activity) }
             let generation = session.generation
             let context = reviewContext, route = devices.selectedRoute, worker = signingWorker
-            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validateCancellable: { control in try route?.requireCurrentCredential(client: worker, isCancelled: { control.isCancellationRequested }) })
+            await review.prepare(context, batch: batch, appearances: stamps.appearances, validateCancellable: { control in try route?.requireCurrentCredential(client: worker, isCancelled: { control.isCancellationRequested }) })
             guard session.accepts(generation) else { return }
             if review.credentialUnavailable, review.context == context, !batch.isFrozen {
                 devices.select(routeID:nil); provider.beginDiscovery(); batch.invalidateReview()
@@ -252,9 +249,11 @@ enum SignumFormat: String, Hashable, CaseIterable {
         }
         .onChange(of: format) { _ in provider.pin = "" }
         .onChange(of: batch.revision) { _ in
-            if let entry = selectedDocument { workspace.updateFormat(entry.format) }
+            if let entry = selectedDocument { updateSelectedFormat(entry.format) }
             else if documentSnapshot != nil { showDocument(batch.documents.first?.id) }
         }
+        .onChange(of: stampSyncKey) { _ in syncStamps() }
+        .onChange(of: stampEditingID) { id in stamps.setEditing(id, in: batch.documents) }
         .onChange(of: saveAlongsideOriginal) { _ in if !batch.isFrozen { provider.pin = "" } }
         .onDisappear { session.revoke() }
     }
@@ -283,7 +282,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         discoveryOperation?.requestCancellation(); discoveryOperation = nil
         batch.revokeForWindowClosure(); refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
         selectionRequestID = UUID(); workspace.select(nil); inputFile = nil
-        placements = [:]; readyPreviews = []; placementPropagationNotice = ""; pdfPlacement = nil; previewSnapshotID = nil
+        stamps.reset(); previewSnapshotID = nil
         approvedRoute = nil; approvedHolder = ""; authorizedManualPaths = []; manualPath = ""
         authenticationAttempted = false; authenticationStatus = ""; busy = false; pinFocused = false
         showDeviceConfiguration = false; showDefaultApplications = false
@@ -385,8 +384,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
               let entry=batch.documents.first(where:{$0.id == id}), entry.format != kind else { return }
         do {
             try batch.setFormat(kind,for:id)
-            placements[id]=nil; readyPreviews.remove(id); provider.pin=""
-            if documentSnapshot?.identity.id == id { pdfPlacement=nil; workspace.updateFormat(kind) }
+            stamps.forget(id); provider.pin=""
+            if documentSnapshot?.identity.id == id { updateSelectedFormat(kind) }
             status="Formato aggiornato a \(kind.rawValue.uppercased()). Controlla la nuova destinazione prima di approvare."
         } catch { status=error.localizedDescription }
     }
@@ -399,8 +398,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
         let names = Dictionary(uniqueKeysWithValues: batch.documents.map { ($0.id, $0.snapshot.originalURL.lastPathComponent) })
         let result = batch.setFormatForAll(kind)
         for id in result.changed {
-            placements[id] = nil; readyPreviews.remove(id)
-            if documentSnapshot?.identity.id == id { pdfPlacement = nil; workspace.updateFormat(kind) }
+            stamps.forget(id)
+            if documentSnapshot?.identity.id == id { updateSelectedFormat(kind) }
         }
         provider.pin = ""
         let title = SignumFormat(rawValue: kind.rawValue)?.displayTitle ?? kind.rawValue
@@ -481,7 +480,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             hasAuthenticationContext: authenticationSession != nil, otherWork: busy) {
             review.cancel(); provider.pin = ""; approvedRoute = nil; approvedHolder = ""
             authenticationAttempted = false; authenticationStatus = ""
-            placements = [:]; readyPreviews = []; placementPropagationNotice = ""; workspace.select(nil); pdfPlacement = nil
+            stamps.reset(); workspace.select(nil)
             status = "Sessione conclusa. Gli esiti sono conservati; puoi firmare altri documenti o aprire Verifica."
         }
     }
@@ -490,7 +489,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         guard !interfaceLocked else { return }
         authenticationSession?.requestStop(); authenticationSession = nil
         authenticationAttempted = false; authenticationStatus = ""
-        batch.reset(); placements = [:]; readyPreviews = []; placementPropagationNotice = ""; approvedRoute = nil
+        batch.reset(); stamps.reset(); approvedRoute = nil
         showDocument(nil); provider.pin = ""; lastSignedFile = nil
         status = "Nuova sessione. Scegli i documenti da firmare."
     }
@@ -684,20 +683,36 @@ enum SignumFormat: String, Hashable, CaseIterable {
             status = "Rimozione richiesta. L’eventuale firma corrente conserva il proprio esito; i documenti rimasti richiedono una nuova approvazione."
         }
         guard !batch.documents.contains(where: { $0.id == id }) else { return }
-        placements[id] = nil; readyPreviews.remove(id); provider.pin = ""
+        stamps.forget(id); provider.pin = ""
         showingDocumentDetails = false
         if selected {
             showDocument(batch.documents.isEmpty ? nil : batch.documents[min(index, batch.documents.count - 1)].id)
         }
     }
 
+    /// Everything the stamp board depends on; any change triggers a sync.
+    var stampSyncKey: String {
+        batch.documents.map { "\($0.id)\($0.format.rawValue)\($0.state.rawValue)" }.joined() +
+            "|\(batch.isFrozen)|" + (devices.selectedRoute?.certificateFingerprint ?? "")
+    }
+    var stampEditingID: UUID? { workspace.showingPDFPreview ? documentSnapshot?.identity.id : nil }
+    func syncStamps() {
+        stamps.sync(documents: batch.documents, frozen: batch.isFrozen, certificateDER: devices.selectedRoute?.der)
+    }
+    /// A PDF that already has a stamp, or will receive the template's copy,
+    /// opens in the read-only preview; the editor stays one click away.
+    func wantsStampEditor(_ id: UUID) -> Bool { !stamps.isConfirmed(id) && !stamps.followsTemplate }
+    func updateSelectedFormat(_ kind: SigningFormat) {
+        workspace.updateFormat(kind)
+        if kind == .pades, let id = documentSnapshot?.identity.id, !wantsStampEditor(id) { workspace.showingPDFPreview = false }
+    }
+
     func showDocument(_ id: UUID?) {
         guard session.isActive else { return }
-        if let old = documentSnapshot, batch.documents.contains(where: { $0.id == old.identity.id }) { placements[old.identity.id] = pdfPlacement }
         let entry = batch.documents.first(where: { $0.id == id })
-        workspace.select(entry?.snapshot,format:entry?.format)
+        // The stamp editor opens by itself only on a PDF without a confirmed stamp.
+        workspace.select(entry?.snapshot, format: entry?.format, openEditor: entry.map { wantsStampEditor($0.id) } ?? true)
         inputFile = documentSnapshot?.originalURL
-        pdfPlacement = id.flatMap { placements[$0] }
         previewSnapshotID = nil
     }
 
@@ -708,7 +723,6 @@ enum SignumFormat: String, Hashable, CaseIterable {
         provider.pin = ""
         let generation = session.generation
         let holder = selectedHolder, requestedAuthenticationMode = authenticationMode
-        if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
         do {
             let approved = try interaction.approveDisplayed(batch: batch, approval: plan,
                 additionalConfirmation: additionalConfirmation, isCurrent: { session.accepts(generation) && reviewContext == context }, present: { approval in

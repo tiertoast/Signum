@@ -72,7 +72,21 @@ public enum PAdESPlacementPropagation {
     public static func appearance(from template: RenderedPAdESAppearance, templatePDF: Data,
                                   targetPDF: Data, certificateDER: Data,
                                   isCancelled: () -> Bool = { false }) throws -> RenderedPAdESAppearance {
-        let source = template.configuration
+        try appearance(from: template.configuration, templatePDF: templatePDF, targetPDF: targetPDF,
+                       certificateDER: certificateDER, isCancelled: isCancelled)
+    }
+    /// Re-render a stamp on its own page, e.g. for a newly selected certificate.
+    public static func rerender(_ configuration: PAdESAppearanceConfiguration, pdf: Data, certificateDER: Data,
+                                isCancelled: () -> Bool = { false }) throws -> RenderedPAdESAppearance {
+        let page = try geometry(pdf, page: configuration.pageIndex)
+        return try PAdESAppearanceRenderer.render(configuration, certificateDER: certificateDER, cropBox: page.cropBox,
+                                                  pageRotation: page.rotation, isCancelled: isCancelled)
+    }
+    /// `configuration` is the user's draft (it keeps showSigner even when the
+    /// preview was rendered before a certificate was chosen).
+    public static func appearance(from source: PAdESAppearanceConfiguration, templatePDF: Data,
+                                  targetPDF: Data, certificateDER: Data,
+                                  isCancelled: () -> Bool = { false }) throws -> RenderedPAdESAppearance {
         guard source.visible else { throw SignumError.module("Solo una firma visibile può essere applicata agli altri PDF.") }
         let sourcePages = try pageCount(templatePDF)
         let sourceGeometry = try geometry(templatePDF, page: source.pageIndex)
