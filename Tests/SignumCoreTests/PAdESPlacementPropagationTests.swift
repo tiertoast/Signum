@@ -26,16 +26,44 @@ import CoreGraphics
         XCTAssertEqual(copy.certificateSHA256, source.certificateSHA256)
     }
 
-    func testDifferentPageUsesDefaultCornerWithSamePhysicalSize() throws {
-        let a4 = try pdf(595, 842), a3 = try pdf(842, 1191), rotated = try pdf(595, 842, rotation: 90)
-        let source = try template(on: a4, at: CGPoint(x: 100, y: 120))
-        for target in [a3, rotated] {
+    private func geometry(_ bytes: Data, page: Int = 1) throws -> PAdESPageGeometry {
+        try PAdESPageGeometry(page: try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data: bytes as CFData)))?.page(at: page)))
+    }
+    private func pages(_ count: Int, _ size: CGSize = CGSize(width: 595, height: 842)) throws -> Data {
+        let output = NSMutableData(); var box = CGRect(origin: .zero, size: size)
+        let context = try XCTUnwrap(CGContext(consumer: try XCTUnwrap(CGDataConsumer(data: output as CFMutableData)), mediaBox: &box, nil))
+        for _ in 0..<count { context.beginPDFPage(nil); context.endPDFPage() }
+        context.closePDF(); return output as Data
+    }
+
+    func testStampKeepsItsVisibleMarginsOnDifferentPages() throws {
+        let a4 = try pdf(595, 842)
+        let source = try template(on: a4, at: CGPoint(x: 100, y: 120)) // Bottom-left.
+        for target in [try pdf(595.32, 841.92), try pdf(842, 1191), try pdf(595, 842, rotation: 90), try pdf(842, 595, rotation: 270)] {
             let copy = try PAdESPlacementPropagation.appearance(from: source, templatePDF: a4, targetPDF: target, certificateDER: Data())
-            let page = try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data: target as CFData)))?.page(at: 1))
-            let expected = try PAdESPageGeometry(page: page).defaultAppearance()
-            XCTAssertEqual(copy.configuration.rectangle, expected.rectangle)
+            let g = try geometry(target)
+            let visible = copy.configuration.rectangle.applying(g.rawToVisible), bounds = g.visibleBounds
+            XCTAssertEqual(visible.minX - bounds.minX, 100, accuracy: 0.001)
+            XCTAssertEqual(visible.minY - bounds.minY, 120, accuracy: 0.001)
             XCTAssertEqual(copy.configuration.customText, "Synthetic stamp")
         }
+        let topRight = try template(on: a4, at: CGPoint(x: 595 - 30 - 240, y: 842 - 40 - 90))
+        let a3 = try pdf(842, 1191)
+        let copy = try PAdESPlacementPropagation.appearance(from: topRight, templatePDF: a4, targetPDF: a3, certificateDER: Data())
+        XCTAssertEqual(copy.configuration.rectangle.maxX, 842 - 30, accuracy: 0.001)
+        XCTAssertEqual(copy.configuration.rectangle.maxY, 1191 - 40, accuracy: 0.001)
+    }
+
+    func testStampOnLastPageFollowsTheLastPage() throws {
+        let three = try pages(3), five = try pages(5), one = try pages(1)
+        let g = try geometry(three, page: 3)
+        var config = try g.defaultAppearance(pageIndex: 2); config.showSigner = false; config.customText = "Synthetic stamp"
+        let last = try PAdESAppearanceRenderer.render(config, certificateDER: Data(), cropBox: g.cropBox, pageRotation: g.rotation)
+        XCTAssertEqual(try PAdESPlacementPropagation.appearance(from: last, templatePDF: three, targetPDF: five, certificateDER: Data()).configuration.pageIndex, 4)
+        XCTAssertEqual(try PAdESPlacementPropagation.appearance(from: last, templatePDF: three, targetPDF: one, certificateDER: Data()).configuration.pageIndex, 0)
+        config.pageIndex = 0
+        let first = try PAdESAppearanceRenderer.render(config, certificateDER: Data(), cropBox: g.cropBox, pageRotation: g.rotation)
+        XCTAssertEqual(try PAdESPlacementPropagation.appearance(from: first, templatePDF: three, targetPDF: five, certificateDER: Data()).configuration.pageIndex, 0)
     }
 
     func testInvisibleTemplateAndUnreadablePDFAreRejected() throws {

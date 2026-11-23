@@ -64,30 +64,45 @@ public struct PAdESPageGeometry: Sendable {
 }
 
 /// Reuse an approved visible stamp on other PDFs of the same batch, without
-/// opening each preview. Style and physical size are kept. The exact rectangle
-/// is kept only when the target page has the same geometry; otherwise the
-/// stamp goes to the default top-right position of that page.
+/// opening each preview. Style and physical size are kept. The stamp keeps its
+/// distance from the nearest page edges as seen on screen (e.g. 2 cm from the
+/// bottom-left corner), so small page-size differences or rotations do not move
+/// it to another corner. A stamp on the last page goes to the target's last page.
 public enum PAdESPlacementPropagation {
     public static func appearance(from template: RenderedPAdESAppearance, templatePDF: Data,
                                   targetPDF: Data, certificateDER: Data,
                                   isCancelled: () -> Bool = { false }) throws -> RenderedPAdESAppearance {
         let source = template.configuration
         guard source.visible else { throw SignumError.module("Solo una firma visibile può essere applicata agli altri PDF.") }
+        let sourcePages = try pageCount(templatePDF)
         let sourceGeometry = try geometry(templatePDF, page: source.pageIndex)
         guard sourceGeometry.userUnit == source.effectiveUserUnit else { throw SignumError.module("UserUnit del timbro non coerente con il PDF di origine.") }
         let pages = try pageCount(targetPDF)
-        let pageIndex = min(source.pageIndex, pages - 1)
+        let onLastPage = sourcePages > 1 && source.pageIndex == sourcePages - 1
+        let pageIndex = onLastPage ? pages - 1 : min(source.pageIndex, pages - 1)
         let target = try geometry(targetPDF, page: pageIndex)
         var next = source
-        if pageIndex == source.pageIndex, target.cropBox == sourceGeometry.cropBox,
-           target.rotation == sourceGeometry.rotation, target.userUnit == sourceGeometry.userUnit {
-            next.pageIndex = pageIndex
-        } else {
+        next.pageIndex = pageIndex
+        if !(target.cropBox == sourceGeometry.cropBox && target.rotation == sourceGeometry.rotation &&
+             target.userUnit == sourceGeometry.userUnit) {
             let raw = try source.contentSize(pageRotation: sourceGeometry.rotation)
             let physical = CGSize(width: raw.width * source.effectiveUserUnit, height: raw.height * source.effectiveUserUnit)
+            // Default placement gives the right footprint and orientation; then
+            // anchor it to the same visible edges and margins as the template.
             let placed = try target.defaultAppearance(pageIndex: pageIndex, contentSize: physical, orientation: source.orientation)
-            next.pageIndex = placed.pageIndex; next.userUnit = placed.userUnit
-            next.orientation = placed.orientation; next.rectangle = placed.rectangle
+            let from = source.rectangle.applying(sourceGeometry.rawToVisible), fromBounds = sourceGeometry.visibleBounds
+            let footprint = placed.rectangle.applying(target.rawToVisible).size, bounds = target.visibleBounds
+            let scale = sourceGeometry.userUnit / target.userUnit // Same physical margins.
+            let left = (from.minX - fromBounds.minX) * scale, right = (fromBounds.maxX - from.maxX) * scale
+            let bottom = (from.minY - fromBounds.minY) * scale, top = (fromBounds.maxY - from.maxY) * scale
+            var x = left <= right ? bounds.minX + left : bounds.maxX - right - footprint.width
+            var y = bottom <= top ? bounds.minY + bottom : bounds.maxY - top - footprint.height
+            x = min(max(x, bounds.minX), bounds.maxX - footprint.width)
+            y = min(max(y, bounds.minY), bounds.maxY - footprint.height)
+            next.userUnit = placed.userUnit; next.orientation = placed.orientation
+            next.rectangle = CGRect(x: x, y: y, width: footprint.width, height: footprint.height)
+                .applying(target.rawToVisible.inverted())
+            try next.validate(cropBox: target.cropBox, pageRotation: target.rotation)
         }
         return try PAdESAppearanceRenderer.render(next, certificateDER: certificateDER, cropBox: target.cropBox,
                                                   pageRotation: target.rotation, isCancelled: isCancelled)
