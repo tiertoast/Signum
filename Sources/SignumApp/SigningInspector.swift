@@ -335,12 +335,16 @@ extension SignumWindow {
         let source = template.snapshot, appearance = template.appearance
         propagatingPlacements = true; placementPropagationNotice = ""
         Task {
-            let results = await Task.detached(priority: .userInitiated) { () -> [(UUID, RenderedPAdESAppearance?)] in
-                guard let templatePDF = try? source.verifiedBytes() else { return targets.map { ($0.identity.id, nil) } }
+            let results = await Task.detached(priority: .userInitiated) { () -> [(UUID, RenderedPAdESAppearance?, String)] in
+                let templatePDF: Data
+                do { templatePDF = try source.verifiedBytes() }
+                catch { return targets.map { ($0.identity.id, nil, error.localizedDescription) } }
                 return targets.map { target in
-                    (target.identity.id, try? PAdESPlacementPropagation.appearance(
-                        from: appearance, templatePDF: templatePDF,
-                        targetPDF: target.verifiedBytes(isCancelled: { target.isRetired }), certificateDER: der))
+                    do {
+                        return (target.identity.id, try PAdESPlacementPropagation.appearance(
+                            from: appearance, templatePDF: templatePDF,
+                            targetPDF: target.verifiedBytes(isCancelled: { target.isRetired }), certificateDER: der), "")
+                    } catch { return (target.identity.id, nil, error.localizedDescription) }
                 }
             }.value
             propagatingPlacements = false
@@ -350,10 +354,10 @@ extension SignumWindow {
                 return
             }
             var applied = 0, failed: [String] = []
-            for (id, rendered) in results {
+            for (id, rendered, reason) in results {
                 guard let entry = batch.documents.first(where: { $0.id == id }), entry.format == .pades,
                       !entry.state.isTerminal, !readyPreviews.contains(id) else { continue }
-                guard let rendered else { failed.append(entry.snapshot.originalURL.lastPathComponent); continue }
+                guard let rendered else { failed.append(entry.snapshot.originalURL.lastPathComponent + " (" + reason + ")"); continue }
                 let value = PAdESPlacement(pageIndex: rendered.configuration.pageIndex, rectangle: rendered.configuration.rectangle,
                                            appearance: rendered, draft: rendered.configuration)
                 placements[id] = value
@@ -361,8 +365,8 @@ extension SignumWindow {
                 readyPreviews.insert(id); applied += 1
             }
             placementPropagationNotice = failed.isEmpty
-                ? "Timbro applicato a \(applied) PDF. Puoi controllarli con “Modifica aspetto…”."
-                : "Timbro non applicabile a: \(failed.joined(separator: ", ")). Apri l’anteprima di questi PDF."
+                ? "Timbro applicato a \(applied) PDF: lo vedi nell’anteprima di ciascun documento."
+                : "Timbro non applicabile a: \(failed.joined(separator: "; ")). Posizionalo con “Modifica aspetto…”."
         }
     }
 

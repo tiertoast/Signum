@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import COutputPermissions
 
 /// One approved CAdES batch, one isolated worker. No PIN property, no middleware
 /// loaded into the caller. Cryptographic verification and publication stay here.
@@ -98,7 +99,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
         io.publish = { stage, payload, parent, destination in
             if cancelled() { operation.requestCancellation() }
             guard operation.beginPublication() else { errno = ECANCELED; return -1 }
-            return renameatx_np(stage, payload, parent, destination, UInt32(RENAME_EXCL))
+            return sg_output_publish_exclusive(stage, payload, parent, destination)
         }
         do {
             guard !cancelled() else { throw SupervisedProcess.Failure.cancelled }

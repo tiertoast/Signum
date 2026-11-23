@@ -9,7 +9,7 @@ final class SigningAuthenticationFailureTests: XCTestCase {
     private var worker: IsolatedPKCS11Client {
         .init(executable: Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker"))
     }
-    private func withJob(phase: Int? = nil, effect: Int = 0,
+    private func withJob(phase: Int? = nil, effect: Int = 0, destinationFolder: URL? = nil,
                          _ body: (SigningJob, MockModule) throws -> Void) throws {
         let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -21,7 +21,7 @@ final class SigningAuthenticationFailureTests: XCTestCase {
         defer { snapshot.close() }
         let cert = try XCTUnwrap(worker.certificates(provider: mock.path.path, slot: 7).first)
         let job = try SigningJob(snapshot: snapshot, providerPath: mock.path.path, slot: 7, certificate: cert.certificate,
-                                 certificateDER: cert.der, destination: folder.appendingPathComponent("signed.p7m"))
+                                 certificateDER: cert.der, destination: (destinationFolder ?? folder).appendingPathComponent("signed.p7m"))
         try body(job, mock)
     }
     private func audit(_ mock: MockModule, _ code: String) -> Int {
@@ -84,6 +84,19 @@ final class SigningAuthenticationFailureTests: XCTestCase {
             }
             XCTAssertEqual(operation.state, .outcomeUncertain)
             XCTAssertEqual(audit(mock, "16"), 1)
+        }
+    }
+
+    /// The real signing publish path on FAT/exFAT (no RENAME_EXCL, errno 45).
+    func testSigningPublishesOntoPortableVolume() throws {
+        guard let path = ProcessInfo.processInfo.environment["SIGNUM_TEST_PORTABLE_VOLUME"] else { throw XCTSkip("no portable volume") }
+        let target = URL(fileURLWithPath: path).appendingPathComponent("signum-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: target) }
+        try withJob(destinationFolder: target) { job, _ in
+            try job.signCAdES(using: worker, pin: "synthetic-fixture", operation: SigningOperation())
+            XCTAssertEqual(try CAdESVerifier.verifiedContent(Data(contentsOf: job.destination)), Data("Approved synthetic bytes".utf8))
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: target.path), ["signed.p7m"])
         }
     }
 

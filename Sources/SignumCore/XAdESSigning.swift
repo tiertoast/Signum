@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import COutputPermissions
 
 extension SigningJob {
     public func signAdvancedCAdES(using worker: IsolatedPKCS11Client,pin: String,operation: SigningOperation,timeout: TimeInterval=120,helper: URL?=nil) throws {
@@ -23,7 +24,7 @@ extension SigningJob {
         io.beforePublish = { try operation.checkCancellation() }
         io.publish = { stage,payload,parent,destination in
             guard operation.beginPublication() else { errno = ECANCELED; return -1 }
-            return renameatx_np(stage,payload,parent,destination,UInt32(RENAME_EXCL))
+            return sg_output_publish_exclusive(stage,payload,parent,destination)
         }
         do {
             try operation.checkCancellation()
