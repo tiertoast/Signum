@@ -33,6 +33,8 @@ public struct BatchDocument: Identifiable, Sendable {
     public fileprivate(set) var destination: URL?
     public fileprivate(set) var state: BatchDocumentState = .pending
     public fileprivate(set) var result: String = ""
+    /// Latest PIN refusal for this still-authorizable document, shown by the PIN field.
+    public fileprivate(set) var authenticationRefusal: SigningAuthenticationFailure?
 }
 
 public struct BatchApproval: Sendable {
@@ -105,6 +107,19 @@ public struct BatchApproval: Sendable {
         invalidateReview(); revision = UUID()
         documents[index].configuration = .init(snapshotID:id,format:format)
         documents[index].destination = nil
+    }
+
+    /// Batch-wide format choice. Compatible pending documents get `format`;
+    /// incompatible ones keep theirs. Returns the changed and the kept documents.
+    @discardableResult
+    public func setFormatForAll(_ format: SigningFormat) -> (changed: [UUID], kept: [UUID]) {
+        var changed: [UUID] = [], kept: [UUID] = []
+        for entry in documents where !entry.state.isTerminal && entry.format != format {
+            guard DocumentSigningConfiguration.canApply(format, to: entry.snapshot),
+                  (try? setFormat(format, for: entry.id)) != nil else { kept.append(entry.id); continue }
+            changed.append(entry.id)
+        }
+        return (changed, kept)
     }
 
     public func selectCounterSignature(_ key: String, for id: UUID) throws {
@@ -401,7 +416,7 @@ public struct BatchApproval: Sendable {
         isContinuingAuthenticated = true
         await withTaskCancellationHandler(operation: {
             while !Task.isCancelled, isApproved, session.canContinue, !needsOutcomeReview, let next = nextDocument {
-                await executeNext(expectedDocumentID: next.id) { job, operation in try session.signCAdES(job: job, pin: nil, operation: operation) }
+                await executeNext(expectedDocumentID: next.id) { job, operation in try session.sign(job: job, pin: nil, operation: operation) }
                 guard documents.first(where: { $0.id == next.id })?.state == .completed else { break }
             }
             await retireAuthenticatedSession(using: session).value
@@ -419,6 +434,7 @@ public struct BatchApproval: Sendable {
               expectedDocumentID == nil || expectedDocumentID == next.id,
               let job = approval.jobs.first(where: { $0.snapshotIdentity.id == next.id }) else { return }
         isRunning = true; activeID = next.id
+        if let i = documents.firstIndex(where: { $0.id == next.id }) { documents[i].authenticationRefusal = nil }
         let operation = SigningOperation(id: job.id) { [weak self] phase in
             Task { @MainActor in
                 guard let self, self.activeID == next.id, let i = self.documents.firstIndex(where: { $0.id == next.id }), !self.documents[i].state.isTerminal else { return }
@@ -434,8 +450,7 @@ public struct BatchApproval: Sendable {
         activeOperation = operation
         let outcome = await withTaskCancellationHandler(operation: {
             await Task.detached(priority: .userInitiated) {
-            defer { job.snapshot.close() }
-            return Result {
+            let result = Result {
                 var info = stat()
                 try operation.checkCancellation()
                 try job.requireAvailableDestination()
@@ -448,6 +463,13 @@ public struct BatchApproval: Sendable {
                     throw SignumError.outputUncertain("Il motore non ha confermato una pubblicazione verificata. Controllare l'esito senza ripetere questa firma.")
                 }
             }
+            // A PIN refusal proven before C_Sign keeps the same approved snapshot
+            // and job so the user can authorize this document again.
+            let keepForNewPIN: Bool
+            if case .failure(let error) = result { keepForNewPIN = error.allowsNewPIN && !operation.isCancellationRequested }
+            else { keepForNewPIN = false }
+            if !keepForNewPIN { job.snapshot.close() }
+            return result
             }.value
         }, onCancel: { operation.requestCancellation(preservingPrivateOutcome: true) })
         activeID = nil; activeOperation = nil; isRunning = false
@@ -460,6 +482,11 @@ public struct BatchApproval: Sendable {
                !documents.contains(where: { $0.state == .uncertain }) {
                 needsOutcomeReview = false; authenticationNotice = ""
             }
+        case .failure(let error) where error.allowsNewPIN && !removalRequests.contains(next.id) && !job.snapshot.isRetired:
+            operation.transition(to: .failed)
+            documents[index].state = .pending
+            documents[index].result = error.localizedDescription
+            documents[index].authenticationRefusal = error as? SigningAuthenticationFailure
         case .failure(let error):
             if case SignumError.outputUncertain = error {
                 operation.transition(to: .outcomeUncertain)

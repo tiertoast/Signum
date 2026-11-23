@@ -47,8 +47,15 @@ final class BatchAuthenticationPreferenceTests: XCTestCase {
         XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: jobs, serial: "synthetic", mode: .automatic))
         XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: Array(jobs.prefix(2)), serial: "", mode: .automatic))
         XCTAssertFalse(BatchAuthenticationPolicy.canAttempt(jobs: Array(jobs.prefix(2)), serial: "synthetic", mode: .perSignature))
-        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .pades], serial: "x", mode: .automatic).contains("PIN per ogni firma"))
+        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .xades], serial: "x", mode: .automatic).contains("PIN per ogni firma"))
+        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.pades, .pades], serial: "x", mode: .automatic).contains("potrebbe"))
+        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .pades], serial: "x", mode: .automatic).contains("potrebbe"))
         XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .cades], serial: "x", mode: .automatic).contains("potrebbe"))
+        for other in [SigningFormat.xades, .asice, .cadesDetached, .cadesCoSign, .cadesCounterSign] { // .pades shares the session
+            let text = BatchAuthenticationPolicy.explanation(formats: [.cades, other], serial: "x", mode: .automatic)
+            XCTAssertTrue(text.contains("PIN per ogni firma"), "\(other)")
+            XCTAssertFalse(text.contains("potrebbe"), "\(other)")
+        }
     }
     func testTemporaryModeIsExplicitOptInWithHonestDescriptionAndNoStoredCredential() throws {
         let name = "Signum.synthetic.temp-auth." + UUID().uuidString
@@ -65,7 +72,7 @@ final class BatchAuthenticationPreferenceTests: XCTestCase {
         XCTAssertTrue(BatchAuthenticationMode.temporaryPIN.explanation.contains("temporaneamente in memoria"))
         XCTAssertTrue(BatchAuthenticationMode.temporaryPIN.explanation.contains("aumenta"))
         XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .cades], serial: "x", mode: .temporaryPIN).contains("autenticazioni distinte"))
-        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .pades], serial: "x", mode: .temporaryPIN).contains("PIN per ogni firma"))
+        XCTAssertTrue(BatchAuthenticationPolicy.explanation(formats: [.cades, .xades], serial: "x", mode: .temporaryPIN).contains("PIN per ogni firma"))
     }
 
 }

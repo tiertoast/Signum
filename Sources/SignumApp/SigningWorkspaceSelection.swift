@@ -19,16 +19,17 @@ import SignumCore
         guard format != value else { return }
         generation = UUID(); format = value; showingPDFPreview = value == .pades
     }
-    func select(_ value: DocumentSnapshot?, format chosen: SigningFormat? = nil) {
+    func select(_ value: DocumentSnapshot?, format chosen: SigningFormat? = nil, openEditor: Bool = true) {
         let kind = value.map { chosen ?? $0.format }
         if format != kind { updateFormat(kind) }
+        let editor = kind == .pades && openEditor
         guard snapshot?.identity.id != value?.identity.id else {
-            if kind == .pades, !showingPDFPreview { generation = UUID() }
-            showingPDFPreview = kind == .pades
+            if editor, !showingPDFPreview { generation = UUID() }
+            showingPDFPreview = editor
             return
         }
         generation = UUID(); snapshot = value; format = kind
-        showingPDFPreview = kind == .pades
+        showingPDFPreview = editor
     }
     func accepts(_ id: UUID, generation: UUID) -> Bool {
         snapshot?.identity.id == id && self.generation == generation

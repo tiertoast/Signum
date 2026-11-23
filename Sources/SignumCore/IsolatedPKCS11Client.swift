@@ -100,6 +100,8 @@ public final class IsolatedPKCS11Client: Sendable {
         if !response.succeeded, response.failureKind == "busy" { throw Failure.busy }
         if !response.succeeded, response.failureKind == "authenticationRequired", request.action != .rsaSHA256 { throw Failure.authenticationRequired }
         if !response.succeeded, response.failureKind == "contextChanged", request.version == 2 { throw Failure.contextChanged }
+        if !response.succeeded, request.action == .rsaSHA256, response.signature == nil,
+           let refusal = SigningAuthenticationFailure(wire: response.failureKind) { throw refusal }
         if let binding = request.providerContext, response.succeeded {
             guard response.provider == binding.provider, response.validatedContext == binding else { throw SupervisedProcess.Failure.protocolViolation }
         }

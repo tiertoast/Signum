@@ -29,8 +29,11 @@ final class BatchSignatureConnection: BatchSigningConnection {
     }
     func sign(jobID: UUID, attributes: Data, pin: String?, timeout: TimeInterval = 120,
               isCancelled: () -> Bool = { false }) throws -> Data {
-        guard !retired, next < manifest.jobs.count, manifest.jobs[next].id == jobID,
-              manifest.jobs[next].attributes == attributes else { throw SupervisedProcess.Failure.protocolViolation }
+        guard !retired, next < manifest.jobs.count, manifest.jobs[next].id == jobID else { throw SupervisedProcess.Failure.protocolViolation }
+        let late = manifest.jobs[next].isLate
+        // Late (PAdES) jobs: an exact DigestInfo, supplied now unless it is the first job's.
+        guard late ? BatchWorkerJob.isSHA256DigestInfo(attributes) && (next != 0 || manifest.jobs[0].attributes == attributes)
+                   : manifest.jobs[next].attributes == attributes else { throw SupervisedProcess.Failure.protocolViolation }
         let reply: BatchWorkerReply
         do {
             if next == 0 {
@@ -43,8 +46,9 @@ final class BatchSignatureConnection: BatchSigningConnection {
                 reply = try child.exchange(start, secret: start.version == 3 ? pin : nil, timeout: timeout, isCancelled: isCancelled)
             } else {
                 guard pin == nil, reusable, let channel else { throw SupervisedProcess.Failure.protocolViolation }
-                reply = try channel.exchange(BatchWorkerCommand(version: 2, batchID: manifest.batchID, jobID: jobID, index: next, finish: false),
-                                             timeout: timeout, isCancelled: isCancelled)
+                var command = BatchWorkerCommand(version: 2, batchID: manifest.batchID, jobID: jobID, index: next, finish: false)
+                if late { command.digest = attributes }
+                reply = try channel.exchange(command, timeout: timeout, isCancelled: isCancelled)
             }
             if next == 0, manifest.version == 3, reply.version == 2, reply.batchID == manifest.batchID,
                reply.jobID == jobID, reply.index == 0, !reply.succeeded, reply.closed, !reply.reusable,
@@ -52,12 +56,19 @@ final class BatchSignatureConnection: BatchSigningConnection {
                 try channel?.waitForExit()
                 throw Failure.temporaryPINUnavailable
             }
+            if next == 0, reply.version == 2, reply.batchID == manifest.batchID, reply.jobID == jobID,
+               reply.index == 0, !reply.succeeded, reply.closed, !reply.reusable, reply.signature == nil,
+               let refusal = SigningAuthenticationFailure(wire: reply.failureKind) {
+                try channel?.waitForExit()
+                throw refusal
+            }
             guard reply.failureKind == nil, reply.version == 2, reply.batchID == manifest.batchID, reply.jobID == jobID,
                   reply.index == next, reply.succeeded, reply.reusable != reply.closed,
                   let signature = reply.signature, (128...1024).contains(signature.count),
                   let certificate = SecCertificateCreateWithData(nil, manifest.certificate.der as CFData),
                   let key = SecCertificateCopyKey(certificate),
-                  SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256, attributes as CFData, signature as CFData, nil) else {
+                  late ? SecKeyVerifySignature(key, .rsaSignatureDigestPKCS1v15SHA256, attributes.suffix(32) as CFData, signature as CFData, nil)
+                       : SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256, attributes as CFData, signature as CFData, nil) else {
                 throw SignumError.invalidSignature
             }
             reusable = reply.reusable; next += 1

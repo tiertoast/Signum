@@ -81,13 +81,22 @@ enum BatchWorkerServer {
                 if let securePIN {
                     first = try loaded.firstTemporaryBatchSignature(slot: start.slot, serial: start.serial,
                         certificate: start.certificate.value, der: start.certificate.der,
-                        attributes: start.jobs[0].attributes, pin: securePIN)
+                        attributes: start.jobs[0].attributes, pin: securePIN, encodedDigest: start.jobs[0].isLate)
                     if !loaded.batchRequiresPIN || start.jobs.count == 1 { securePIN.erase() }
                 } else {
                     first = try loaded.firstBatchSignature(slot: start.slot, serial: start.serial,
                         certificate: start.certificate.value, der: start.certificate.der,
-                        attributes: start.jobs[0].attributes, pin: start.pin!)
+                        attributes: start.jobs[0].attributes, pin: start.pin!, encodedDigest: start.jobs[0].isLate)
                 }
+            } catch let refusal as SigningAuthenticationFailure {
+                // Provably before any C_Sign: report the typed refusal only after
+                // checked teardown, so the parent can treat it as an ordinary failure.
+                securePIN?.erase()
+                module = nil
+                do { try loaded.closeInWorker() } catch { return 2 }
+                try write(.init(version: 2, batchID: start.batchID, jobID: start.jobs[0].id, index: 0,
+                    signature: nil, reusable: false, closed: true, succeeded: false, failureKind: refusal.wire), to: reply)
+                return 0
             }
             if !first.1 {
                 securePIN?.erase()
@@ -104,7 +113,7 @@ enum BatchWorkerServer {
                       let command = try? JSONDecoder().decode(BatchWorkerCommand.self, from: data),
                       command.version == 2, command.batchID == start.batchID, command.index == next else { return 2 }
                 if command.finish {
-                    guard command.jobID == nil, !command.skip else { return 2 }
+                    guard command.jobID == nil, !command.skip, command.digest == nil else { return 2 }
                     securePIN?.erase()
                     module = nil; try loaded.closeInWorker()
                     try write(.init(version: 2, batchID: start.batchID, jobID: nil, index: next,
@@ -112,6 +121,10 @@ enum BatchWorkerServer {
                     return 0
                 }
                 guard next < start.jobs.count, command.jobID == start.jobs[next].id else { return 2 }
+                let late = start.jobs[next].isLate
+                // A digest only for a late job, never with skip, always an exact DigestInfo.
+                guard command.skip ? command.digest == nil
+                        : late == (command.digest != nil) && (!late || BatchWorkerJob.isSHA256DigestInfo(command.digest!)) else { return 2 }
                 if command.skip {
                     try write(.init(version: 2, batchID: start.batchID, jobID: command.jobID, index: next,
                         signature: nil, reusable: true, closed: false, succeeded: true), to: reply)
@@ -121,8 +134,9 @@ enum BatchWorkerServer {
                 }
                 try requireModule(start)
                 let signature: Data
-                if let securePIN { signature = try loaded.nextTemporaryBatchSignature(attributes: start.jobs[next].attributes, pin: securePIN) }
-                else { signature = try loaded.nextBatchSignature(attributes: start.jobs[next].attributes) }
+                let message = late ? command.digest! : start.jobs[next].attributes
+                if let securePIN { signature = try loaded.nextTemporaryBatchSignature(attributes: message, pin: securePIN, encodedDigest: late) }
+                else { signature = try loaded.nextBatchSignature(attributes: message, encodedDigest: late) }
                 if next + 1 == start.jobs.count { securePIN?.erase() }
                 try write(.init(version: 2, batchID: start.batchID, jobID: command.jobID, index: next,
                     signature: signature, reusable: true, closed: false, succeeded: true), to: reply)

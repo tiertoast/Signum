@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CFNetwork
 import CCertificatePath
 import SignumCore
 
@@ -70,33 +71,94 @@ enum EndpointPolicy {
 protocol RevocationTransport: Sendable {
     func fetch(_ location: RevocationLocation, body: Data?, isCancelled: @escaping @Sendable () -> Bool) async throws -> Data
 }
+/// Address and proxy decisions for revocation fetches, kept pure for tests.
+enum RevocationRoute {
+    /// `dscacheutil -q host` output, in resolver order (IPv6 is usually listed first).
+    static func addresses(fromDNS output: Data) -> [String] {
+        String(decoding: output, as: UTF8.self).split(separator: "\n").compactMap { line -> String? in
+            let parts = line.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, ["ip_address", "ipv6_address"].contains(String(parts[0]).trimmingCharacters(in: .whitespaces)) else { return nil }
+            return String(parts[1]).trimmingCharacters(in: .whitespaces)
+        }
+    }
+    /// Try IPv4 first, then alternate with IPv6, so an IPv4-only network does
+    /// not depend on the first AAAA record. Duplicates removed, at most `limit`.
+    static func connectionOrder(_ addresses: [String], limit: Int = 3) -> [String] {
+        var seen = Set<String>(), v4: [String] = [], v6: [String] = []
+        for address in addresses where seen.insert(address).inserted {
+            if address.contains(":") { v6.append(address) } else { v4.append(address) }
+        }
+        var ordered: [String] = []
+        while ordered.count < limit, !(v4.isEmpty && v6.isEmpty) {
+            if !v4.isEmpty { ordered.append(v4.removeFirst()) }
+            if ordered.count < limit, !v6.isEmpty { ordered.append(v6.removeFirst()) }
+        }
+        return ordered
+    }
+    /// Manual HTTP/HTTPS proxy from the system settings, honouring the bypass
+    /// list. PAC/WPAD, SOCKS and authenticated proxies are not used (direct).
+    static func proxy(settings: [String: Any], scheme: String, host: String) -> String? {
+        let https = scheme == "https"
+        let enabled = settings[https ? "HTTPSEnable" : "HTTPEnable"] as? NSNumber
+        guard enabled?.boolValue == true,
+              let proxyHost = settings[https ? "HTTPSProxy" : "HTTPProxy"] as? String,
+              !proxyHost.isEmpty, proxyHost.utf8.count <= 253,
+              proxyHost.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46 }),
+              let port = (settings[https ? "HTTPSPort" : "HTTPPort"] as? NSNumber)?.intValue, (1...65535).contains(port) else { return nil }
+        let name = host.lowercased()
+        for raw in (settings["ExceptionsList"] as? [String] ?? []).prefix(256) {
+            let rule = raw.lowercased().trimmingCharacters(in: .whitespaces)
+            let suffix = rule.hasPrefix("*.") ? String(rule.dropFirst(1)) : rule.hasPrefix(".") ? rule : nil
+            if name == rule || (suffix.map { name.hasSuffix($0) || name == String($0.dropFirst()) } ?? false) { return nil }
+        }
+        if (settings["ExcludeSimpleHostnames"] as? NSNumber)?.boolValue == true, !name.contains(".") { return nil }
+        return "http://" + proxyHost + ":" + String(port)
+    }
+    static var systemProxySettings: [String: Any] {
+        (CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any]) ?? [:]
+    }
+}
 struct SystemRevocationTransport: RevocationTransport {
     func fetch(_ location: RevocationLocation, body: Data?, isCancelled: @escaping @Sendable () -> Bool) async throws -> Data {
         let task = Task.detached(priority: .utility) {
             let cancelled = { isCancelled() || Task.isCancelled }
-            guard EndpointPolicy.valid(location.url), let host = location.url.host else { throw ClientError.endpoint }
+            guard EndpointPolicy.valid(location.url), let host = location.url.host, let scheme = location.url.scheme else { throw ClientError.endpoint }
             var empty = Data()
             let dns = try SupervisedProcess.run(executable: URL(fileURLWithPath: "/usr/bin/dscacheutil"),
                 arguments: ["-q","host","-a","name",host],input: &empty,maximumOutput: 65536,timeout: 3,isCancelled: cancelled)
-            let addresses = String(decoding: dns,as: UTF8.self).split(separator: "\n").compactMap { line -> String? in
-                let parts = line.split(separator: ":",maxSplits: 1)
-                guard parts.count == 2, ["ip_address","ipv6_address"].contains(String(parts[0]).trimmingCharacters(in: .whitespaces)) else { return nil }
-                return String(parts[1]).trimmingCharacters(in: .whitespaces)
+            let addresses = RevocationRoute.addresses(fromDNS: dns)
+            guard !addresses.isEmpty, addresses.count <= 32, addresses.allSatisfy(EndpointPolicy.publicAddress) else { throw ClientError.endpoint }
+            let port = scheme == "https" ? 443 : 80
+            // A configured system proxy resolves the (already validated) host itself.
+            let proxy = RevocationRoute.proxy(settings: RevocationRoute.systemProxySettings, scheme: scheme, host: host)
+            let candidates = proxy == nil ? RevocationRoute.connectionOrder(addresses) : [RevocationRoute.connectionOrder(addresses)[0]]
+            let deadline = ProcessInfo.processInfo.systemUptime + 9
+            var lastError: Error = ClientError.response
+            for address in candidates {
+                let remaining = deadline - ProcessInfo.processInfo.systemUptime
+                guard remaining >= 1, !cancelled() else { break }
+                let pinned = address.contains(":") ? "[\(address)]" : address
+                var args = ["--disable","--globoff","--silent","--fail","--no-netrc"]
+                args += proxy.map { ["--proxy", $0, "--noproxy", ""] } ?? ["--noproxy","*","--proxy",""]
+                args += ["--http1.1","--proto","=http,https","--proto-redir","=http,https","--max-redirs","0",
+                    "--connect-timeout","3","--max-time",String(Int(min(8, remaining.rounded(.down)))),"--max-filesize",String(RevocationEvidenceVerifier.maximumBytes),
+                    "--resolve","\(host):\(port):\(pinned)","--write-out","\n%{http_code}"]
+                if body != nil { args += ["--header","Content-Type: application/ocsp-request","--header","Accept: application/ocsp-response","--data-binary","@-"] }
+                args += ["--url",location.url.absoluteString]
+                var input = body ?? Data()
+                do {
+                    let response = try SupervisedProcess.run(executable: URL(fileURLWithPath: "/usr/bin/curl"),arguments: args,input: &input,
+                        maximumInput: 4096,maximumOutput: RevocationEvidenceVerifier.maximumBytes+4,maximumResidentBytes: 256*1024*1024,
+                        timeout: min(9, remaining),isCancelled: cancelled)
+                    guard response.count > 4, response.suffix(4) == Data("\n200".utf8) else { throw ClientError.response }
+                    return Data(response.dropLast(4))
+                } catch {
+                    // Next address only for transport failures; cancellation stops here.
+                    if (error as? SupervisedProcess.Failure) == .cancelled { throw error }
+                    lastError = error
+                }
             }
-            guard !addresses.isEmpty, addresses.count <= 32, addresses.allSatisfy(EndpointPolicy.publicAddress), let address = addresses.first else { throw ClientError.endpoint }
-            let port = location.url.scheme == "https" ? 443 : 80
-            let pinned = address.contains(":") ? "[\(address)]" : address
-            var args = ["--disable","--globoff","--silent","--fail","--no-netrc","--noproxy","*","--proxy","",
-                "--http1.1","--proto","=http,https","--proto-redir","=http,https","--max-redirs","0",
-                "--connect-timeout","3","--max-time","8","--max-filesize",String(RevocationEvidenceVerifier.maximumBytes),
-                "--resolve","\(host):\(port):\(pinned)","--write-out","\n%{http_code}"]
-            if body != nil { args += ["--header","Content-Type: application/ocsp-request","--header","Accept: application/ocsp-response","--data-binary","@-"] }
-            args += ["--url",location.url.absoluteString]
-            var input = body ?? Data()
-            let response = try SupervisedProcess.run(executable: URL(fileURLWithPath: "/usr/bin/curl"),arguments: args,input: &input,
-                maximumInput: 4096,maximumOutput: RevocationEvidenceVerifier.maximumBytes+4,maximumResidentBytes: 256*1024*1024,timeout: 9,isCancelled: cancelled)
-            guard response.count > 4, response.suffix(4) == Data("\n200".utf8) else { throw ClientError.response }
-            return Data(response.dropLast(4))
+            throw lastError
         }
         return try await withTaskCancellationHandler(operation: { try await task.value },onCancel: { task.cancel() })
     }

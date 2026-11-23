@@ -22,10 +22,30 @@ private keys stay with the token/provider. Parent-side checks bind the result ba
 to the expected key and document before exclusive staged publication.
 Cancellation, timeouts and uncertain results do not authorize an automatic retry.
 
+The source snapshot is a private copy taken through the pinned source
+descriptor: a copy-on-write clone on the private area's volume, a bounded
+descriptor copy (re-read and compared) on other volumes or for Finder-locked
+files. Preview, hash and signature always cover that private copy.
+Signed output is staged next to the destination and published without ever
+replacing an existing name. On APFS/HFS+ the staging is private (0700/0600, empty
+ACL, inherited final ACL) and published with `RENAME_EXCL`. On volumes without real
+permissions or exclusive rename (FAT, exFAT, SMB, NFS) the privacy policy is
+skipped, identity checks remain, and the name is reserved with `O_EXCL` before a
+rename over that still-empty reservation (`sg_output_publish_exclusive`).
+Visible PDF stamps of a session have one owner, `PDFStampBoard` (SignumApp). The
+stamp last confirmed in the editor is the template; "Applica a tutti" copies it to
+every other pending PDF at the same visible margins (last page follows last page)
+and keeps copies in sync with added PDFs, template edits and certificate changes.
+The PDF open in the editor is never overwritten, nothing changes while the batch
+is frozen, and every stamp is bound to the selected certificate and reviewed.
+
 The middleware runs in processes with the user's permissions. Isolation limits
 crash/hang impact but does not make arbitrary vendor code trustworthy or sandbox it.
 The app uses Apple PDFKit/CoreGraphics/CoreText for preview and appearance;
-PoDoFo applies the native PDF signature. XML uses libxml2/xmlsec with explicit
+PoDoFo applies the native PDF signature. A single PDF is signed by the helper's
+own PKCS#11 session; in an authenticated batch (one PIN for PDF and .p7m jobs) the
+helper asks the app for each signature over its status pipe and the batch worker
+signs the DigestInfo, so the middleware is loaded only once. XML uses libxml2/xmlsec with explicit
 reference, transform and resource restrictions. ASiC uses a bounded ZIP32 layer
 and the supported detached XAdES profile.
 
@@ -50,8 +70,9 @@ FreeType is part of the native build and need not appear as a separate dylib.
 PoDoFo's incorporated components carry their own notices; the complete inventory
 is in the shipped notice/source material rather than a claim of independently
 installed versions for every embedded component. Java and Homebrew are not
-application runtime dependencies. The legacy `verify-cades` CLI command uses
-system `/usr/bin/openssl`; the unified native verifier uses the bundled backend.
+application runtime dependencies. CAdES post-signing verification and the
+`verify-cades` CLI command use the bundled OpenSSL in-process; no system
+`/usr/bin/openssl` is required at runtime.
 
 ## Licensing and corresponding source
 

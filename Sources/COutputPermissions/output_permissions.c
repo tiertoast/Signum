@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
+#include <stdio.h>
 #include <unistd.h>
 
 static const char *chamber = ".permissions", *probe = "empty";
@@ -20,6 +22,30 @@ static int same(int dir, const char *name, const struct stat *expected) {
         errno = ESTALE; return 0;
     }
     return 1;
+}
+int sg_output_volume_is_strict(int fd) {
+    struct statfs info;
+    if (fstatfs(fd, &info)) return -1;
+    return strcmp(info.f_fstypename, "apfs") == 0 || strcmp(info.f_fstypename, "hfs") == 0;
+}
+static int same_empty(int dir, const char *name, const struct stat *expected) {
+    struct stat now;
+    return fstatat(dir, name, &now, AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(now.st_mode) && now.st_size == 0 &&
+           now.st_dev == expected->st_dev && now.st_ino == expected->st_ino;
+}
+int sg_output_publish_exclusive(int stage, const char *from, int parent, const char *to) {
+    if (renameatx_np(stage, from, parent, to, RENAME_EXCL) == 0) return 0;
+    if (errno != ENOTSUP && errno != EINVAL) return -1;
+    int fd = openat(parent, to, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+    if (fd < 0) return -1;
+    struct stat reserved;
+    int identified = fstat(fd, &reserved) == 0;
+    close(fd);
+    if (!identified || !same_empty(parent, to, &reserved)) { errno = EEXIST; return -1; }
+    if (renameat(stage, from, parent, to) == 0) return 0;
+    int saved = errno;
+    if (same_empty(parent, to, &reserved)) unlinkat(parent, to, 0);
+    errno = saved; return -1;
 }
 int sg_output_is_private(int fd, mode_t mode) {
     struct stat info;

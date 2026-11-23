@@ -57,8 +57,9 @@ extension SignumWindow {
                                 }
                             if entry.format == .pades {
                                 Button(workspace.showingPDFPreview ? "Conferma anteprima" : "Modifica aspetto…") {
+                                    if workspace.showingPDFPreview { stamps.confirmStamp(entry.id, in: batch.documents) }
                                     workspace.showingPDFPreview.toggle()
-                                }.disabled(interfaceLocked || batch.isFrozen || (workspace.showingPDFPreview && !readyPreviews.contains(entry.id)))
+                                }.disabled(interfaceLocked || batch.isFrozen || (workspace.showingPDFPreview && !stamps.isConfirmed(entry.id)))
                             }
                         }
                         Text(verbatim: destination.url?.path ?? "Scegli la cartella di destinazione nell’inspector.")
@@ -68,7 +69,8 @@ extension SignumWindow {
                     if entry.format == .pades && workspace.showingPDFPreview {
                         ScrollView { pdfWorkspace.frame(minHeight: 540) }
                     } else if DocumentSigningConfiguration.canSelectPAdES(for: entry.snapshot) {
-                        ReadOnlyDocumentPreview(snapshot: entry.snapshot).id(entry.id)
+                        ReadOnlyDocumentPreview(snapshot: entry.snapshot,
+                            appearance: entry.format == .pades ? stamps.confirmedAppearance(entry.id) : nil).id(entry.id)
                     } else {
                         VStack(spacing: 12) {
                             Image(systemName: "doc.text").font(.system(size: 44)).foregroundStyle(.secondary)
@@ -136,11 +138,14 @@ struct SigningReceiptsView: View {
 /// Verified immutable snapshot bytes; never used to approve a PAdES appearance.
 struct ReadOnlyDocumentPreview: View {
     let snapshot: DocumentSnapshot
+    /// Confirmed or propagated stamp, drawn read-only on its page.
+    var appearance: RenderedPAdESAppearance? = nil
     @State private var bytes: Data?
     @State private var issue = ""
     var body: some View {
         Group {
-            if let bytes { ReadOnlyPDFView(bytes: bytes) }
+            if let bytes, let appearance, appearance.configuration.visible { StampedPDFView(bytes: bytes, appearance: appearance) }
+            else if let bytes { ReadOnlyPDFView(bytes: bytes) }
             else if !issue.isEmpty { Text(issue).foregroundStyle(.secondary).padding() }
             else { ProgressView("Preparazione anteprima…") }
         }
@@ -167,6 +172,24 @@ struct ReadOnlyPDFView: NSViewRepresentable {
         return view
     }
     func updateNSView(_ view: PDFView, context: Context) { }
+}
+/// Read-only page with the stamp overlay used by the placement pane; no editing.
+struct StampedPDFView: NSViewRepresentable {
+    let bytes: Data
+    let appearance: RenderedPAdESAppearance
+    final class Coordinator { var document: PDFDocument?; let delegate = PaperDocumentDelegate() }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> PlacementPDFView {
+        let document = PDFDocument(data: bytes)
+        document?.delegate = context.coordinator.delegate
+        context.coordinator.document = document
+        return PlacementPDFView()
+    }
+    func updateNSView(_ view: PlacementPDFView, context: Context) {
+        guard let document = context.coordinator.document else { return }
+        view.install(document: document, pageIndex: appearance.configuration.pageIndex)
+        view.updatePlacementOverlay(appearance)
+    }
 }
 /// Set the PDF initial graphics state explicitly, independent of semantic UI
 /// colors. Explicit colors and annotations remain rendered by PDFKit.

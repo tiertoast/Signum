@@ -28,7 +28,24 @@ typedef struct SGProvider {
 struct SGContext {
     SGProvider *provider;
     CK_FUNCTION_LIST_PTR api;
+    /* Outcome of the latest signing request on this context, written only while
+     * the provider operation lock is held. Never contains credential material. */
+    int sign_called;
+    int batch_encoded_digest; /* next batch signature: SHA-256 DigestInfo, CKM_RSA_PKCS */
+    CK_RV login_rv;
+    CK_FLAGS login_token_flags;
 };
+
+static void sign_outcome_reset(SGContext *ctx) {
+    ctx->sign_called = 0; ctx->login_rv = CKR_OK; ctx->login_token_flags = 0;
+}
+/* Record a rejected C_Login and the token's public PIN counters (if readable). */
+static void sign_outcome_login(SGContext *ctx, CK_SESSION_HANDLE session, CK_RV rv) {
+    ctx->login_rv = rv;
+    CK_SESSION_INFO info; CK_TOKEN_INFO token;
+    if (ctx->api->C_GetSessionInfo(session, &info) == CKR_OK &&
+        ctx->api->C_GetTokenInfo(info.slotID, &token) == CKR_OK) ctx->login_token_flags = token.flags;
+}
 
 // The registry mutex never spans vendor code or waiting for an operation mutex.
 // Loading/finalizing records are waited on using a global condition (waiters
@@ -276,7 +293,7 @@ static int login_user(SGContext *ctx, CK_SESSION_HANDLE session, const uint8_t *
     if (info.state != CKS_RO_PUBLIC_SESSION && info.state != CKS_RW_PUBLIC_SESSION)
         return invalid(error, size, "Provider already authenticated elsewhere; supplied PIN not verified; no logout performed");
     rv = ctx->api->C_Login(session, CKU_USER, (CK_UTF8CHAR_PTR)pin, pin_length);
-    if (rv != CKR_OK) return failed(error, size, "C_Login USER (no retry)", rv);
+    if (rv != CKR_OK) { sign_outcome_login(ctx, session, rv); return failed(error, size, "C_Login USER (no retry)", rv); }
     return 0;
 }
 
@@ -482,12 +499,13 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
                     status = invalid(error, error_size, "Invalid authentication attribute");
                 } else if (arv == CKR_OK && always_auth == CK_TRUE) {
                     rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
-                    if (rv != CKR_OK) status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv);
+                    if (rv != CKR_OK) { sign_outcome_login(ctx, session, rv); status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv); }
                 } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID && arv != CKR_ATTRIBUTE_SENSITIVE) {
                     status = failed(error, error_size, "C_GetAttributeValue authentication", arv);
                 }
                 if (!status) {
                     CK_ULONG n = signature_capacity;
+                    ctx->sign_called = 1;
                     rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)message, message_length, signature, &n);
                     if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
                     else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
@@ -545,13 +563,14 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                 } else if (arv == CKR_OK && always_auth == CK_TRUE) {
                     rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC,
                                            (CK_UTF8CHAR_PTR)pin, pin_length);
-                    if (rv != CKR_OK) status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv);
+                    if (rv != CKR_OK) { sign_outcome_login(ctx, session, rv); status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv); }
                 } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID &&
                            arv != CKR_ATTRIBUTE_SENSITIVE) {
                     status = failed(error, error_size, "C_GetAttributeValue authentication", arv);
                 }
                 if (!status) {
                     CK_ULONG n = signature_capacity;
+                    ctx->sign_called = 1;
                     rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)digestinfo,
                                           digestinfo_length, signature, &n);
                     if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
@@ -659,6 +678,7 @@ int name(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length
     size_t *length, char *error, size_t error_size) { \
     if (length) *length = 0; \
     if (enter(ctx, error, error_size)) return -1; \
+    sign_outcome_reset(ctx); \
     int status = check_signing_certificate(ctx, slot, id, id_length, expected, expected_length, error, error_size); \
     if (!status) status = implementation(ctx, slot, id, id_length, pin, pin_length, message, message_length, signature, capacity, length, expected, expected_length, error, error_size); \
     if (status && signature && capacity) memset(signature, 0, capacity); \
@@ -715,10 +735,18 @@ static int batch_pin_current(SGBatchSession *s) {
     double now = sg_batch_monotonic_now();
     return now >= 0 && now < s->pin_deadline;
 }
+static const uint8_t sha256_digest_info_prefix[] = {
+    0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,
+    0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
+};
 static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t pin_length,
     const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
     if (!message || !message_length || message_length > 4096 || !signature || capacity < 8192 || !length || s->failed)
         return invalid(error, size, "Invalid/retired batch signature request");
+    /* Raw RSA only over an exact SHA-256 DigestInfo (PAdES CMS); never arbitrary data. */
+    const int encoded = s->ctx->batch_encoded_digest;
+    if (encoded && (message_length != 51 || memcmp(message, sha256_digest_info_prefix, sizeof(sha256_digest_info_prefix))))
+        return invalid(error, size, "Expected DER SHA-256 DigestInfo for batch digest signature");
     *length = 0;
     int status = batch_token(s, 0, NULL, error, size);
     CK_SESSION_INFO info;
@@ -747,17 +775,19 @@ static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t p
         if (first) { s->auth_known = known; s->auth = auth; s->key = key; }
     }
     if (!status) {
-        CK_MECHANISM mechanism = { CKM_SHA256_RSA_PKCS, NULL, 0 };
+        CK_MECHANISM mechanism = { encoded ? CKM_RSA_PKCS : CKM_SHA256_RSA_PKCS, NULL, 0 };
         rv = s->ctx->api->C_SignInit(s->handle, &mechanism, key);
         if (rv != CKR_OK) status = failed(error, size, "Batch C_SignInit", rv);
         if (!status && known && auth == CK_TRUE) {
             if (!batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before authentication");
             rv = status ? CKR_GENERAL_ERROR : s->ctx->api->C_Login(s->handle, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
+            if (rv != CKR_OK && !status) sign_outcome_login(s->ctx, s->handle, rv);
             if (rv != CKR_OK) status = failed(error, size, "Batch C_Login CONTEXT_SPECIFIC (no retry)", rv);
         }
         if (!status && !batch_pin_current(s)) status = invalid(error, size, "Batch PIN expired before Sign");
         if (!status) {
             CK_ULONG count = capacity;
+            s->ctx->sign_called = 1;
             rv = s->ctx->api->C_Sign(s->handle, (CK_BYTE_PTR)message, message_length, signature, &count);
             if (rv != CKR_OK || !count || count > capacity) status = failed(error, size, "Batch C_Sign (no retry)", rv == CKR_OK ? CKR_GENERAL_ERROR : rv);
             else *length = count;
@@ -775,6 +805,7 @@ static int batch_first(SGContext *ctx, unsigned long slot, const char *serial, c
         return invalid(error, size, "Invalid first batch request");
     *out = NULL; *reusable = 0;
     if (enter(ctx, error, size)) return -1;
+    sign_outcome_reset(ctx);
     SGBatchSession *s = calloc(1, sizeof(*s));
     int status = s ? 0 : invalid(error, size, "Cannot allocate batch session");
     if (s) {
@@ -813,6 +844,11 @@ int sg_batch_first_temporary(SGContext *ctx, unsigned long slot, const char *ser
     return batch_first(ctx, slot, serial, id, id_length, der, der_length, pin, pin_length, message, message_length,
         out, reusable, signature, capacity, length, error, size, 1, deadline);
 }
+int sg_batch_use_encoded_digest(SGContext *ctx, int enabled) {
+    if (!ctx) return -1;
+    ctx->batch_encoded_digest = enabled ? 1 : 0;
+    return 0;
+}
 int sg_batch_requires_pin(SGBatchSession *s) {
     return s && !s->failed && s->reusable && s->temporary_pin && s->auth_known && s->auth == CK_TRUE;
 }
@@ -820,12 +856,14 @@ int sg_batch_next_temporary(SGBatchSession *s, const uint8_t *pin, size_t pin_le
     const uint8_t *message, size_t message_length, uint8_t *signature,
     size_t capacity, size_t *length, char *error, size_t size) {
     if (!s || !s->temporary_pin || pin_length > 64 || enter(s->ctx, error, size)) return -1;
+    sign_outcome_reset(s->ctx);
     int status = batch_sign(s, 0, pin, pin_length, message, message_length, signature, capacity, length, error, size);
     pthread_mutex_unlock(&s->ctx->provider->operations); return status;
 }
 int sg_batch_next(SGBatchSession *s, const uint8_t *message, size_t message_length, uint8_t *signature,
     size_t capacity, size_t *length, char *error, size_t size) {
     if (!s || enter(s->ctx, error, size)) return -1;
+    sign_outcome_reset(s->ctx);
     int status = batch_sign(s, 0, NULL, 0, message, message_length, signature, capacity, length, error, size);
     pthread_mutex_unlock(&s->ctx->provider->operations); return status;
 }
@@ -835,4 +873,25 @@ int sg_batch_close(SGBatchSession *s, char *error, size_t size) {
     if (enter(ctx, error, size)) { free(s); return -1; }
     int status = close_session(ctx, s->handle, 0, error, size);
     pthread_mutex_unlock(&ctx->provider->operations); free(s); return status;
+}
+
+int sg_last_sign_outcome(SGContext *ctx, unsigned long *login_rv, unsigned long *token_flags) {
+    if (login_rv) *login_rv = ctx ? (unsigned long)ctx->login_rv : 0;
+    if (token_flags) *token_flags = ctx ? (unsigned long)ctx->login_token_flags : 0;
+    /* Unknown context: report that a private operation may have happened. */
+    return !ctx || ctx->sign_called ? 1 : 0;
+}
+
+const char *sg_sign_refusal_name(int sign_called, unsigned long login_rv, unsigned long token_flags) {
+    if (sign_called) return NULL; /* A signature may exist: never an ordinary refusal. */
+    switch (login_rv) {
+    case CKR_PIN_INCORRECT:
+        if (token_flags & CKF_USER_PIN_LOCKED) return "pinLocked";
+        if (token_flags & CKF_USER_PIN_FINAL_TRY) return "pinIncorrectFinalTry";
+        return token_flags & CKF_USER_PIN_COUNT_LOW ? "pinIncorrectCountLow" : "pinIncorrect";
+    case CKR_PIN_LOCKED: return "pinLocked";
+    case CKR_PIN_INVALID: case CKR_PIN_LEN_RANGE: return "pinInvalid";
+    case CKR_PIN_EXPIRED: return "pinExpired";
+    default: return "notSigned";
+    }
 }

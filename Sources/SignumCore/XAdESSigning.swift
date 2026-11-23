@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import COutputPermissions
 
 extension SigningJob {
     public func signAdvancedCAdES(using worker: IsolatedPKCS11Client,pin: String,operation: SigningOperation,timeout: TimeInterval=120,helper: URL?=nil) throws {
@@ -12,7 +13,8 @@ extension SigningJob {
     /// approved document and bound certificate remain in the parent process.
     public func signXAdES(using worker: IsolatedPKCS11Client, pin: String,
                           operation: SigningOperation, timeout: TimeInterval = 120, helper: URL? = nil) throws {
-        defer { snapshot.close() }
+        var keepSnapshot = false
+        defer { if !keepSnapshot { snapshot.close() } }
         guard operation.state == .idle || operation.state == .preparing else {
             throw SignumError.module("Operazione già avviata o conclusa.")
         }
@@ -22,7 +24,7 @@ extension SigningJob {
         io.beforePublish = { try operation.checkCancellation() }
         io.publish = { stage,payload,parent,destination in
             guard operation.beginPublication() else { errno = ECANCELED; return -1 }
-            return renameatx_np(stage,payload,parent,destination,UInt32(RENAME_EXCL))
+            return sg_output_publish_exclusive(stage,payload,parent,destination)
         }
         do {
             try operation.checkCancellation()
@@ -39,8 +41,9 @@ extension SigningJob {
             }
             operation.transition(to:.completed)
         } catch {
+            keepSnapshot = error.allowsNewPIN
             if case SignumError.outputUncertain = error { operation.transition(to:.outcomeUncertain); throw error }
-            if submitted && !received && !(error is IsolatedPKCS11Client.Failure) &&
+            if submitted && !received && !(error is IsolatedPKCS11Client.Failure) && !error.provablyNotSigned &&
                 (error as? SupervisedProcess.Failure) != .launch && (error as? SupervisedProcess.Failure) != .capacity {
                 operation.transition(to:.outcomeUncertain)
                 throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Nessun documento pubblicato; non ripetere automaticamente il PIN.")
@@ -50,7 +53,12 @@ extension SigningJob {
         }
     }
     func executeXAdES(helper: URL?=nil,io: SignumFileOutput.OutputIO = .init(), isCancelled: () -> Bool = { false }, sign: (Data) throws -> Data) throws {
-        defer { snapshot.close() }
+        var keepSnapshot = false
+        defer { if !keepSnapshot { snapshot.close() } }
+        do { try executeXAdESKeepingSnapshot(helper: helper, io: io, isCancelled: isCancelled, sign: sign) }
+        catch { keepSnapshot = error.allowsNewPIN; throw error }
+    }
+    private func executeXAdESKeepingSnapshot(helper: URL?, io: SignumFileOutput.OutputIO, isCancelled: () -> Bool, sign: (Data) throws -> Data) throws {
         guard format == .xades || format.isASiC || format.isAdvancedCAdES else { throw SignumError.module("Formato del job non compatibile con XAdES.") }
         try requireAvailableDestination()
         let approved = try verifiedBytes()

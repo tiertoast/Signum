@@ -122,6 +122,8 @@ struct PKCS11 {
     std::array<char, 512> error{};
     bool& cleanupConfirmed;
     std::vector<uint8_t>& ownedPIN;
+    // Set only when the shared shim proves that no C_Sign was issued.
+    const char* refusal = nullptr;
     explicit PKCS11(const char* path, bool& cleanup, std::vector<uint8_t>& pin) : cleanupConfirmed(cleanup), ownedPIN(pin) {
         if (sg_open(path, &context, error.data(), error.size()) != 0)
             throw std::runtime_error(error.data());
@@ -164,8 +166,11 @@ struct PKCS11 {
                                    reinterpret_cast<const uint8_t*>(approved.data()), approved.size(),
                                    pin.data(), pin.size(), message, digestInfo.size(),
                                    signature.data(), signature.size(), &length,
-                                   error.data(), error.size()) != 0)
+                                   error.data(), error.size()) != 0) {
+            unsigned long rv = 0, flags = 0;
+            refusal = sg_sign_refusal_name(sg_last_sign_outcome(context, &rv, &flags), rv, flags);
             throw std::runtime_error("PKCS#11 signing: " + std::string(error.data()));
+        }
         if (!length || length > signature.size()) throw std::runtime_error("Invalid returned signature length");
         signedHash.assign(reinterpret_cast<const char*>(signature.data()),
                           reinterpret_cast<const char*>(signature.data() + length));
@@ -206,6 +211,65 @@ static std::string read_appearance_pdf() {
     uint32_t length = (uint32_t(header[0])<<24)|(uint32_t(header[1])<<16)|(uint32_t(header[2])<<8)|header[3];
     if (!length || length > 8*1024*1024) throw std::runtime_error("Appearance PDF exceeds limit");
     std::string bytes(length, '\0'); exact(bytes.data(), bytes.size()); return bytes;
+}
+// Remote signer: certificate frame (4-byte big-endian length + DER) first on stdin.
+static std::string read_certificate_frame() {
+    uint8_t header[4];
+    auto exact = [](void* data, size_t size) {
+        auto p = static_cast<uint8_t*>(data);
+        while (size) {
+            auto n = ::read(STDIN_FILENO, p, size);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) throw std::runtime_error("Incomplete certificate frame");
+            p += n; size -= static_cast<size_t>(n);
+        }
+    };
+    exact(header, 4);
+    uint32_t length = (uint32_t(header[0])<<24)|(uint32_t(header[1])<<16)|(uint32_t(header[2])<<8)|header[3];
+    if (!length || length > 65536) throw std::runtime_error("Certificate frame exceeds limit");
+    std::string der(length, '\0'); exact(der.data(), der.size()); return der;
+}
+// One request line on the status descriptor, one answer line on stdin:
+//   -> "SIGNUM-SIGN-V1 <hex DigestInfo>\n"
+//   <- "<hex signature>\n" or "ERR <reason>\n" (reason "auth.<kind>": no C_Sign).
+static void remote_sign(int reply, bufferview digestInfo, charbuff& signedHash, std::string& refusal) {
+    static const char hex[] = "0123456789abcdef";
+    if (digestInfo.size() != 51) throw std::runtime_error("Unexpected DigestInfo size");
+    std::string line = "SIGNUM-SIGN-V1 ";
+    for (unsigned char c : digestInfo) { line.push_back(hex[c >> 4]); line.push_back(hex[c & 15]); }
+    line.push_back('\n');
+    size_t sent = 0;
+    while (sent < line.size()) {
+        auto n = write(reply, line.data() + sent, line.size() - sent);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) throw std::runtime_error("Remote signer request failed");
+        sent += static_cast<size_t>(n);
+    }
+    std::string answer; char value = 0;
+    while (true) {
+        auto n = ::read(STDIN_FILENO, &value, 1);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) throw std::runtime_error("Remote signer closed");
+        if (value == '\n') break;
+        if (answer.size() > 4200) throw std::runtime_error("Remote signer answer too long");
+        answer.push_back(value);
+    }
+    if (answer.rfind("ERR ", 0) == 0) {
+        const auto reason = answer.substr(4);
+        static const char* known[] = {"auth.pinIncorrect","auth.pinIncorrectCountLow","auth.pinIncorrectFinalTry",
+            "auth.pinLocked","auth.pinInvalid","auth.pinExpired","auth.notSigned"};
+        for (auto k : known) if (reason == k) refusal = reason;
+        throw std::runtime_error("Remote signer refused");
+    }
+    if (answer.size() < 256 || answer.size() > 2048 || answer.size() % 2) throw std::runtime_error("Invalid remote signature");
+    auto nibble = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        throw std::runtime_error("Invalid remote signature encoding");
+    };
+    signedHash.clear();
+    for (size_t i = 0; i < answer.size(); i += 2)
+        signedHash.push_back(static_cast<char>((nibble(answer[i]) << 4) | nibble(answer[i + 1])));
 }
 static void set_embedded_appearance(PdfMemDocument& doc, PdfSignature& field, const PoDoFo::Rect& rect, const std::string& bytes) {
     charbuff buffer(bytes);
@@ -257,6 +321,10 @@ int main(int argc, char** argv) {
     const auto appearanceUserUnit = option("--appearance-user-unit");
     const auto providerContextWire = option("--provider-context-v1");
     const auto outputDirectoryWire = option("--expected-output-directory-v1");
+    // Remote signer: no middleware, no PIN. The parent supplies the approved
+    // certificate DER and returns the RSA signature of each DigestInfo request,
+    // obtained from its isolated PKCS#11 batch worker.
+    const bool remoteSigner = option("--remote-signer-v1") == "1";
     if (boundProtocol != !providerContextWire.empty()) return 2;
     auto uuid = [](const std::string& text) {
         if (text.size() != 36) return false;
@@ -296,13 +364,15 @@ int main(int argc, char** argv) {
         std::strcmp(argv[afterAppearance - 1], "--pin-stdin") == 0;
     const int positionalCount = afterAppearance - (pinFromPipe ? 1 : 0);
     if ((!appearanceUserUnit.empty() && !pdfAppearanceFromPipe) || (positionalCount != 6 && positionalCount != 11) ||
-        ((appearanceFromPipe || pdfAppearanceFromPipe) && (!pinFromPipe || positionalCount != 11))) {
+        (remoteSigner && (pinFromPipe || !boundProtocol)) ||
+        ((appearanceFromPipe || pdfAppearanceFromPipe) && ((!pinFromPipe && !remoteSigner) || positionalCount != 11))) {
         std::cerr << "Usage: signum-pades-local INPUT.pdf OUTPUT.pdf MODULE SLOT CERT_ID_HEX"
                   << " [PAGE_ZERO_BASED X Y WIDTH HEIGHT] [--pin-stdin] [--appearance-stdin]\n";
         return 2;
     }
     fs::path output;
     bool authenticationMayHaveStarted = false;
+    std::string authenticationRefusal; // "auth.<kind>" only when no C_Sign was issued.
     const char* rejectionReason = "preflight";
     try {
         const fs::path input = argv[1];
@@ -350,7 +420,10 @@ int main(int argc, char** argv) {
 
         std::vector<uint8_t> pin;
         struct PINScope { std::vector<uint8_t>& value; ~PINScope() { wipe_pin(value); } } pinScope{pin};
-        if (pinFromPipe) {
+        std::string remoteCertificate;
+        if (remoteSigner) {
+            remoteCertificate = read_certificate_frame();
+        } else if (pinFromPipe) {
             pin = signum::readPAdESPIN(STDIN_FILENO);
         } else {
             std::unique_ptr<SGSecurePIN, decltype(&sg_secure_pin_destroy)> owned(sg_secure_pin_create(), sg_secure_pin_destroy);
@@ -358,18 +431,23 @@ int main(int argc, char** argv) {
                 throw std::runtime_error("PIN rifiutato: 1-64 byte UTF-8 senza NUL/CR/LF; conferma Ctrl-J. Nessuna sessione aperta.");
             pin.assign(sg_secure_pin_bytes(owned.get()), sg_secure_pin_bytes(owned.get()) + sg_secure_pin_length(owned.get()));
         }
-        std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(
-            sg_token_lease_acquire(middleware.c_str(), slot, 0, 10000), sg_token_lease_release);
+        std::unique_ptr<SGTokenLease, decltype(&sg_token_lease_release)> lease(nullptr, sg_token_lease_release);
+        std::optional<PKCS11> token;
+        if (remoteSigner) {
+            finishCleanup = [] { return true; }; // No device in this process.
+        } else {
+        lease.reset(sg_token_lease_acquire(middleware.c_str(), slot, 0, 10000));
         if (!lease) {
             rejectionReason = errno == ETIMEDOUT ? "busy" : "coordination";
             throw std::runtime_error("Dispositivo occupato o coordinamento non disponibile; nessun PIN inviato al provider");
         }
         if (binding) binding->requireCurrentModule(middleware.string());
-        PKCS11 token(middleware.c_str(), cleanupConfirmed, pin);
-        finishCleanup = [&] { return token.closeChecked(); };
-        if (binding) {
+        token.emplace(middleware.c_str(), cleanupConfirmed, pin);
+        finishCleanup = [&] { return token->closeChecked(); };
+        }
+        if (binding && !remoteSigner) {
             std::array<SGToken,256> tokens{}; size_t count = 0, unavailable = 0; std::array<char,512> error{};
-            signum::SigningProviderContext::require(sg_tokens(token.context, tokens.data(), tokens.size(), &count, &unavailable, error.data(), error.size()) == 0 && count <= tokens.size());
+            signum::SigningProviderContext::require(sg_tokens(token->context, tokens.data(), tokens.size(), &count, &unavailable, error.data(), error.size()) == 0 && count <= tokens.size());
             bool matched = false;
             for (size_t i = 0; i < count; ++i) { const auto& row = tokens[i];
                 matched = matched || binding->matchesToken(row.slot, row.label, row.manufacturer, row.model, row.reader, row.serial);
@@ -377,7 +455,7 @@ int main(int argc, char** argv) {
             signum::SigningProviderContext::require(matched);
             binding->requireCurrentModule(middleware.string());
         }
-        const auto der = token.certificate(slot, certificateID);
+        const auto der = remoteSigner ? remoteCertificate : token->certificate(slot, certificateID);
         // Bind to the exact certificate shown by the GUI before authentication
         // or any private-key operation. Input validation precedes sessions (S03).
         if (!expectedFingerprint.empty()) signum::requireExpectedCertificate(der, expectedFingerprint);
@@ -454,7 +532,12 @@ int main(int argc, char** argv) {
                 }
                 primaryPhase = "signing";
                 authenticationMayHaveStarted = true; // Before any possible Login; never reset on error.
-                token.sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash);
+                if (remoteSigner) {
+                    remote_sign(reply, digestInfo, signedHash, authenticationRefusal);
+                    return;
+                }
+                try { token->sign_encoded_digest(slot, certificateID, pin, der, digestInfo, signedHash); }
+                catch (...) { if (token->refusal) authenticationRefusal = std::string("auth.") + token->refusal; throw; }
             };
             PdfSignerCms signer(der, params);
             PoDoFo::SignDocument(doc, *io, signer, field);
@@ -477,6 +560,8 @@ int main(int argc, char** argv) {
         // Crash, hang or a lost/truncated response carries no such proof.
         if (statusProtocol) {
             if (!cleanupConfirmed) return respond("uncertain", cleanupOnlyFailure ? "cleanupUnconfirmed" : "primaryAndCleanupUnconfirmed");
+            // Fixed literal names from the shim; nothing was signed or published.
+            if (!authenticationRefusal.empty() && !documentPublished) return respond("authenticationRefused", authenticationRefusal.c_str());
             return respond(authenticationMayHaveStarted ? "uncertain" : "rejectedBeforeAuthentication",
                            authenticationMayHaveStarted ? "interrupted" : rejectionReason);
         }

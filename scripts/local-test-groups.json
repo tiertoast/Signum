@@ -14,7 +14,8 @@
       "DeviceRefreshLifecycleTests",
       "DefaultApplicationsTests",
       "SignumTrustCoreTests.TLContinuityPolicyTests",
-      "SignumTrustCoreTests.TrustedListParserTests"
+      "SignumTrustCoreTests.TrustedListParserTests",
+      "SignumCertificateValidationTests.RevocationRouteTests"
     ],
     "native-helper": [
       "BatchDestinationTests",
@@ -56,7 +57,9 @@
       "SigningJobTests",
       "SigningOperationTests",
       "SigningReviewTests",
-      "SigningSessionReleaseTests"
+      "SigningSessionReleaseTests",
+      "SigningAuthenticationFailureTests",
+      "BatchPAdESSessionTests"
     ],
     "integration": [
       "AutomaticSelectionConsentTests",
@@ -108,6 +111,8 @@
       "PAdESAppearanceTests",
       "PAdESDefaultPlacementTests",
       "PAdESGeometryStabilizationTests",
+      "PAdESPlacementPropagationTests",
+      "PDFStampBoardTests",
       "PAdESOrientationPerformanceTests",
       "PAdESOrientationTests",
       "PAdESOrientationWorkflowTests",

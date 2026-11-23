@@ -1,4 +1,5 @@
 import Foundation
+import CXMLSecurity
 #if os(macOS)
 import Darwin
 #endif
@@ -18,8 +19,8 @@ public struct CAdESVerificationResult: Sendable {
     public var verifiedSignatureCount: Int { levels.reduce(0) { $0 + $1.signers.count } }
 }
 
-/// Local cryptographic verification of attached CMS/CAdES using macOS OpenSSL.
-/// -noverify deliberately disables X.509 chain/trust validation.
+/// Local cryptographic verification of attached CMS/CAdES using the bundled
+/// OpenSSL (CMS_NO_SIGNER_CERT_VERIFY: X.509 chain/trust deliberately not checked).
 /// NOT an eIDAS qualification, revocation, timestamp, or ETSI conformance check.
 public enum CAdESVerifier {
     public static let maximumInputBytes = SigningResourceLimits.maximumOutputBytes
@@ -95,27 +96,16 @@ public enum CAdESVerifier {
         guard !data.isEmpty, data.count <= maximumInputBytes else {
             throw SignumError.module("Dimensione busta CAdES non supportata.")
         }
-        let manager = FileManager.default
-        let directory = manager.temporaryDirectory
-            .appendingPathComponent("signum-verify-" + UUID().uuidString, isDirectory: true)
-        try manager.createDirectory(at: directory, withIntermediateDirectories: false,
-                                    attributes: [.posixPermissions: 0o700])
-        defer { try? manager.removeItem(at: directory) }
-
         var current = data
         var levels: [CAdESVerificationLevel] = []
-        for depth in 1...maximumNestingDepth {
+        for _ in 1...maximumNestingDepth {
             if isCancelled() { throw SupervisedProcess.Failure.cancelled }
             let signers = try CMSDescription.signers(in: current)
-            let signed = directory.appendingPathComponent("layer-\(depth).p7m")
-            let extracted = directory.appendingPathComponent("payload-\(depth).dat")
-            try current.write(to: signed, options: .atomic)
-
-            try verifyCMS(input: signed, output: extracted, in: directory, isCancelled: isCancelled)
-            let payload = try Data(contentsOf: extracted)
+            let payload = try verifiedContent(current)
             guard !payload.isEmpty, payload.count <= maximumInputBytes else {
                 throw SignumError.module("Contenuto CAdES vuoto o superiore al limite.")
             }
+            let depth = levels.count + 1
             levels.append(CAdESVerificationLevel(level: depth, signers: signers))
             current = payload
 
@@ -135,17 +125,8 @@ public enum CAdESVerifier {
             throw SignumError.module("Dimensione busta CAdES non supportata.")
         }
         _ = try CMSDescription.signers(in: data)
-        let manager = FileManager.default
-        let directory = manager.temporaryDirectory.appendingPathComponent(
-            "signum-verify-" + UUID().uuidString, isDirectory: true)
-        try manager.createDirectory(at: directory, withIntermediateDirectories: false,
-                                    attributes: [.posixPermissions: 0o700])
-        defer { try? manager.removeItem(at: directory) }
-        let signed = directory.appendingPathComponent("signed.p7m")
-        let extracted = directory.appendingPathComponent("payload")
-        try data.write(to: signed)
-        try verifyCMS(input: signed, output: extracted, in: directory, isCancelled: isCancelled)
-        guard try Data(contentsOf: extracted) == expectedDocument else {
+        if isCancelled() { throw SupervisedProcess.Failure.cancelled }
+        guard try verifiedContent(data) == expectedDocument else {
             throw SignumError.module("Il contenuto CMS non corrisponde al documento firmato.")
         }
     }
@@ -159,16 +140,20 @@ public enum CAdESVerifier {
         return result.isEmpty || result == "." ? "documento-estratto" : result
     }
 
-    private static func verifyCMS(input: URL, output: URL, in directory: URL,
-                                  isCancelled: () -> Bool = { false }) throws {
-        var message = Data()
-        do {
-            _ = try SupervisedProcess.run(executable: URL(fileURLWithPath: "/usr/bin/openssl"),
-                arguments: ["cms", "-verify", "-inform", "DER", "-binary", "-noverify", "-in", input.path, "-out", output.path],
-                input: &message, timeout: 30, isCancelled: isCancelled)
-        } catch {
-            throw SignumError.module("Verifica crittografica non completata: \(error.localizedDescription)")
+    /// Outer CMS layer integrity with the bundled OpenSSL (no system tools,
+    /// no temporary files). Signer certificate trust is deliberately not checked.
+    static func verifiedContent(_ data: Data) throws -> Data {
+        var content: UnsafeMutablePointer<UInt8>?
+        var length = 0
+        let status = data.withUnsafeBytes { bytes in
+            signum_cms_verify_attached(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, maximumInputBytes, &content, &length)
         }
+        defer { signum_cms_free(content, length) }
+        guard status == 1, let content else {
+            throw SignumError.module(status == 0 ? "Verifica crittografica non riuscita: firma o digest non validi."
+                                                 : "Verifica crittografica non completata: busta CMS non supportata.")
+        }
+        return Data(bytes: content, count: length)
     }
 }
 

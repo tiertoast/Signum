@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Darwin
+import COutputPermissions
 
 public enum SigningOperationPhase: String, Sendable {
     case idle, preparing, waitingForAuthentication, signing, verifying
@@ -84,7 +85,9 @@ extension SigningJob {
     /// The worker never receives original/snapshot/output file paths.
     public func signCAdES(using worker: IsolatedPKCS11Client, pin: String,
                           operation: SigningOperation, timeout: TimeInterval = 120) throws {
-        defer { snapshot.close() }
+        // A PIN refusal proven before C_Sign keeps the approved snapshot for a new PIN.
+        var keepSnapshot = false
+        defer { if !keepSnapshot { snapshot.close() } }
         guard operation.state == .idle || operation.state == .preparing else {
             throw SignumError.module("Operazione già avviata o conclusa.")
         }
@@ -94,7 +97,7 @@ extension SigningJob {
         io.beforePublish = { try operation.checkCancellation() }
         io.publish = { stage, payload, parent, destination in
             guard operation.beginPublication() else { errno = ECANCELED; return -1 }
-            return renameatx_np(stage, payload, parent, destination, UInt32(RENAME_EXCL))
+            return sg_output_publish_exclusive(stage, payload, parent, destination)
         }
         do {
             try operation.checkCancellation()
@@ -114,11 +117,12 @@ extension SigningJob {
             }
             operation.transition(to: .completed)
         } catch {
+            keepSnapshot = error.allowsNewPIN
             if case SignumError.outputUncertain = error {
                 operation.transition(to: .outcomeUncertain)
                 throw error
             }
-            if submitted && !receivedVerifiedSignature && !(error is IsolatedPKCS11Client.Failure) &&
+            if submitted && !receivedVerifiedSignature && !(error is IsolatedPKCS11Client.Failure) && !error.provablyNotSigned &&
                 (error as? SupervisedProcess.Failure) != .launch && (error as? SupervisedProcess.Failure) != .capacity {
                 operation.transition(to: .outcomeUncertain)
                 throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Questo job non ha pubblicato un documento. Non ripetere automaticamente il PIN.")

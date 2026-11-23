@@ -36,8 +36,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) var showExcludedCertificates = false
     @AppStorage(SigningExperiencePreferences.Keys.alongsideOriginal) var saveAlongsideOriginal = true
     @State var customDirectory: URL?
-    @State var placements: [UUID: PAdESPlacement] = [:]
-    @State var readyPreviews = Set<UUID>()
+    /// Every visible PAdES stamp of the session; see PDFStampBoard for the rules.
+    @StateObject var stamps = PDFStampBoard()
     @State var approvedHolder = ""
     @State var approvedRoute: DeviceCertificateRoute?
     @State var provider: ProviderSelection
@@ -58,8 +58,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
     }
     @State var format: SignumFormat = .cades
     @State var subsequentFormat: SignumFormat?
+    @AppStorage("signum.format.applyToAll") var applyFormatToAll = true
     @State var showingDocumentDetails = false
-    @State var pdfPlacement: PAdESPlacement?
     @StateObject var workspace: SigningWorkspaceSelection
     var documentSnapshot: DocumentSnapshot? { workspace.snapshot }
     var selectedDocument: BatchDocument? { batch.documents.first { $0.id == documentSnapshot?.identity.id } }
@@ -133,9 +133,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
               let certificate = provider.certificates.first(where: { $0.id == id }),
               let der = provider.certificateDERs[id], provider.certificateAssessments[id]?.permitsSigning == true,
               batch.documents.filter({ !$0.state.isTerminal }).allSatisfy({ ($0.format != .pades ||
-                (readyPreviews.contains($0.id) && placements[$0.id]?.appearance?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
+                (stamps.confirmedAppearance($0.id)?.certificateSHA256 == route.certificateFingerprint && SignumPAdESHelper.available)) }) else { return nil }
         return .init(revision: batch.revision, provider: path, slot: slot, certificate: certificate,
-                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: placements.compactMapValues { $0.appearance?.approvalIdentity },
+                     der: der, destination: destination, routeID: route.id, discoveryID: devices.requestID, appearanceHashes: stamps.appearances.mapValues(\.approvalIdentity),
                      providerContext: route.signingContext(discoveryID: devices.requestID), includeSigningTime: includeSigningTime)
     }
     var canApproveBatch: Bool {
@@ -234,7 +234,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             let activity = session.beginActivity(); defer { session.endActivity(activity) }
             let generation = session.generation
             let context = reviewContext, route = devices.selectedRoute, worker = signingWorker
-            await review.prepare(context, batch: batch, appearances: placements.compactMapValues { $0.appearance }, validateCancellable: { control in try route?.requireCurrentCredential(client: worker, isCancelled: { control.isCancellationRequested }) })
+            await review.prepare(context, batch: batch, appearances: stamps.appearances, validateCancellable: { control in try route?.requireCurrentCredential(client: worker, isCancelled: { control.isCancellationRequested }) })
             guard session.accepts(generation) else { return }
             if review.credentialUnavailable, review.context == context, !batch.isFrozen {
                 devices.select(routeID:nil); provider.beginDiscovery(); batch.invalidateReview()
@@ -249,9 +249,11 @@ enum SignumFormat: String, Hashable, CaseIterable {
         }
         .onChange(of: format) { _ in provider.pin = "" }
         .onChange(of: batch.revision) { _ in
-            if let entry = selectedDocument { workspace.updateFormat(entry.format) }
+            if let entry = selectedDocument { updateSelectedFormat(entry.format) }
             else if documentSnapshot != nil { showDocument(batch.documents.first?.id) }
         }
+        .onChange(of: stampSyncKey) { _ in syncStamps() }
+        .onChange(of: stampEditingID) { id in stamps.setEditing(id, in: batch.documents) }
         .onChange(of: saveAlongsideOriginal) { _ in if !batch.isFrozen { provider.pin = "" } }
         .onDisappear { session.revoke() }
     }
@@ -280,7 +282,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         discoveryOperation?.requestCancellation(); discoveryOperation = nil
         batch.revokeForWindowClosure(); refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
         selectionRequestID = UUID(); workspace.select(nil); inputFile = nil
-        placements = [:]; readyPreviews = []; pdfPlacement = nil; previewSnapshotID = nil
+        stamps.reset(); previewSnapshotID = nil
         approvedRoute = nil; approvedHolder = ""; authorizedManualPaths = []; manualPath = ""
         authenticationAttempted = false; authenticationStatus = ""; busy = false; pinFocused = false
         showDeviceConfiguration = false; showDefaultApplications = false
@@ -370,7 +372,10 @@ enum SignumFormat: String, Hashable, CaseIterable {
         Binding(get: { selectedDocument.flatMap { SignumFormat(rawValue:$0.format.rawValue) } ?? format },
                 set: { value in
                     guard let kind=SigningFormat(rawValue:value.rawValue) else { return }
-                    if let current=selectedDocument { setDocumentFormat(kind,for:current.id) }
+                    if applyFormatToAll {
+                        format=value; subsequentFormat=value
+                        if selectedDocument != nil { setFormatForAllDocuments(kind) }
+                    } else if let current=selectedDocument { setDocumentFormat(kind,for:current.id) }
                     else { format=value }
                 })
     }
@@ -379,12 +384,30 @@ enum SignumFormat: String, Hashable, CaseIterable {
               let entry=batch.documents.first(where:{$0.id == id}), entry.format != kind else { return }
         do {
             try batch.setFormat(kind,for:id)
-            placements[id]=nil; readyPreviews.remove(id); provider.pin=""
-            if documentSnapshot?.identity.id == id { pdfPlacement=nil; workspace.updateFormat(kind) }
+            stamps.forget(id); provider.pin=""
+            if documentSnapshot?.identity.id == id { updateSelectedFormat(kind) }
             status="Formato aggiornato a \(kind.rawValue.uppercased()). Controlla la nuova destinazione prima di approvare."
         } catch { status=error.localizedDescription }
     }
 
+
+    /// Batch-wide choice: every compatible pending document gets the format;
+    /// incompatible ones keep theirs and are counted in the status.
+    func setFormatForAllDocuments(_ kind: SigningFormat) {
+        guard !interfaceLocked, !batch.isFrozen else { return }
+        let names = Dictionary(uniqueKeysWithValues: batch.documents.map { ($0.id, $0.snapshot.originalURL.lastPathComponent) })
+        let result = batch.setFormatForAll(kind)
+        for id in result.changed {
+            stamps.forget(id)
+            if documentSnapshot?.identity.id == id { updateSelectedFormat(kind) }
+        }
+        provider.pin = ""
+        let title = SignumFormat(rawValue: kind.rawValue)?.displayTitle ?? kind.rawValue
+        let kept = result.kept.compactMap { names[$0] }
+        status = kept.isEmpty
+            ? "Formato \(title) applicato a tutti i documenti."
+            : "Formato \(title) applicato a \(result.changed.count) documenti. Mantengono il formato attuale perché non compatibili: \(kept.joined(separator: ", "))."
+    }
 
     func documentRow(_ entry: BatchDocument) -> some View {
         let job = (batch.approval ?? review.approval)?.jobs.first { $0.snapshotIdentity.id == entry.id }
@@ -457,7 +480,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             hasAuthenticationContext: authenticationSession != nil, otherWork: busy) {
             review.cancel(); provider.pin = ""; approvedRoute = nil; approvedHolder = ""
             authenticationAttempted = false; authenticationStatus = ""
-            placements = [:]; readyPreviews = []; workspace.select(nil); pdfPlacement = nil
+            stamps.reset(); workspace.select(nil)
             status = "Sessione conclusa. Gli esiti sono conservati; puoi firmare altri documenti o aprire Verifica."
         }
     }
@@ -466,7 +489,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         guard !interfaceLocked else { return }
         authenticationSession?.requestStop(); authenticationSession = nil
         authenticationAttempted = false; authenticationStatus = ""
-        batch.reset(); placements = [:]; readyPreviews = []; approvedRoute = nil
+        batch.reset(); stamps.reset(); approvedRoute = nil
         showDocument(nil); provider.pin = ""; lastSignedFile = nil
         status = "Nuova sessione. Scegli i documenti da firmare."
     }
@@ -635,6 +658,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
         session.own(Task { @MainActor in
             await acquisition.value
             guard session.accepts(generation) else { return }
+            // A batch-wide PDF/XML choice never forces an incompatible file:
+            // e.g. a .docx dropped into a PAdES batch is signed as CAdES .p7m.
+            for entry in batch.documents where !entry.state.isTerminal && [.pades, .xades].contains(entry.format)
+                && !DocumentSigningConfiguration.canApply(entry.format, to: entry.snapshot) {
+                try? batch.setFormat(.cades, for: entry.id)
+            }
             if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
             status = "\(batch.documents.count) documenti nella selezione. Controlla il riepilogo prima di firmare."
         })
@@ -654,20 +683,36 @@ enum SignumFormat: String, Hashable, CaseIterable {
             status = "Rimozione richiesta. L’eventuale firma corrente conserva il proprio esito; i documenti rimasti richiedono una nuova approvazione."
         }
         guard !batch.documents.contains(where: { $0.id == id }) else { return }
-        placements[id] = nil; readyPreviews.remove(id); provider.pin = ""
+        stamps.forget(id); provider.pin = ""
         showingDocumentDetails = false
         if selected {
             showDocument(batch.documents.isEmpty ? nil : batch.documents[min(index, batch.documents.count - 1)].id)
         }
     }
 
+    /// Everything the stamp board depends on; any change triggers a sync.
+    var stampSyncKey: String {
+        batch.documents.map { "\($0.id)\($0.format.rawValue)\($0.state.rawValue)" }.joined() +
+            "|\(batch.isFrozen)|" + (devices.selectedRoute?.certificateFingerprint ?? "")
+    }
+    var stampEditingID: UUID? { workspace.showingPDFPreview ? documentSnapshot?.identity.id : nil }
+    func syncStamps() {
+        stamps.sync(documents: batch.documents, frozen: batch.isFrozen, certificateDER: devices.selectedRoute?.der)
+    }
+    /// A PDF that already has a stamp, or will receive the template's copy,
+    /// opens in the read-only preview; the editor stays one click away.
+    func wantsStampEditor(_ id: UUID) -> Bool { !stamps.isConfirmed(id) && !stamps.followsTemplate }
+    func updateSelectedFormat(_ kind: SigningFormat) {
+        workspace.updateFormat(kind)
+        if kind == .pades, let id = documentSnapshot?.identity.id, !wantsStampEditor(id) { workspace.showingPDFPreview = false }
+    }
+
     func showDocument(_ id: UUID?) {
         guard session.isActive else { return }
-        if let old = documentSnapshot, batch.documents.contains(where: { $0.id == old.identity.id }) { placements[old.identity.id] = pdfPlacement }
         let entry = batch.documents.first(where: { $0.id == id })
-        workspace.select(entry?.snapshot,format:entry?.format)
+        // The stamp editor opens by itself only on a PDF without a confirmed stamp.
+        workspace.select(entry?.snapshot, format: entry?.format, openEditor: entry.map { wantsStampEditor($0.id) } ?? true)
         inputFile = documentSnapshot?.originalURL
-        pdfPlacement = id.flatMap { placements[$0] }
         previewSnapshotID = nil
     }
 
@@ -678,7 +723,6 @@ enum SignumFormat: String, Hashable, CaseIterable {
         provider.pin = ""
         let generation = session.generation
         let holder = selectedHolder, requestedAuthenticationMode = authenticationMode
-        if let snapshot = documentSnapshot { placements[snapshot.identity.id] = pdfPlacement }
         do {
             let approved = try interaction.approveDisplayed(batch: batch, approval: plan,
                 additionalConfirmation: additionalConfirmation, isCurrent: { session.accepts(generation) && reviewContext == context }, present: { approval in
@@ -712,7 +756,12 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 authenticationSession = try BatchCAdESSession(approval: plan, serial: route.token.serial,
                     moduleIdentity: route.moduleIdentity, automaticModule: route.origin == .known,
                     temporaryPIN: approvedAuthenticationMode == .temporaryPIN,
-                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)), executable: worker.executable)
+                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)), executable: worker.executable,
+                    padesRunner: SignumPAdESHelper.available ? { job, operation, signer in
+                        // The helper loads no middleware and never receives the PIN.
+                        try SignumPAdESHelper.sign(job: job, pin: nil, appearanceName: holder, field: nil, operation: operation,
+                                                   appearance: job.padesAppearance, remoteSigner: signer)
+                    } : nil)
             } catch { provider.pin = ""; status = error.localizedDescription; return }
         }
         let session = authenticationSession
@@ -721,7 +770,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         let submission = interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
             guard job.providerContext != nil else { throw SignumError.module("Contesto dispositivo approvato mancante.") }
             try route.requireCurrentModule()
-            if let session { try session.signCAdES(job: job, pin: pin, operation: operation) }
+            if let session { try session.sign(job: job, pin: pin, operation: operation) }
             else if job.format == .cades { try job.signCAdES(using: worker, pin: pin, operation: operation) }
             else if job.format.isAdvancedCAdES { try job.signAdvancedCAdES(using:worker,pin:pin,operation:operation) }
             else if job.format == .xades || job.format.isASiC { try job.signXAdES(using:worker,pin:pin,operation:operation) }
@@ -745,10 +794,19 @@ enum SignumFormat: String, Hashable, CaseIterable {
                     })
                 } else {
                     let retirement = batch.retireAuthenticatedSession(using: session)
+                    let newPINAllowed: Bool = { if case .failure(let error) = result { return error.allowsNewPIN }; return false }()
                     self.session.own(Task { @MainActor in
                         await retirement.value
                         if authenticationSession === session { authenticationSession = nil }
                         guard self.session.accepts(generation) else { return }
+                        if newPINAllowed, case .failure(let error) = result {
+                            // Nothing was signed: the next PIN may start a new session for the same batch.
+                            // The PIN field shows the refusal; keep the session text quiet.
+                            authenticationAttempted = false
+                            authenticationStatus = ""
+                            status = error.localizedDescription
+                            return
+                        }
                         authenticationStatus = batch.authenticationNotice.isEmpty
                             ? (batch.documents.contains(where: { $0.state == .failed || $0.state == .uncertain })
                                 ? "Batch interrotto. Consulta i dettagli; nessun tentativo viene ripetuto."

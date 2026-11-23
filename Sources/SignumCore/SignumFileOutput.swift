@@ -29,7 +29,9 @@ public enum SignumFileOutput {
         var close: (Int32) -> Int32 = { Darwin.close($0) }
         var harden: (Int32, mode_t) -> Int32 = { sg_output_make_private($0, $1) }
         var applyACL: (Int32, acl_t) -> Int32 = { sg_output_apply_acl($0, $1) }
-        var publish: (Int32, String, Int32, String) -> Int32 = { renameatx_np($0, $1, $2, $3, UInt32(RENAME_EXCL)) }
+        var publish: (Int32, String, Int32, String) -> Int32 = { sg_output_publish_exclusive($0, $1, $2, $3) }
+        /// APFS/HFS+ enforce modes and ACLs; FAT, exFAT and network shares do not.
+        var strictVolume: (Int32) -> Bool = { sg_output_volume_is_strict($0) == 1 }
         var staged: () throws -> Void = {}
         var beforePublish: () throws -> Void = {}
     }
@@ -63,23 +65,28 @@ public enum SignumFileOutput {
             try expectedDirectory.requireCurrent(at: directory)
         }
         recoverAbandoned(in: parent)
+        // On volumes without real permissions (USB FAT/exFAT, SMB, NFS) the
+        // privacy policy cannot be enforced; identity checks and exclusive
+        // publication still apply, so nothing existing is ever overwritten.
+        let strict = io.strictVolume(parent)
         let name = prefix + UUID().uuidString
         guard mkdirat(parent, name, 0o700) == 0 else { throw failure("creare lo staging privato") }
         let stage = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard stage >= 0 else { throw failure("aprire lo staging privato") }
         defer { Darwin.close(stage) }
-        guard flock(stage, LOCK_EX | LOCK_NB) == 0 else { throw failure("bloccare lo staging") }
+        guard flock(stage, LOCK_EX | LOCK_NB) == 0 || !strict else { throw failure("bloccare lo staging") }
         var stageIdentity = stat()
         guard fstat(stage, &stageIdentity) == 0 else { throw failure("identificare lo staging") }
         defer { removeDirectoryIfSame(parent: parent, name: name, identity: stageIdentity) }
 
-        guard io.harden(stage, 0o700) == 0, sg_output_is_private(stage, 0o700) == 0 else {
-            throw failure("proteggere le autorizzazioni dello staging")
+        if strict {
+            guard io.harden(stage, 0o700) == 0, sg_output_is_private(stage, 0o700) == 0 else {
+                throw failure("proteggere le autorizzazioni dello staging")
+            }
         }
-        guard let finalACL = sg_output_inherited_acl(parent, stage) else {
-            throw failure("determinare le autorizzazioni finali")
-        }
-        defer { acl_free(UnsafeMutableRawPointer(finalACL)) }
+        let finalACL: acl_t? = strict ? sg_output_inherited_acl(parent, stage) : nil
+        guard finalACL != nil || !strict else { throw failure("determinare le autorizzazioni finali") }
+        defer { if let finalACL { acl_free(UnsafeMutableRawPointer(finalACL)) } }
         let fd = openat(stage, payload, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw failure("creare il file temporaneo") }
         var open = true
@@ -89,8 +96,10 @@ public enum SignumFileOutput {
         // Remove only our inode, never a replacement/symlink supplied by another
         // process. Unknown entries are deliberately left for manual inspection.
         defer { removePayloadIfSame(stage: stage, identity: identity) }
-        guard io.harden(fd, 0o600) == 0, sg_output_is_private(fd, 0o600) == 0 else {
-            throw failure("proteggere le autorizzazioni del file temporaneo")
+        if strict {
+            guard io.harden(fd, 0o600) == 0, sg_output_is_private(fd, 0o600) == 0 else {
+                throw failure("proteggere le autorizzazioni del file temporaneo")
+            }
         }
         try io.staged()
         try data.withUnsafeBytes { bytes in
@@ -118,18 +127,23 @@ public enum SignumFileOutput {
         guard fstat(fd, &current) == 0, current.st_size == data.count, readback == data else {
             throw SignumError.module("Il file temporaneo non corrisponde ai byte attesi.")
         }
+        // FAT/exFAT derive the inode from the first cluster, assigned on the
+        // first write: bind the identity to the written file, not the empty one.
+        if !strict { identity = current }
         try validate(readback)
         // Restore destination sharing only behind the still-private directory.
         // Other users cannot obtain a payload descriptor before the atomic rename.
-        guard sg_output_is_private(stage, 0o700) == 0,
+        guard !strict || sg_output_is_private(stage, 0o700) == 0,
               sameEntry(in: parent, name: name, identity: stageIdentity),
-              io.applyACL(fd, finalACL) == 0 else { throw failure("impostare le autorizzazioni finali") }
+              finalACL.map({ io.applyACL(fd, $0) == 0 }) ?? true else { throw failure("impostare le autorizzazioni finali") }
+        // Portable volumes: ordinary sharing for the published copy (best effort).
+        if !strict { _ = fchmod(fd, 0o644) }
         // A close error must prevent publication. Do not retry close: the fd may
         // already have been released by the kernel, including on error.
         open = false
         guard io.close(fd) == 0 else { throw failure("chiudere il file temporaneo") }
         try io.beforePublish()
-        guard sg_output_is_private(stage, 0o700) == 0,
+        guard !strict || sg_output_is_private(stage, 0o700) == 0,
               sameEntry(in: parent, name: name, identity: stageIdentity),
               sameEntry(in: stage, name: payload, identity: identity) else {
             throw SignumError.module("Identità del file temporaneo modificata.")

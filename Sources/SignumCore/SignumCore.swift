@@ -137,11 +137,12 @@ public final class PKCS11Module {
 
     // Dedicated worker only; the context never escapes to the GUI.
     func firstBatchSignature(slot: UInt, serial: String, certificate: SignumCertificate, der: Data,
-                             attributes: Data, pin: String) throws -> (Data, Bool) {
+                             attributes: Data, pin: String, encodedDigest: Bool = false) throws -> (Data, Bool) {
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var secret = Data(pin.utf8), output = [UInt8](repeating: 0, count: 8192), length = 0
         var reusable: Int32 = 0
         defer { secret.resetBytes(in: 0..<secret.count) }
-        try execute { error in
+        try executeSigning { error in
             certificate.identifier.withUnsafeBytes { id in der.withUnsafeBytes { approved in
                 secret.withUnsafeBytes { secret in attributes.withUnsafeBytes { message in
                     sg_batch_first(context, slot, serial, id.bindMemory(to: UInt8.self).baseAddress, id.count,
@@ -155,8 +156,9 @@ public final class PKCS11Module {
         guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
         return (Data(output.prefix(length)), reusable == 1)
     }
-    func nextBatchSignature(attributes: Data) throws -> Data {
+    func nextBatchSignature(attributes: Data, encodedDigest: Bool = false) throws -> Data {
         guard let batchSession else { throw SignumError.module("Batch session closed") }
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var output = [UInt8](repeating: 0, count: 8192), length = 0
         try execute { error in attributes.withUnsafeBytes { bytes in
             sg_batch_next(batchSession, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
@@ -168,9 +170,10 @@ public final class PKCS11Module {
 
     var batchRequiresPIN: Bool { sg_batch_requires_pin(batchSession) == 1 }
     func firstTemporaryBatchSignature(slot: UInt, serial: String, certificate: SignumCertificate, der: Data,
-                                     attributes: Data, pin: WorkerBatchPINContext) throws -> (Data, Bool) {
+                                     attributes: Data, pin: WorkerBatchPINContext, encodedDigest: Bool = false) throws -> (Data, Bool) {
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var output = [UInt8](repeating: 0, count: 8192), length = 0, reusable: Int32 = 0
-        try execute { error in certificate.identifier.withUnsafeBytes { id in der.withUnsafeBytes { approved in
+        try executeSigning { error in certificate.identifier.withUnsafeBytes { id in der.withUnsafeBytes { approved in
             attributes.withUnsafeBytes { message in
                 sg_batch_first_temporary(context, slot, serial, id.bindMemory(to: UInt8.self).baseAddress, id.count,
                     approved.bindMemory(to: UInt8.self).baseAddress, approved.count, pin.bytes, pin.length, pin.deadline,
@@ -181,8 +184,9 @@ public final class PKCS11Module {
         guard (128...1024).contains(length) else { throw SignumError.invalidSignature }
         return (Data(output.prefix(length)), reusable == 1)
     }
-    func nextTemporaryBatchSignature(attributes: Data, pin: WorkerBatchPINContext) throws -> Data {
+    func nextTemporaryBatchSignature(attributes: Data, pin: WorkerBatchPINContext, encodedDigest: Bool = false) throws -> Data {
         guard let batchSession else { throw SignumError.module("Batch session closed") }
+        sg_batch_use_encoded_digest(context, encodedDigest ? 1 : 0)
         var output = [UInt8](repeating: 0, count: 8192), length = 0
         try execute { error in attributes.withUnsafeBytes { bytes in
             sg_batch_next_temporary(batchSession, pin.bytes, pin.length,
@@ -282,7 +286,7 @@ public final class PKCS11Module {
             try certificate.identifier.withUnsafeBytes { id in
                 try pinBytes.withUnsafeBytes { secret in
                     try message.withUnsafeBytes { bytes in
-                        try execute { error in
+                        try executeSigning { error in
                             signature.withUnsafeMutableBufferPointer { output in
                                 sg_sign_test_checked(context, slot,
                                              id.bindMemory(to: UInt8.self).baseAddress, id.count,
@@ -394,6 +398,19 @@ public final class PKCS11Module {
         #else
         throw SignumError.unsupportedPlatform
         #endif
+    }
+
+    /// Maps a failed signing request to a typed refusal when the shim proves
+    /// that no C_Sign was issued on this context; otherwise keeps `error`.
+    func signingFailure(for error: Error) -> Error {
+        if error is SigningAuthenticationFailure { return error }
+        var rv: UInt = 0, flags: UInt = 0
+        let called = sg_last_sign_outcome(context, &rv, &flags)
+        return SigningAuthenticationFailure.classify(signCalled: called != 0, loginRV: rv, tokenFlags: flags) ?? error
+    }
+
+    private func executeSigning(_ perform: (UnsafeMutableBufferPointer<CChar>) -> Int32) throws {
+        do { try execute(perform) } catch { throw signingFailure(for: error) }
     }
 
     private func execute(_ perform: (UnsafeMutableBufferPointer<CChar>) -> Int32) throws {
