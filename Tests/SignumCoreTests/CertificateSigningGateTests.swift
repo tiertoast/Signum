@@ -35,6 +35,9 @@ final class CertificateSigningGateTests: XCTestCase {
         XCTAssertThrowsError(try module.createCAdES(document: Data([1]), slot: 7, certificate: certificate,
                                                    pin: "synthetic-test-value", expectedCertificateDER: approved)) {
             XCTAssertTrue($0.localizedDescription.contains("cambiato"))
+            // Typed, so every transport keeps the reason and treats it as provably unsigned.
+            XCTAssertEqual($0 as? SigningAuthenticationFailure, .certificateChanged)
+            XCTAssertFalse($0.allowsNewPIN)
         }
         XCTAssertEqual(mock.count(8), 0); XCTAssertEqual(mock.count(16), 0)
         XCTAssertEqual(mock.count(6), mock.count(5))

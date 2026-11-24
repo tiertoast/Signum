@@ -87,7 +87,8 @@ public enum PKCS11WorkerEntrypoint {
                         try binding.requireCurrentModule()
                         try binding.requireCurrentToken(module)
                     }
-                    try CertificateEligibility.requireEligible(certificateDER: certificate.der)
+                    do { try CertificateEligibility.requireEligible(certificateDER: certificate.der) }
+                    catch { throw SigningAuthenticationFailure.certificateIneligible }
                     signature = try module.signRSASHA256(slot: request.slot!, certificate: certificate.value,
                         pin: request.pin!, message: request.attributes!, expectedCertificateDER: certificate.der)
                 } catch {

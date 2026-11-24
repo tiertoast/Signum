@@ -7,6 +7,9 @@ import CPKCS11
 public enum SigningAuthenticationFailure: String, Error, LocalizedError, Codable, Sendable, CaseIterable {
     case pinIncorrect, pinIncorrectCountLow, pinIncorrectFinalTry
     case pinLocked, pinInvalid, pinExpired
+    /// Signum's own check refused before login: the token now holds a different
+    /// certificate, or the certificate is no longer eligible (e.g. expired).
+    case certificateChanged, certificateIneligible
     case notSigned
 
     /// The same approved document can be authorized again with a new PIN.
@@ -29,6 +32,10 @@ public enum SigningAuthenticationFailure: String, Error, LocalizedError, Codable
             return "Il dispositivo non accetta questo PIN (lunghezza o caratteri non validi)." + none
         case .pinExpired:
             return "Il PIN è scaduto e va cambiato con lo strumento del produttore." + none
+        case .certificateChanged:
+            return "Il certificato sul dispositivo è cambiato dopo la selezione." + none + " Aggiorna i dispositivi e scegli di nuovo il certificato."
+        case .certificateIneligible:
+            return "Il certificato non è più idoneo alla firma (per esempio è scaduto)." + none + " Aggiorna i dispositivi e controlla il certificato."
         case .notSigned:
             return "Il dispositivo ha rifiutato l'operazione prima della firma." + none + " Controlla il dispositivo e prepara una nuova firma."
         }
@@ -43,6 +50,8 @@ public enum SigningAuthenticationFailure: String, Error, LocalizedError, Codable
         case .pinInvalid: return "Il dispositivo non accetta questo PIN (lunghezza o caratteri)."
         case .pinLocked: return "PIN bloccato. Usa il PUK o lo strumento del produttore."
         case .pinExpired: return "PIN scaduto. Cambialo con lo strumento del produttore."
+        case .certificateChanged: return "Il certificato è cambiato. Nessuna firma eseguita."
+        case .certificateIneligible: return "Certificato non più idoneo. Nessuna firma eseguita."
         case .notSigned: return "Operazione rifiutata dal dispositivo prima della firma."
         }
     }

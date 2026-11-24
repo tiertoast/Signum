@@ -404,9 +404,8 @@ public final class PKCS11Module {
     /// that no C_Sign was issued on this context; otherwise keeps `error`.
     func signingFailure(for error: Error) -> Error {
         if error is SigningAuthenticationFailure { return error }
-        var rv: UInt = 0, flags: UInt = 0
-        let called = sg_last_sign_outcome(context, &rv, &flags)
-        return SigningAuthenticationFailure.classify(signCalled: called != 0, loginRV: rv, tokenFlags: flags) ?? error
+        guard let name = sg_last_sign_refusal(context) else { return error }
+        return SigningAuthenticationFailure(rawValue: String(cString: name)) ?? .notSigned
     }
 
     private func executeSigning(_ perform: (UnsafeMutableBufferPointer<CChar>) -> Int32) throws {

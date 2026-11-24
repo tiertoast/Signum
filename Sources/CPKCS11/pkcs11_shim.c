@@ -34,10 +34,12 @@ struct SGContext {
     int batch_encoded_digest; /* next batch signature: SHA-256 DigestInfo, CKM_RSA_PKCS */
     CK_RV login_rv;
     CK_FLAGS login_token_flags;
+    int precheck; /* SG_PRECHECK_*: Signum's own refusal before any login or C_Sign */
 };
+enum { SG_PRECHECK_NONE = 0, SG_PRECHECK_CERTIFICATE_CHANGED = 1, SG_PRECHECK_CERTIFICATE_INELIGIBLE = 2 };
 
 static void sign_outcome_reset(SGContext *ctx) {
-    ctx->sign_called = 0; ctx->login_rv = CKR_OK; ctx->login_token_flags = 0;
+    ctx->sign_called = 0; ctx->login_rv = CKR_OK; ctx->login_token_flags = 0; ctx->precheck = SG_PRECHECK_NONE;
 }
 /* Record a rejected C_Login and the token's public PIN counters (if readable). */
 static void sign_outcome_login(SGContext *ctx, CK_SESSION_HANDLE session, CK_RV rv) {
@@ -630,12 +632,15 @@ static int check_signing_certificate(SGContext *ctx, unsigned long slot, const u
     if (!der) return invalid(error, error_size, "Cannot allocate certificate buffer");
     size_t length = 0;
     int status = sg_certificate_der_impl(ctx, slot, id, id_length, der, 65536, &length, error, error_size);
-    if (!status && (length != expected_length || memcmp(der, expected, length)))
+    if (!status && (length != expected_length || memcmp(der, expected, length))) {
+        ctx->precheck = SG_PRECHECK_CERTIFICATE_CHANGED;
         status = invalid(error, error_size, "Il certificato è cambiato. Ricarica i certificati prima di firmare.");
+    }
     if (!status) {
         SGCertificateAssessment assessment = sg_certificate_assess(der, length, sg_certificate_now());
         if (assessment.status != SG_CERT_ELIGIBLE) {
             uint32_t first = assessment.reasons & (0u - assessment.reasons);
+            ctx->precheck = SG_PRECHECK_CERTIFICATE_INELIGIBLE;
             status = invalid(error, error_size, sg_certificate_reason_message(first));
         }
     }
@@ -846,6 +851,13 @@ int sg_last_sign_outcome(SGContext *ctx, unsigned long *login_rv, unsigned long 
     if (token_flags) *token_flags = ctx ? (unsigned long)ctx->login_token_flags : 0;
     /* Unknown context: report that a private operation may have happened. */
     return !ctx || ctx->sign_called ? 1 : 0;
+}
+
+const char *sg_last_sign_refusal(SGContext *ctx) {
+    if (!ctx || ctx->sign_called) return NULL; /* Unknown context or C_Sign issued: never a refusal. */
+    if (ctx->precheck == SG_PRECHECK_CERTIFICATE_CHANGED) return "certificateChanged";
+    if (ctx->precheck == SG_PRECHECK_CERTIFICATE_INELIGIBLE) return "certificateIneligible";
+    return sg_sign_refusal_name(0, (unsigned long)ctx->login_rv, (unsigned long)ctx->login_token_flags);
 }
 
 const char *sg_sign_refusal_name(int sign_called, unsigned long login_rv, unsigned long token_flags) {
