@@ -21,7 +21,7 @@ import CoreGraphics
     }
     private func approve(_ batch: BatchSigningCoordinator, root: URL, signer: SoftwareSigner, mock: MockModule) async throws -> BatchApproval {
         let approval = try await batch.prepareApproval(provider: mock.path.path, slot: 7,
-            certificate: SignumCertificate(label: "Synthetic", identifier: Data([1])), der: signer.der, directory: root)
+            certificate: SignumCertificate(label: "Synthetic", identifier: Data([1])), der: signer.der, destination: .commonDirectory(root))
         try batch.confirm(approval)
         return approval
     }
@@ -246,7 +246,7 @@ import CoreGraphics
             XCTAssertTrue(selection.select(routeID: selection.certificates.first?.routes.first?.id))
             let route = try XCTUnwrap(selection.selectedRoute)
             let plan = try await batch.prepareApproval(provider: route.providerPath, slot: route.token.slot,
-                certificate: route.certificate, der: route.der, directory: root)
+                certificate: route.certificate, der: route.der, destination: .commonDirectory(root))
             try batch.confirm(plan)
             let ids = plan.jobs.map(\.id), hashes = plan.jobs.map(\.contentSHA256)
             for path in paths { try Data("Changed after approval".utf8).write(to: path) }
@@ -288,7 +288,7 @@ import CoreGraphics
             await batch.addDocuments(paths, format: .cades)
             XCTAssertEqual(batch.documents.count, 32); XCTAssertFalse(batch.selectionIssues.isEmpty)
             let approval = try await batch.prepareApproval(provider: mock.path.path, slot: 7,
-                certificate: SignumCertificate(label: "Synthetic", identifier: Data([1])), der: signer.der, directory: root)
+                certificate: SignumCertificate(label: "Synthetic", identifier: Data([1])), der: signer.der, destination: .commonDirectory(root))
             XCTAssertTrue(batch.isFrozen)
             batch.declineApproval()
             XCTAssertFalse(batch.isFrozen); XCTAssertFalse(batch.isApproved)

@@ -61,6 +61,7 @@ public enum SupervisedProcess {
         defer { if !retainedForReaping { release() } }
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = executable; process.arguments = arguments
+        // Fixed environment on purpose: nothing inherited (OPENSSL_CONF, DYLD_*, ...).
         process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(),
                                "TMPDIR": FileManager.default.temporaryDirectory.path, "LC_ALL": "C"]
         process.standardInput = incoming; process.standardOutput = outgoing

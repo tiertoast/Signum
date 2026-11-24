@@ -175,12 +175,9 @@ public final class BatchCAdESSession: @unchecked Sendable {
             // already terminated the worker, otherwise it is idle here.
             retireConnection()
             state.lock(); stopped = true; state.unlock()
-            if error is BatchSignatureConnection.Failure { throw error } // Explicit pre-login refusal, not an uncertain Sign.
-            if error.provablyNotSigned { throw error } // Worker proved that no C_Sign was issued.
-            if submitted && !receivedSignature {
-                throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Non ripetere automaticamente questo job.")
-            }
-            if operation.isCancellationRequested { throw SupervisedProcess.Failure.cancelled }
+            let error = error.classifiedAfterSigningRequest(submitted: submitted, received: receivedSignature)
+            if case SignumError.outputUncertain = error { throw error }
+            if operation.isCancellationRequested && !error.provablyNotSigned { throw SupervisedProcess.Failure.cancelled }
             throw error
         }
     }
@@ -215,11 +212,8 @@ public final class BatchCAdESSession: @unchecked Sendable {
                 submitted = true
                 let signature: Data
                 do { signature = try connection.sign(jobID: job.id, attributes: digestInfo, pin: pin, timeout: timeout, isCancelled: cancelled) }
-                catch {
-                    // Classified here: the helper only relays it. Before C_Sign stays typed.
-                    if error is BatchSignatureConnection.Failure || error.provablyNotSigned { throw error }
-                    throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Non ripetere automaticamente questo job.")
-                }
+                // Classified here: the helper only relays it. Before C_Sign stays typed.
+                catch { throw error.classifiedAfterSigningRequest(submitted: true, received: false) }
                 receivedSignature = true
                 if connection.next == self.jobs.count {
                     do { try self.finishConnection() }
@@ -233,13 +227,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
             update(reusable: false)
             retireConnection()
             state.lock(); stopped = true; state.unlock()
-            let error = signerError ?? error
-            if error is BatchSignatureConnection.Failure { throw error }
-            if error.provablyNotSigned { throw error }
-            if submitted && !receivedSignature {
-                throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Non ripetere automaticamente questo job.")
-            }
-            throw error
+            throw (signerError ?? error).classifiedAfterSigningRequest(submitted: submitted, received: receivedSignature)
         }
     }
 }

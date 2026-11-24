@@ -3,6 +3,8 @@ import Foundation
 import Darwin
 import COutputPermissions
 
+/// ctime is part of the identity on purpose: mtime can be reset with utimes,
+/// ctime cannot. dlopen/reads never change it (checked on real modules).
 public struct MiddlewareFileIdentity: Codable, Hashable, Sendable {
     public let device: Int64, inode: UInt64, size: Int64
     public let modifiedSeconds: Int64, modifiedNanoseconds: Int64

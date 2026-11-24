@@ -64,9 +64,27 @@ public enum SigningAuthenticationFailure: String, Error, LocalizedError, Codable
     }
 }
 
+private let uncertainSigningMessage =
+    "Richiesta privata interrotta o senza firma verificabile. Nessun documento pubblicato; non ripetere automaticamente il PIN."
+
 extension Error {
-    /// True when the private operation provably never reached `C_Sign`.
-    var provablyNotSigned: Bool { self is SigningAuthenticationFailure }
+    /// True when the private operation provably never reached `C_Sign`: a shim
+    /// refusal before Sign, a pre-login refusal of the batch worker, a busy or
+    /// changed device context, or a worker that never started.
+    var provablyNotSigned: Bool {
+        if self is SigningAuthenticationFailure || self is IsolatedPKCS11Client.Failure ||
+            self is BatchSignatureConnection.Failure { return true }
+        let process = self as? SupervisedProcess.Failure
+        return process == .launch || process == .capacity
+    }
+    /// The one rule for every signing path: once the request reached the token
+    /// (`submitted`) and no signature came back (`received`), any error that does
+    /// not prove "no C_Sign" becomes an uncertain outcome, never a retry.
+    func classifiedAfterSigningRequest(submitted: Bool, received: Bool) -> Error {
+        if case SignumError.outputUncertain? = self as? SignumError { return self }
+        guard submitted, !received, !provablyNotSigned else { return self }
+        return SignumError.outputUncertain(uncertainSigningMessage)
+    }
     /// True when the approved document may be authorized again with a new PIN.
     public var allowsNewPIN: Bool { (self as? SigningAuthenticationFailure)?.allowsNewPIN ?? false }
 }
