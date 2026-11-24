@@ -25,6 +25,7 @@ code review or test campaign.
 
 ## Release artifact and source correspondence
 
+- [Build 17 ArtifactManifest](../releases/0.7.0-beta.17/ArtifactManifest.json)
 - [Build 14 ArtifactManifest](../releases/0.7.0-beta/ArtifactManifest.json)
 - [Original publication evidence](../releases/0.7.0-beta/PublicationEvidence.json)
 - Release assets: `BuildManifest.json`, `AppAudit.json`, `summary.json`, application

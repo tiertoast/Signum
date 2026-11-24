@@ -144,13 +144,13 @@ published; Build 17 follows Build 14 as the next public Beta.
 
 ## Downloads and checksum
 
-**[Signum-0.7.0-beta-arm64.dmg](https://github.com/tiertoast/Signum/releases/download/v0.7.0-beta/Signum-0.7.0-beta-arm64.dmg)**
-— 22,766,204 bytes.
+**[Signum-0.7.0-beta-arm64.dmg](https://github.com/tiertoast/Signum/releases/download/v0.7.0-beta.17/Signum-0.7.0-beta-arm64.dmg)**
+— 22,937,547 bytes.
 
 SHA256:
 
 ```text
-cc5add5dab9163e44465a2b6161532ec6e5f1d5c5ed6aef98250935e9f80c2b9
+602e07531dc0250a52c9c21778e90fe08468ad598549d28daa57bce03134a012
 ```
 
 Download the `.dmg.sha256` sidecar alongside the DMG, then run:
@@ -161,7 +161,7 @@ shasum -a 256 -c Signum-0.7.0-beta-arm64.dmg.sha256
 
 `SHA256SUMS.txt` covers the standalone release files, including the current
 English `ReleaseNotes.md`. Technical manifests and audits accompany the DMG.
-The binary's recorded product source is `09316e046a4dd101ce74410a6eeccee6911d4783`;
+The binary's recorded product source is `f265b05734d1d43fd4723763cb9e4d813edeca70`;
 later repository documentation does not change the binary's provenance.
 
 [Product documentation](https://github.com/tiertoast/Signum/blob/main/docs/README.md)

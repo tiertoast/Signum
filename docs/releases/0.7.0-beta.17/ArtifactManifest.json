@@ -1,0 +1,128 @@
+{
+  "status": "verified-local-beta",
+  "publicationQualified": false,
+  "dmg": {
+    "file": "Signum-0.7.0-beta-arm64.dmg",
+    "sha256": "602e07531dc0250a52c9c21778e90fe08468ad598549d28daa57bce03134a012",
+    "bytes": 22937547,
+    "readOnlyMountedAudit": true
+  },
+  "appAudit": "AppAudit.json",
+  "appAuditSHA256": "cc1eaca99cabf9bc033808b24e803dfe4ee0cd14c5e0a4c68e4621d1247bf953",
+  "nativeProvenance": {
+    "kind": "verified-native-checkpoint",
+    "sourceCommit": "2be9f7eae9349e89421bc46444c9a7bb2821ce15",
+    "manifestSHA256": "8c2ba67d1891830064b45157cbb970cddde56eef966490ccd0ec2f3a541782e5",
+    "sourceProofSHA256": "aefb508630a896453fa494ccdb744acb7b27a9dd13065ca3e523ae6515c6f128",
+    "verifiedPrefixFiles": 479,
+    "sourceEvidence": "Contents/Resources/ThirdPartySources/NATIVE_BUILD_PROVENANCE.json"
+  },
+  "sourceCommit": "f265b05734d1d43fd4723763cb9e4d813edeca70",
+  "buildManifestSHA256": "acce4af4f82a76abedaf8b0673fe21cb337beb7ade6a9fe73567a7de461525bd",
+  "metadata": {
+    "CFBundleIdentifier": "io.github.tiertoast.Signum",
+    "CFBundleShortVersionString": "0.7.0",
+    "CFBundleVersion": "17",
+    "LSMinimumSystemVersion": "13.0"
+  },
+  "startup": {
+    "finishedLaunching": true,
+    "runningAfterTwoSeconds": true,
+    "bundleIdentifier": "io.github.tiertoast.Signum",
+    "evidence": "finishedLaunching: verified owned PID and bundle identifier",
+    "scope": "Launch/runtime loader only; no functional GUI or hardware qualification"
+  },
+  "binaries": {
+    "Contents/MacOS/Signum": {
+      "sha256": "fc4f833a4042dede1accf1220ddf999350adef439d3d8f691dfbc97e19f9ee31",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Helpers/SignumTrustProbe": {
+      "sha256": "ef68953b8cfb3341659873131bea3f84a264d54d611ece078ab44d1f359642b2",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Helpers/SignumCLI": {
+      "sha256": "2f9f305171d8022c15b38616be7c991825d567ee3627f08819875b5ceb49c8b4",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Helpers/signum-pades-local": {
+      "sha256": "17d99f32519328471e597b1c40ba1426c57a2c2191f3a4f19b04c05d60feaf52",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Helpers/SignumPKCS11Worker": {
+      "sha256": "d70b44dfa216a86cbaf3c911735e71c13d63461a06a889906a8a9a08348a47e0",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Frameworks/libpodofo.4.dylib": {
+      "sha256": "e53b4d4a90bf2164b53a1b5e09d66087f90fd73fe9789e1ea9411e5fa0d4efe8",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Frameworks/libssl.3.dylib": {
+      "sha256": "df21da286f18097ac3fdb422e1cfca95c0c95d588fd6a48c7bd85bb7c1591b98",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Frameworks/libxmlsec1.10312.dylib": {
+      "sha256": "d2cf5ac294123fd7f88c2e09c7005d7cc55d1f02542e5402cbfb1b5501a6e1f0",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Frameworks/libcrypto.3.dylib": {
+      "sha256": "73ffbe6ca0b4da9b6e6ea6a4cb18f5ae5ce5a1a48a95f23d13c3a12f9f8e044b",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Frameworks/libxmlsec1-openssl.10312.dylib": {
+      "sha256": "2aa0705c6830a500f0570b99925d62c4a8ce85a7d635385736de52b4a0bd8808",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    },
+    "Contents/Frameworks/libxml2.16.dylib": {
+      "sha256": "ac9b3b896cca55aaa082d5acd29365432dbee3aec2a534d0c7e3ace9eae93235",
+      "architecture": "arm64",
+      "minimumOS": [
+        13,
+        0
+      ]
+    }
+  },
+  "schemas": 7,
+  "noticeFiles": 27,
+  "oldPrefixReferences": 0
+}
