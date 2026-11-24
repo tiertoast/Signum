@@ -1,4 +1,4 @@
-# Signum 0.7.0 Beta — Build 14
+# Signum 0.7.0 Beta — Build 17
 
 The current English product release notes are maintained in
 [Release notes](RELEASE_NOTES.md).

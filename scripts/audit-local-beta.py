@@ -93,7 +93,9 @@ def launch(app,tmp):
 def app_audit(app,prefix,tmp):
     kit,source=profile.validate(prefix,REPO)
     resources=app/'Contents/Resources';info=plistlib.loads((app/'Contents/Info.plist').read_bytes());manifest=read_json(resources/'BuildManifest.json')
-    expected={'CFBundleIdentifier':'io.github.tiertoast.Signum','CFBundleShortVersionString':'0.7.0','CFBundleVersion':'14','LSMinimumSystemVersion':'13.0'}
+    # The build number comes from the project's own Info.plist, as in prepare-public-beta.py.
+    project=plistlib.loads((REPO/'Resources/Info.plist').read_bytes())
+    expected={'CFBundleIdentifier':'io.github.tiertoast.Signum','CFBundleShortVersionString':'0.7.0','CFBundleVersion':project['CFBundleVersion'],'LSMinimumSystemVersion':'13.0'}
     if any(info.get(k)!=v for k,v in expected.items()) or 'Beta' not in info.get('CFBundleDisplayName',''):raise ValueError('Wrong local Beta metadata')
     if manifest.get('signingMode')!='adhoc' or manifest.get('sourceTrackedDirty') is not False:raise ValueError('Clean ad-hoc candidate required')
     if manifest.get('distributionPrerequisites',{}).get('nativeProvenance')!=source:raise ValueError('Candidate did not select verified source kit')

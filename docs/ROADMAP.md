@@ -10,7 +10,7 @@ Current capabilities are documented in [Features](FEATURES.md) and [Formats](FOR
 
 The native signing and verification platform includes CAdES, PAdES, restricted
 XAdES/ASiC profiles, document workspaces, Finder integration, device discovery,
-European trust assessment and PDF/text reports. Build 14 is distributed for Apple
+European trust assessment and PDF/text reports. Build 17 is distributed for Apple
 Silicon with an ad-hoc signature. [Current release](RELEASE_NOTES.md)
 
 Compatibility, accessibility and stability refinements remain open. Detailed

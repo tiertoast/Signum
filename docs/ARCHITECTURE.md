@@ -49,7 +49,7 @@ signs the DigestInfo, so the middleware is loaded only once. XML uses libxml2/xm
 reference, transform and resource restrictions. ASiC uses a bounded ZIP32 layer
 and the supported detached XAdES profile.
 
-## Build 14 dependency inventory
+## Build 17 dependency inventory
 
 Versions below come from the released `BuildManifest.json`, not an unpinned
 package-manager installation.
@@ -79,8 +79,8 @@ application runtime dependencies. CAdES post-signing verification and the
 Signum original code is [Apache-2.0](../LICENSE). This does not relicense its dependencies.
 The release bundles notices and a corresponding PoDoFo/FreeType source kit at
 `Contents/Resources/ThirdPartySources/`, with `SOURCE_ACCESS.md`, provenance,
-archives and component-specific terms. Recipients can obtain the included kit
-without access to the private Git repository. Schema notices remain separate.
+archives and component-specific terms. Recipients can use the included kit
+without access to the Git repository or an account. Schema notices remain separate.
 Portions of this software are copyright © The FreeType Project.
 
 Technical provenance and legal originals are retained without translation or
