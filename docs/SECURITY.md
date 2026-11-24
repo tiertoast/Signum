@@ -24,6 +24,16 @@ independent certification, universal interoperability or a legal opinion.
   publishes them and never retries automatically.
 - Worker isolation reduces crash/hang impact but is not a privilege sandbox.
   A malicious middleware library still runs as the user; install only trusted modules.
+- The middleware file identity (device, inode, size, mtime and ctime) is checked
+  again before signing. ctime is kept on purpose: `mtime` can be reset with
+  `utimes`, `ctime` cannot, so an in-place rewrite of a manually selected
+  (user-owned) module is still detected. Loading or reading the module does not
+  change it; only metadata writes do (on a root-owned module, an administrator).
+- Worker and helper processes start with a fixed minimal environment (`PATH`,
+  `HOME`, `TMPDIR`, `LC_ALL=C`). Nothing is inherited, so variables such as
+  `OPENSSL_CONF` or `DYLD_*` cannot redirect the middleware or its crypto library.
+  Middleware configuration is read from its own files (for example `*.conf` next
+  to the module); GUI apps do not receive shell variables in any case.
 - Real PIN changes and PUK unblocking remain disabled/unqualified.
 
 ## Validation results
