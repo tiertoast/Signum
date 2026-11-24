@@ -87,10 +87,10 @@ public struct PINStatusSnapshot: Codable, Equatable, Sendable {
         return minimumBytes > 0 && maximumBytes >= minimumBytes
     }
     public var statusDescription: String {
-        if userPINLocked { return "Il middleware segnala il PIN utente bloccato." }
-        if userPINFinalTry { return "Il middleware segnala l’ultimo tentativo disponibile. Un codice errato può bloccare il PIN." }
-        if userPINCountLow { return "Il middleware segnala pochi tentativi disponibili." }
-        if userPINMustChange { return "Il middleware richiede la modifica del PIN utente." }
+        if userPINLocked { return "Il software del dispositivo segnala il PIN utente bloccato." }
+        if userPINFinalTry { return "Il software del dispositivo segnala l’ultimo tentativo disponibile. Un codice errato può bloccare il PIN." }
+        if userPINCountLow { return "Il software del dispositivo segnala pochi tentativi disponibili." }
+        if userPINMustChange { return "Il software del dispositivo richiede la modifica del PIN utente." }
         return "Nessuna segnalazione di blocco restituita. L’utilizzabilità del PIN non è accertata."
     }
 }

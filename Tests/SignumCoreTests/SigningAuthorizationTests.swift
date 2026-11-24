@@ -157,8 +157,8 @@ import XCTest
     }
 
     func testTextsAndReset() {
-        XCTAssertEqual(SigningAuthorization.continuingNotice(.temporaryPIN), "PIN temporaneo attivo soltanto per questo batch approvato.")
-        XCTAssertEqual(SigningAuthorization.continuingNotice(.automatic), "Sessione autenticata per questo batch. Nessun PIN riutilizzato.")
+        XCTAssertEqual(SigningAuthorization.continuingNotice(.temporaryPIN), "PIN temporaneo attivo soltanto per questi documenti approvati.")
+        XCTAssertEqual(SigningAuthorization.continuingNotice(.automatic), "Sessione autenticata per questi documenti. Nessun PIN riutilizzato.")
         let authorization = SigningAuthorization()
         authorization.attempted = true; authorization.notice = "x"; authorization.approvedHolder = "y"
         authorization.clear()

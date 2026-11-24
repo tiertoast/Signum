@@ -217,6 +217,11 @@ enum SignumFormat: String, Hashable, CaseIterable {
         .onReceive(NotificationCenter.default.publisher(for: .signumShowSettings)) { _ in
             navigation.openSettings(blocked: interfaceLocked || batch.isFrozen)
         }
+        // Same rules as the toolbar button: signing screen only, never while locked or approved.
+        .onReceive(NotificationCenter.default.publisher(for: .signumAddDocuments)) { _ in
+            guard (operation ?? .sign) == .sign, !interfaceLocked, !batch.isFrozen else { return }
+            chooseFile()
+        }
         .task(id: sessionCompletionKey) { releaseFinishedSession() }
         .onAppear {
             activateSession()
@@ -434,7 +439,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: BatchWorkspaceSummary.symbol(entry.state))
-                        .foregroundStyle(entry.state == .completed ? Color.green : (entry.state == .failed || entry.state == .uncertain ? Color.orange : Color.secondary))
+                        .foregroundStyle(entry.state == .completed ? Color.green : entry.state == .uncertain ? Color.red : entry.state == .failed ? Color.orange : Color.secondary)
                         .accessibilityLabel(rowStatus)
                     Button(entry.snapshot.originalURL.lastPathComponent) { showDocument(entry.id) }
                         .buttonStyle(.plain).lineLimit(1).truncationMode(.middle)

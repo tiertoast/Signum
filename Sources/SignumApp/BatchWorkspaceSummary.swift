@@ -19,7 +19,8 @@ enum BatchWorkspaceSummary {
     static func symbol(_ state: BatchDocumentState) -> String {
         switch state {
         case .completed: return "checkmark.circle"
-        case .failed, .uncertain: return "exclamationmark.triangle"
+        case .failed: return "exclamationmark.triangle"
+        case .uncertain: return "questionmark.diamond"
         case .cancelled: return "xmark.circle"
         default: return "circle"
         }

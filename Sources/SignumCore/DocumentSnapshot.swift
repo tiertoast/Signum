@@ -123,13 +123,13 @@ public final class DocumentSnapshot: @unchecked Sendable {
         }
         defer { if !keep { remove(in: root, name: name, identity: createdDirectory, flags: AT_REMOVEDIR) } }
         let directory = openat(root, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard directory >= 0 else { throw error("Impossibile aprire lo snapshot privato.") }
+        guard directory >= 0 else { throw error("Impossibile aprire la copia di lavoro privata.") }
         defer { if !keep { Darwin.close(directory) } }
         var directoryIdentity = stat()
         guard fstat(directory, &directoryIdentity) == 0,
               directoryIdentity.st_dev == createdDirectory.st_dev, directoryIdentity.st_ino == createdDirectory.st_ino,
               flock(directory, LOCK_EX | LOCK_NB) == 0 else {
-            throw error("Impossibile bloccare lo snapshot privato.")
+            throw error("Impossibile bloccare la copia di lavoro privata.")
         }
         var fileIdentity: stat?
         defer {
@@ -164,11 +164,11 @@ public final class DocumentSnapshot: @unchecked Sendable {
         guard fd >= 0 else { throw error("Snapshot non disponibile dopo l'acquisizione.") }
         defer { if !keep { Darwin.close(fd) } }
         var info = stat()
-        guard fstat(fd, &info) == 0 else { throw error("Impossibile identificare lo snapshot.") }
+        guard fstat(fd, &info) == 0 else { throw error("Impossibile identificare la copia di lavoro.") }
         guard info.st_dev == clonedIdentity.st_dev, info.st_ino == clonedIdentity.st_ino,
               info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid(), info.st_nlink == 1,
               info.st_ino != sourceIdentity.st_ino, fchmod(fd, 0o400) == 0 else {
-            throw error("Identità o permessi dello snapshot non validi.")
+            throw error("Identità o permessi della copia di lavoro non validi.")
         }
         let content = try readBounded(fd, maximum: format.maximumDocumentBytes, read: io.read, check: check)
         if let copiedBytes, copiedBytes != content {

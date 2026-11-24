@@ -55,7 +55,7 @@ struct SigningReviewContext: Equatable {
         defer { if request == id { isPreparing = false } }
         do {
             guard context.appearanceHashes == appearances.mapValues({ $0.approvalIdentity }) else {
-                throw SignumError.module("L’appearance è cambiata. Attendi la nuova anteprima prima di approvare.")
+                throw SignumError.module("L’aspetto della firma è cambiato. Attendi la nuova anteprima prima di approvare.")
             }
             // Retire the owned public operation before starting another. Its
             // cancellation reaches the supervised child (bounded TERM/KILL),

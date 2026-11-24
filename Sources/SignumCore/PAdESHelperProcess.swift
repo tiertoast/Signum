@@ -62,8 +62,8 @@ public enum PAdESHelperProcess {
                 }
                 if status.outcome == "rejectedBeforeAuthentication", ["busy", "coordination", "preflight"].contains(status.reason), !exists() {
                     return .failed(status.reason == "busy"
-                        ? "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al provider."
-                        : "Firma rifiutata prima dell'autenticazione. Nessun PIN inviato al provider.")
+                        ? "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al dispositivo."
+                        : "Firma rifiutata prima dell'autenticazione. Nessun PIN inviato al dispositivo.")
                 }
                 guard status.outcome == "published", status.reason == "none", status.cleanupConfirmed == true,
                       status.documentVerified == true, status.documentPublished == true else {

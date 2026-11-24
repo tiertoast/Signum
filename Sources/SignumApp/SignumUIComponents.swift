@@ -2,7 +2,10 @@
 import SwiftUI
 import SignumCore
 
-extension Notification.Name { static let signumShowSettings = Notification.Name("Signum.ShowSettings") }
+extension Notification.Name {
+    static let signumShowSettings = Notification.Name("Signum.ShowSettings")
+    static let signumAddDocuments = Notification.Name("Signum.AddDocuments")
+}
 
 /// Visual vocabulary for Signum 0.7. System colors and materials remain in
 /// charge of content and legibility; Burgundy is reserved for tint and actions.

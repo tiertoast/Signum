@@ -169,7 +169,7 @@ public enum SignumVerificationService {
         }
         let engine = helper ?? bundledHelper
         guard FileManager.default.isExecutableFile(atPath: engine.path) else {
-            throw SignumError.module("Motore di verifica non presente nel bundle. Nessun middleware o PIN è necessario.")
+            throw SignumError.module("Motore di verifica non presente nel bundle. Non servono il software del dispositivo né il PIN.")
         }
         var input = data
         if let detachedContent {

@@ -52,7 +52,7 @@ public final class BatchCAdESSession: @unchecked Sendable {
               (1...16).contains(serial.utf8.count), !serial.utf8.contains(0), let first = approval.jobs.first,
               approval.jobs.allSatisfy({ $0.providerPath == first.providerPath && $0.slot == first.slot &&
                   $0.certificate.identifier == first.certificate.identifier && $0.certificateDER == first.certificateDER }) else {
-            throw SignumError.module("La modalità automatica richiede un batch CAdES/PAdES e un'identità dispositivo disponibile.")
+            throw SignumError.module("La modalità automatica richiede documenti CAdES/PAdES e un'identità dispositivo disponibile.")
         }
         let start: Int
         if let snapshotID {

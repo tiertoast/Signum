@@ -18,6 +18,7 @@ final class BatchWorkspaceSummaryTests: XCTestCase {
         XCTAssertNotEqual(BatchWorkspaceSummary.status(.uncertain), BatchWorkspaceSummary.status(.completed))
         XCTAssertEqual(BatchWorkspaceSummary.symbol(.completed), "checkmark.circle")
         XCTAssertEqual(BatchWorkspaceSummary.symbol(.failed), "exclamationmark.triangle")
+        XCTAssertEqual(BatchWorkspaceSummary.symbol(.uncertain), "questionmark.diamond")
         XCTAssertEqual(BatchWorkspaceSummary.status(.waitingForAuthorization), "PIN richiesto")
     }
 }
