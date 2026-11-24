@@ -1,4 +1,4 @@
-# Signum 0.7.0 Beta — Build 14
+# Signum 0.7.0 Beta — Build 17
 
 **Digital signatures. Simply native.**
 
@@ -6,6 +6,34 @@ Signum is a native macOS application for local digital signing and signature
 verification. Use a compatible smart card or USB token to sign documents,
 review signatures and certificate evidence, and export readable verification
 reports from one document workspace.
+
+## What's new since Build 14
+
+Signing
+- A PIN refused by the token (wrong, invalid, locked or expired) is now an ordinary
+  refusal, not an "uncertain outcome": the same approved document can be authorized
+  again, and the PIN field shows the refusal and the remaining attempts when the
+  token reports them. A refused PIN reaches the token once; nothing is retried.
+- One PIN for a whole approved batch now covers PDFs as well as attached CAdES,
+  including mixed batches. After a refused PIN, the next PIN opens a new session.
+- Documents can be signed from USB drives, external disks, network shares and
+  Finder-locked files; signed copies are published on FAT, exFAT, SMB and NFS.
+- PDF batches: "Apply this stamp to all PDFs" places the stamp at the same visible
+  margins on every PDF, follows added documents and survives a declined approval.
+  A batch-wide format choice applies to every compatible document.
+- In an authenticated batch every CAdES signature declares the time of the first
+  PIN; this is now stated in the setting.
+
+Verification and trust
+- OCSP/CRL retrieval tries IPv4 first, then IPv6, and uses the manual HTTP/HTTPS
+  proxy configured in macOS.
+- CAdES verification runs in-process with the bundled OpenSSL; the system
+  `/usr/bin/openssl` is no longer used.
+
+Workspace
+- Documents can be removed selectively while other work continues; the
+  verification PDF sheet is larger; advanced CAdES input errors are reported
+  correctly; empty verification sessions are retired.
 
 ## Highlights
 
@@ -32,10 +60,11 @@ These are explicitly bounded profiles. XAdES-T/LT/LTA, ASiC with CAdES,
 arbitrary multi-signature XML/ASiC, timestamp issuance and encryption are not included.
 [Format details](https://github.com/tiertoast/Signum/blob/main/docs/FORMATS.md)
 
-Ordinary attached CAdES batches support per-document authentication, approved
-session reuse without retaining the PIN, or optional temporary PIN retention in
-memory for that batch. Temporary PIN retention increases exposure; other signing
-operations require per-document authorization.
+Batches of attached CAdES and PDF documents support per-document authentication,
+approved session reuse without retaining the PIN, or optional temporary PIN
+retention in memory for that batch. In a session the PDF helper never receives
+the PIN. Temporary PIN retention increases exposure; other signing operations
+require per-document authorization.
 
 ## Verification and trust
 
@@ -71,7 +100,7 @@ does not replace the app's full trust/revocation/eIDAS assessment.
 
 ## Requirements and installation
 
-- **Version 0.7.0, Build 14; Apple Silicon arm64.** No Intel build is supplied.
+- **Version 0.7.0, Build 17; Apple Silicon arm64.** No Intel build is supplied.
 - **Declared minimum macOS 13.0.** Real macOS 13/14 and clean-Mac qualification remain open.
 - Compatible arm64 PKCS#11 middleware is installed separately for hardware signing.
   Verification does not require a token; no universal device/vendor compatibility is claimed.
@@ -86,7 +115,7 @@ opening the download. It does not disable Gatekeeper or other system protections
 
 ## Dependencies and licensing
 
-| Component | Build 14 version | License / role |
+| Component | Build 17 version | License / role |
 | --- | --- | --- |
 | PoDoFo | 1.1.2 | MPL-2.0; native PDF processing |
 | FreeType | 2.13.3 | FTL; native font support |
@@ -97,7 +126,7 @@ opening the download. It does not disable Gatekeeper or other system protections
 
 Signum original code remains Apache-2.0. Included components retain their own
 terms. Notices, corresponding native sources and `SOURCE_ACCESS.md` are bundled
-under `Signum.app/Contents/Resources/ThirdPartySources/`; access to the private
+under `Signum.app/Contents/Resources/ThirdPartySources/`; access to the
 repository is not needed to obtain that included kit. Portions of this software
 are copyright © The FreeType Project.
 
@@ -110,9 +139,8 @@ Real PIN change and PUK unblocking are disabled/unqualified. Worker isolation is
 not a privilege sandbox against hostile middleware. See the
 [security scope](https://github.com/tiertoast/Signum/blob/main/docs/SECURITY.md).
 
-This English presentation updates documentation only. The verified DMG is
-unchanged and still contains its original Italian packaging notes. Technical
-manifests and source provenance remain intact.
+Build numbers 15 and 16 were used only for local test builds and were never
+published; Build 17 follows Build 14 as the next public Beta.
 
 ## Downloads and checksum
 

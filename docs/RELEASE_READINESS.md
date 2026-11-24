@@ -1,6 +1,6 @@
 # Release readiness
 
-Signum **0.7.0 Beta — Build 14** is an experimental prerelease for Apple Silicon.
+Signum **0.7.0 Beta — Build 17** is an experimental prerelease for Apple Silicon.
 The [release notes](RELEASE_NOTES.md) describe the product and installation scope.
 This record concerns release assurance, not the features of an earlier version.
 
