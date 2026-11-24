@@ -85,7 +85,7 @@ final class SigningOperationTests: XCTestCase {
         native.recordPublished(); XCTAssertEqual(native.state, .completed)
     }
     func testMainQueueRemainsResponsiveDuringBlockedVendor() throws {
-        let mock = try MockModule(workerPhase: 0, workerEffect: 10, audit: true)
+        let mock = try MockModule(workerPhase: 0, workerEffect: 11, audit: true)
         let base = mock.folder.appendingPathComponent("operations").path
         guard mkfifo(base + ".main-ready", 0o600) == 0,
               mkfifo(base + ".main-ping", 0o600) == 0 else { throw POSIXError(.EIO) }

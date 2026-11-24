@@ -124,7 +124,7 @@ static CK_RV begin(int op) {
 #endif
         /* Fixture teardown must never release a real private operation. */
         _exit(76);
-#elif SIGNUM_MOCK_WORKER_EFFECT == 10
+#elif SIGNUM_MOCK_WORKER_EFFECT == 11
 #ifdef SIGNUM_MOCK_AUDIT_PATH
         /* M3: acknowledge a main-queue ping while still inside Initialize.
          * No ping releases vendor work; the supervisor must time it out. */
