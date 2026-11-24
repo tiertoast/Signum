@@ -92,8 +92,11 @@ import XCTest
             let owner = Owner(); var pin = "wrong-fixture"
             XCTAssertTrue(f.authorization.authorizeNext(pin: &pin, batch: f.batch, interaction: f.interaction, worker: f.worker, hooks: hooks(owner)))
             await owner.drain()
+            XCTAssertEqual(count(f.mock, 8), 1, "a refused PIN reaches the token exactly once")
             XCTAssertEqual(count(f.mock, 16), 0)
             XCTAssertNil(f.authorization.session)
+            XCTAssertEqual(f.batch.documents.map(\.state), [.waitingForAuthorization, .pending], "the batch stops; nothing is retried")
+            XCTAssertFalse(f.interaction.isSubmittingPIN)
             XCTAssertFalse(f.authorization.attempted, "a new PIN may start a new session")
             XCTAssertTrue(f.authorization.notice.isEmpty, "the refusal is shown at the PIN field, not as a session notice")
             XCTAssertEqual(owner.statuses.last, SigningAuthenticationFailure.pinIncorrect.localizedDescription)
