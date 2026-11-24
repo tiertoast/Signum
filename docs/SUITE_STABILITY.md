@@ -30,3 +30,7 @@ La correzione del helper PTY usa una pipe: il padre acquisisce termios prima di 
 Sono correzioni di assunzioni dei test dimostrate con controlli rossi dedicati, senza cambiamenti al prodotto. Non dimostrano retroattivamente la causa dei timeout storici né quale dei due assert sulla riga terminale ambigua fosse fallito. Le diagnosi che non si riproducono restano dichiarate tali, senza attribuirle per analogia.
 
 `--case-file` consente selezioni diagnostiche aggiuntive esplicite; il manifest storico conserva i sei metodi originari. Nel confronto dopo le correzioni si possono aggiungere i due controlli direttamente coinvolti, dichiarando separatamente il conteggio; nessun metodo originario è escluso. Gli stessi cataloghi completi e i conteggi795/466 rimangono autorevoli finché non si aggiungono nuovi metodi XCTest.
+
+## Campagna M3–M6 del 2026-11-24
+
+Sul commit `2d08f14`, selezione `failed-methods`, 20 ripetizioni per cella Debug/Release × idle/cpu: 80/80 esecuzioni verdi (480/480 casi), copertura completa, nessuno skip o timeout, sorgenti invariati. Poppler non era installato (`--poppler /usr/bin/false`; nessuno dei sei metodi lo usa). Restano da eseguire la campagna sulle cinque classi e almeno 5 esecuzioni per cella della selezione pertinente. [Record](engineering/stability/M3_M6_CAMPAIGN_2026-11-24.json); le evidenze grezze restano fuori dal checkout.

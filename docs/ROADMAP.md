@@ -13,9 +13,10 @@ XAdES/ASiC profiles, document workspaces, Finder integration, device discovery,
 European trust assessment and PDF/text reports. Build 17 is distributed for Apple
 Silicon with an ad-hoc signature. [Current release](RELEASE_NOTES.md)
 
-Compatibility, accessibility and stability refinements remain open. Detailed
-M3–M6 follow-up belongs to [issue #9](https://github.com/tiertoast/Signum/issues/9)
-and engineering records; the current Beta is not RC-qualified or Stable.
+Compatibility, accessibility and stability refinements remain open. The M3–M6
+repeated campaign passed ([issue #9](https://github.com/tiertoast/Signum/issues/9) closed);
+the five-class and pertinent-selection campaigns are still due before the RC
+stability gate. The current Beta is not RC-qualified or Stable.
 
 ## 0.8 — Reliability and distribution
 

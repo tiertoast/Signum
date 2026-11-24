@@ -1,0 +1,335 @@
+{
+ "schema": 1,
+ "issue": "https://github.com/tiertoast/Signum/issues/9",
+ "scope": "M3-M6: six historical failure methods (scripts/local-stability-cases.json, failedMethods)",
+ "sourceCommit": "2d08f14f917730ed8f75a8291defcecbeb6f4b66",
+ "date": "2026-11-24",
+ "runner": "scripts/test-suite-stability.py --selection failed-methods --repeat 20 --timeout 1800",
+ "host": {
+  "chip": "Apple M2",
+  "logicalCPUs": 8,
+  "macOS": "27.2.1",
+  "swift": "Apple Swift 6.4.2 (swiftlang-6.4.2.1.9)",
+  "triple": "arm64-apple-macosx13.0"
+ },
+ "result": {
+  "totalRuns": 80,
+  "passedRuns": 80,
+  "failedCases": 0,
+  "skippedCases": 0,
+  "timeouts": 0
+ },
+ "deviations": [
+  "Poppler is not installed on the host; --poppler was set to /usr/bin/false. None of the six selected methods reads SIGNUM_TEST_POPPLER.",
+  "PAdES helper taken from the Build 17 app bundle (same source as the measured commit for Tools/PAdESHelper); not exercised by the selected methods."
+ ],
+ "notCovered": [
+  "Phase 5a context campaign on the five classes (selection failed-classes).",
+  "At least 5 runs per cell of the pertinent selection (requires Poppler).",
+  "Real tokens/middleware; this is an offline synthetic-fixture measurement."
+ ],
+ "conclusion": "Issue #9 acceptance (repeat >= 20 on M3-M6, one commit) met: 80/80 runs green (480/480 test executions). The RC stability gate is not declared passed until the not-covered Phase 5a campaigns are run.",
+ "rawEvidence": "Kept locally outside the checkout (logs, events, results.json per cell); not committed.",
+ "cells": [
+  {
+   "configuration": "release",
+   "condition": "cpu",
+   "selection": "failed-methods",
+   "repetitions": 20,
+   "passedRepetitions": 20,
+   "completeCoverageEveryRun": true,
+   "timeouts": 0,
+   "syntheticCPUProcesses": 8,
+   "sourceUnchangedDuringMeasurements": true,
+   "firstRunStartUTC": "2026-11-24T10:37:51.772928+00:00",
+   "resultsSHA256": "14a0feed466033604efc41778c7446cba71d1e2fea1e757c888af93f504e92bd",
+   "methods": {
+    "SignumCoreTests.S03PINFidelityTests/testBatchAndTemporaryReuseKeepExactAcceptedPINBytes": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 1.305,
+      "median": 1.4995,
+      "maximum": 1.824
+     }
+    },
+    "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 3.864,
+      "median": 4.284000000000001,
+      "maximum": 5.457
+     }
+    },
+    "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.648,
+      "median": 0.7835000000000001,
+      "maximum": 1.043
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testCancellationTerminatesBlockedWorkerAndDoesNotRetry": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.617,
+      "median": 0.801,
+      "maximum": 1.066
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testExplicitCancellationFixtureTerminatesBlockedWorker": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.635,
+      "median": 0.828,
+      "maximum": 1.157
+     }
+    },
+    "SignumCoreTests.UnifiedVerificationTests/testSupervisedVerificationCrashTimeoutCancelAndRSSLimit": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.783,
+      "median": 0.9075,
+      "maximum": 1.204
+     }
+    }
+   }
+  },
+  {
+   "configuration": "debug",
+   "condition": "cpu",
+   "selection": "failed-methods",
+   "repetitions": 20,
+   "passedRepetitions": 20,
+   "completeCoverageEveryRun": true,
+   "timeouts": 0,
+   "syntheticCPUProcesses": 8,
+   "sourceUnchangedDuringMeasurements": true,
+   "firstRunStartUTC": "2026-11-24T10:43:04.038931+00:00",
+   "resultsSHA256": "5d3bb59a52f388d216eb54947e62956aa9fcd891ee18794a5a08a66c1e5963ea",
+   "methods": {
+    "SignumCoreTests.S03PINFidelityTests/testBatchAndTemporaryReuseKeepExactAcceptedPINBytes": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 1.413,
+      "median": 1.5950000000000002,
+      "maximum": 1.965
+     }
+    },
+    "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 4.063,
+      "median": 4.512499999999999,
+      "maximum": 5.217
+     }
+    },
+    "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.667,
+      "median": 0.7805,
+      "maximum": 1.093
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testCancellationTerminatesBlockedWorkerAndDoesNotRetry": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.634,
+      "median": 0.842,
+      "maximum": 1.242
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testExplicitCancellationFixtureTerminatesBlockedWorker": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.62,
+      "median": 0.8425,
+      "maximum": 1.008
+     }
+    },
+    "SignumCoreTests.UnifiedVerificationTests/testSupervisedVerificationCrashTimeoutCancelAndRSSLimit": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.776,
+      "median": 0.953,
+      "maximum": 1.259
+     }
+    }
+   }
+  },
+  {
+   "configuration": "release",
+   "condition": "idle",
+   "selection": "failed-methods",
+   "repetitions": 20,
+   "passedRepetitions": 20,
+   "completeCoverageEveryRun": true,
+   "timeouts": 0,
+   "syntheticCPUProcesses": 0,
+   "sourceUnchangedDuringMeasurements": true,
+   "firstRunStartUTC": "2026-11-24T10:47:51.958270+00:00",
+   "resultsSHA256": "734c2235e626c4a38e187a2e75af9e852dab826461c129f92c1763454911dc8a",
+   "methods": {
+    "SignumCoreTests.S03PINFidelityTests/testBatchAndTemporaryReuseKeepExactAcceptedPINBytes": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.887,
+      "median": 0.957,
+      "maximum": 1.126
+     }
+    },
+    "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 2.625,
+      "median": 2.7489999999999997,
+      "maximum": 2.87
+     }
+    },
+    "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.606,
+      "median": 0.614,
+      "maximum": 0.632
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testCancellationTerminatesBlockedWorkerAndDoesNotRetry": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.569,
+      "median": 0.638,
+      "maximum": 0.759
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testExplicitCancellationFixtureTerminatesBlockedWorker": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.553,
+      "median": 0.587,
+      "maximum": 0.71
+     }
+    },
+    "SignumCoreTests.UnifiedVerificationTests/testSupervisedVerificationCrashTimeoutCancelAndRSSLimit": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.728,
+      "median": 0.742,
+      "maximum": 0.784
+     }
+    }
+   }
+  },
+  {
+   "configuration": "debug",
+   "condition": "idle",
+   "selection": "failed-methods",
+   "repetitions": 20,
+   "passedRepetitions": 20,
+   "completeCoverageEveryRun": true,
+   "timeouts": 0,
+   "syntheticCPUProcesses": 0,
+   "sourceUnchangedDuringMeasurements": true,
+   "firstRunStartUTC": "2026-11-24T10:51:05.153037+00:00",
+   "resultsSHA256": "9c32c88b675372ec9ce6bba2b3b4110174108ef9690685f4e6a2bab3d01a3302",
+   "methods": {
+    "SignumCoreTests.S03PINFidelityTests/testBatchAndTemporaryReuseKeepExactAcceptedPINBytes": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.993,
+      "median": 1.0205,
+      "maximum": 1.138
+     }
+    },
+    "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 2.724,
+      "median": 2.779,
+      "maximum": 2.927
+     }
+    },
+    "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.601,
+      "median": 0.615,
+      "maximum": 0.691
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testCancellationTerminatesBlockedWorkerAndDoesNotRetry": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.592,
+      "median": 0.63,
+      "maximum": 0.743
+     }
+    },
+    "SignumCoreTests.TaskCancellationLifecycleTests/testExplicitCancellationFixtureTerminatesBlockedWorker": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.575,
+      "median": 0.6345000000000001,
+      "maximum": 0.743
+     }
+    },
+    "SignumCoreTests.UnifiedVerificationTests/testSupervisedVerificationCrashTimeoutCancelAndRSSLimit": {
+     "passed": 20,
+     "failed": 0,
+     "skipped": 0,
+     "xctestSeconds": {
+      "minimum": 0.722,
+      "median": 0.761,
+      "maximum": 0.974
+     }
+    }
+   }
+  }
+ ]
+}

@@ -58,8 +58,9 @@ leak qualification; targeted TSAN does not certify the whole application.
 
 Run campaigns sharing process/device coordination sequentially. Real token,
 minimum-OS, clean-Mac and interactive/accessibility checks are separate.
-The [stability record](SUITE_STABILITY.md) and [issue #9](https://github.com/tiertoast/Signum/issues/9)
-retain the open timing/cancellation follow-up.
+The [stability record](SUITE_STABILITY.md) describes the method; the M3–M6
+campaign that closed [issue #9](https://github.com/tiertoast/Signum/issues/9) is in
+[engineering/stability](engineering/stability/M3_M6_CAMPAIGN_2026-11-24.json).
 
 ## Packaging checks
 
