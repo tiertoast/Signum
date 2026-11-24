@@ -169,8 +169,7 @@ struct PKCS11 {
                                    pin.data(), pin.size(), message, digestInfo.size(),
                                    signature.data(), signature.size(), &length,
                                    error.data(), error.size()) != 0) {
-            unsigned long rv = 0, flags = 0;
-            refusal = sg_sign_refusal_name(sg_last_sign_outcome(context, &rv, &flags), rv, flags);
+            refusal = sg_last_sign_refusal(context);
             throw std::runtime_error("PKCS#11 signing: " + std::string(error.data()));
         }
         if (!length || length > signature.size()) throw std::runtime_error("Invalid returned signature length");

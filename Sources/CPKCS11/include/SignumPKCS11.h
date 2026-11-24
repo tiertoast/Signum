@@ -78,6 +78,10 @@ int sg_last_sign_outcome(SGContext *context, unsigned long *login_rv, unsigned l
  * pinIncorrectCountLow, pinIncorrectFinalTry, pinLocked, pinInvalid, pinExpired,
  * notSigned). The string is a static literal. */
 const char *sg_sign_refusal_name(int sign_called, unsigned long login_rv, unsigned long token_flags);
+/* Refusal of the latest signing request on this context: NULL when C_Sign may
+ * have been invoked; certificateChanged / certificateIneligible when Signum's own
+ * certificate check refused before login; otherwise sg_sign_refusal_name. */
+const char *sg_last_sign_refusal(SGContext *context);
 
 /* Worker-only, single batch owner. First PIN is used only for the first job;
  * later calls accept NO PIN and require a readable false ALWAYS_AUTHENTICATE.
