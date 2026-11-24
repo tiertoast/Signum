@@ -73,11 +73,11 @@ public struct SigningJob: Sendable {
                       appearance.configuration.pageIndex >= 0,appearance.configuration.pageIndex < doc.numberOfPages,
                       let page=doc.page(at:appearance.configuration.pageIndex+1),
                       try appearance.configuration.orientation.resolve(pageRotation:Int(page.rotationAngle)).pageRotation == rotation else {
-                    throw SignumError.module("Orientamento non vincolato alla pagina dello snapshot approvato.")
+                    throw SignumError.module("Orientamento non vincolato alla pagina della copia approvata.")
                 }
                 if let unit=appearance.configuration.userUnit {
                     guard try PAdESPageGeometry(page:page).userUnit == unit else {
-                        throw SignumError.module("UserUnit non vincolato alla pagina dello snapshot approvato.")
+                        throw SignumError.module("UserUnit non vincolato alla pagina della copia approvata.")
                     }
                 }
                 try appearance.configuration.validate(cropBox:page.getBoxRect(.cropBox).intersection(page.getBoxRect(.mediaBox)),pageRotation:rotation)
@@ -115,7 +115,7 @@ public struct SigningJob: Sendable {
 
     public func verifiedBytes() throws -> Data {
         guard snapshot.identity == snapshotIdentity, contentSHA256 == snapshotIdentity.sha256 else {
-            throw SignumError.module("Identità dello snapshot non valida.")
+            throw SignumError.module("Identità della copia di lavoro non valida.")
         }
         return try snapshot.verifiedBytes()
     }

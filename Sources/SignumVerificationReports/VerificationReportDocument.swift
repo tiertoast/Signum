@@ -152,7 +152,7 @@ public struct VerificationReportDocument: Sendable {
             if report.format == .pades { identityFields.append(field("Copertura della firma", report.signatureCoverageDescription(signature))) }
             if signature.laterChanges {identityFields.append(field("Modifiche successive","Presenti; accettabilità DocMDP/FieldMDP non valutata"))}
             identityFields.append(field("Data dichiarata (signingTime)",Self.declaredDate(signature.declaredTime)))
-            let missing="Risultato non presente nello snapshot della sessione; valutazione non completata o non disponibile."
+            let missing="Risultato non presente nei dati della sessione; valutazione non completata o non disponibile."
             var outcomes=[outcome("Integrità crittografica",signature.integrity.description,signature.reason.isEmpty ? "Esito crittografico restituito dal motore Signum; attendibilità del certificato valutata separatamente.":signature.reason)]
             var details=[Field]()
             if let value {

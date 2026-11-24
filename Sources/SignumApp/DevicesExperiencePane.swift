@@ -157,7 +157,7 @@ struct DevicesExperiencePane: View {
                 Text("Certificato pubblico DER · Base64").fontWeight(.medium)
                 Text(route.der.base64EncodedString()).font(.caption.monospaced()).lineLimit(nil)
             }
-            Text("Diagnostica middleware").fontWeight(.medium)
+            Text("Diagnostica del software del dispositivo").fontWeight(.medium)
             ForEach(selection.providers) { provider in
                 Text("\(provider.definition.name) · \(provider.diagnostic)\n\(provider.candidatePath)\nVersione: \(provider.version ?? "non disponibile") · slot non disponibili: \(provider.unavailableSlots)")
             }

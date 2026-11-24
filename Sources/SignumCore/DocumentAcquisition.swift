@@ -19,7 +19,7 @@ public struct DocumentAcquisitionFailure: Error, LocalizedError {
         case .space: return "Spazio insufficiente per preparare il documento."
         case .timeout: return "La preparazione del documento ha impiegato troppo tempo."
         case .cancelled: return "Preparazione del documento annullata."
-        case .unsupported: return "Questo filesystem non consente uno snapshot coerente. Usa una copia locale."
+        case .unsupported: return "Questo disco non consente una copia di lavoro coerente. Usa una copia locale."
         }
     }
     static func system(_ operation: String, code: Int32 = errno) -> Self {

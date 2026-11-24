@@ -43,7 +43,7 @@ struct PINDeviceSecurityPane: View {
                     .foregroundStyle(snapshot.userPINLocked || snapshot.userPINFinalTry ? Color.orange : Color.secondary)
                 Text("Ultima lettura pubblica: " + snapshot.readAt.formatted(date: .abbreviated, time: .standard)).font(.callout)
                 if snapshot.userPINFinalTry && snapshot.userPINLocked {
-                    Text("Il middleware segnala anche l’ultimo tentativo disponibile.").foregroundStyle(.orange)
+                    Text("Il software del dispositivo segnala anche l’ultimo tentativo disponibile.").foregroundStyle(.orange)
                 }
                 if snapshot.userPINMustChange && (snapshot.userPINLocked || snapshot.userPINFinalTry || snapshot.userPINCountLow) {
                     Text("È segnalata anche la necessità di modificare il PIN.").foregroundStyle(.secondary)
@@ -55,7 +55,7 @@ struct PINDeviceSecurityPane: View {
                 Text("Lunghezza dichiarata: minimo \(snapshot.minimumBytes.map { String($0) } ?? "non comunicato"), massimo \(snapshot.maximumBytes.map { String($0) } ?? "non comunicato") byte.")
                     .font(.callout).foregroundStyle(.secondary)
                 if !snapshot.limitsConsistent { Text("Limiti incompleti o incoerenti: non utilizzabili per autorizzare operazioni.").font(.callout).foregroundStyle(.orange) }
-                if snapshot.protectedAuthenticationPath { Text("Il middleware dichiara un percorso di autenticazione protetto.").font(.callout) }
+                if snapshot.protectedAuthenticationPath { Text("Il software del dispositivo dichiara un percorso di autenticazione protetto.").font(.callout) }
                 Text("Dominio PIN, applet e procedura PUK non identificati. Le segnalazioni non provano l’utilizzabilità del PIN.")
                     .font(.callout).foregroundStyle(.secondary)
                 DisclosureGroup("Dati pubblici della lettura") {

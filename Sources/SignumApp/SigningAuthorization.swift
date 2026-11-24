@@ -145,8 +145,8 @@ import SignumCore
 
     // Texts, pure so they can be tested without a token.
     static func continuingNotice(_ mode: BatchAuthenticationMode) -> String {
-        mode == .temporaryPIN ? "PIN temporaneo attivo soltanto per questo batch approvato."
-                              : "Sessione autenticata per questo batch. Nessun PIN riutilizzato."
+        mode == .temporaryPIN ? "PIN temporaneo attivo soltanto per questi documenti approvati."
+                              : "Sessione autenticata per questi documenti. Nessun PIN riutilizzato."
     }
     static func retiredNotice(_ batch: BatchSigningCoordinator) -> String {
         guard batch.authenticationNotice.isEmpty else { return batch.authenticationNotice }

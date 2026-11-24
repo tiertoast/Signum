@@ -44,7 +44,7 @@ extension SignumWindow {
                                 }
                             }.frame(maxWidth: .infinity)
                             Text(authenticationMode.explanation).font(.callout).foregroundStyle(.secondary)
-                            Text("Per documento: un nuovo PIN a ogni firma. PIN temporaneo: rimane in memoria per il batch e ne aumenta l’esposizione. Automatica: prova il riutilizzo della sessione del dispositivo senza conservare il PIN. La condivisione è disponibile solo per CAdES.")
+                            Text("Per documento: un nuovo PIN a ogni firma. PIN temporaneo: rimane in memoria per i documenti approvati e ne aumenta l’esposizione. Automatica: prova il riutilizzo della sessione del dispositivo senza conservare il PIN. La condivisione è disponibile solo per CAdES.")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                     }.frame(maxWidth: 720, alignment: .leading).padding(24).frame(maxWidth: .infinity, alignment: .center)

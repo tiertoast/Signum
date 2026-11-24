@@ -150,7 +150,7 @@ public struct RenderedPAdESAppearance: Equatable, Sendable {
     }
     public func placed(_ configuration:PAdESAppearanceConfiguration,cropBox:CGRect) throws -> Self {
         guard self.configuration.hasSameArtwork(as:configuration) else {
-            throw SignumError.module("Il contenuto grafico è cambiato: prepara una nuova appearance.")
+            throw SignumError.module("Il contenuto grafico è cambiato: prepara di nuovo l’aspetto della firma.")
         }
         try configuration.validate(cropBox:cropBox,pageRotation:pageRotation ?? 0)
         return Self(configuration:configuration,pdf:pdf,certificateSHA256:certificateSHA256,artworkID:artworkID,
@@ -168,7 +168,7 @@ public struct RenderedPAdESAppearance: Equatable, Sendable {
     public func reoriented(_ next:PAdESAppearanceConfiguration,cropBox:CGRect,pageRotation:Int,
                            isCancelled:()->Bool = {false}) throws -> Self {
         guard canReorient(to:next,pageRotation:pageRotation),let uprightPDF else {
-            throw SignumError.module("Il contenuto grafico è cambiato: prepara una nuova appearance.")
+            throw SignumError.module("Il contenuto grafico è cambiato: prepara di nuovo l’aspetto della firma.")
         }
         try next.validate(cropBox:cropBox,pageRotation:pageRotation)
         let resolution=try next.orientation.resolve(pageRotation:pageRotation)
@@ -218,7 +218,7 @@ public enum PAdESAppearanceRenderer {
         guard !lines.isEmpty || configuration.image != nil else { throw SignumError.module("La firma visibile richiede testo o immagine.") }
         var box = CGRect(origin:.zero, size: try configuration.contentSize(pageRotation:pageRotation ?? 0))
         let output = NSMutableData()
-        guard let sink = CGDataConsumer(data: output as CFMutableData), let context = CGContext(consumer:sink, mediaBox:&box, nil) else { throw SignumError.module("Rendering appearance non disponibile.") }
+        guard let sink = CGDataConsumer(data: output as CFMutableData), let context = CGContext(consumer:sink, mediaBox:&box, nil) else { throw SignumError.module("Impossibile preparare l’aspetto della firma.") }
         context.beginPDFPage(nil)
         context.scaleBy(x:1/configuration.effectiveUserUnit,y:1/configuration.effectiveUserUnit)
         box.size = CGSize(width:box.width*configuration.effectiveUserUnit,height:box.height*configuration.effectiveUserUnit)

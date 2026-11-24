@@ -86,6 +86,10 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         showMainWindow()
         NotificationCenter.default.post(name: .signumShowSettings, object: nil)
     }
+    @objc func addDocuments() {
+        showMainWindow()
+        NotificationCenter.default.post(name: .signumAddDocuments, object: nil)
+    }
     private func configureMenus() {
         let menu = NSMenu()
         let application = NSMenu(title: "Signum")
@@ -106,6 +110,8 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         application.addItem(withTitle: "Esci da Signum", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(withTitle: "Signum", action: nil, keyEquivalent: "").submenu = application
         let file = NSMenu(title: "File")
+        file.addItem(withTitle: "Aggiungi documenti…", action: #selector(addDocuments), keyEquivalent: "o").target = self
+        file.addItem(.separator())
         file.addItem(withTitle: "Chiudi finestra", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         menu.addItem(withTitle: "File", action: nil, keyEquivalent: "").submenu = file
         let edit = NSMenu(title: "Modifica")

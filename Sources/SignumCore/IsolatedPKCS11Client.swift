@@ -11,7 +11,7 @@ public final class IsolatedPKCS11Client: Sendable {
         case contextChanged
         public var errorDescription: String? {
             switch self {
-            case .busy: return "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al provider."
+            case .busy: return "Dispositivo occupato da un'altra operazione Signum. Nessun PIN inviato al dispositivo."
             case .contextChanged: return "Il contesto del dispositivo è cambiato. Nessuna autenticazione inviata. Cerca nuovamente e approva una nuova sessione."
             case .authenticationRequired: return "Il dispositivo richiede autenticazione per leggere i certificati. La ricerca non invia PIN."
             }
@@ -105,7 +105,7 @@ public final class IsolatedPKCS11Client: Sendable {
         if let binding = request.providerContext, response.succeeded {
             guard response.provider == binding.provider, response.validatedContext == binding else { throw SupervisedProcess.Failure.protocolViolation }
         }
-        guard response.succeeded, response.failureKind == nil else { throw SignumError.module("Operazione del provider non riuscita. Nessun tentativo automatico aggiuntivo.") }
+        guard response.succeeded, response.failureKind == nil else { throw SignumError.module("Operazione del software del dispositivo non riuscita. Nessun tentativo automatico aggiuntivo.") }
         if let expected = request.expectedModule {
             guard response.validatedModule == expected, response.automaticValidated == request.automaticModule else { throw SupervisedProcess.Failure.protocolViolation }
             let inspected = try MiddlewareFileSecurity.inspect(request.provider, automatic: request.automaticModule == true)
