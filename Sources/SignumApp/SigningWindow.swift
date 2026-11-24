@@ -27,10 +27,17 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @State var discoveryOperation: SigningOperation?
     @AppStorage(SigningExperiencePreferences.Keys.batchAuthentication) var authenticationModeRaw = BatchAuthenticationMode.automatic.rawValue
     @AppStorage(SigningExperiencePreferences.Keys.includeSigningTime) var includeSigningTime = true
-    @State var approvedAuthenticationMode: BatchAuthenticationMode = .perSignature
-    @State var authenticationSession: BatchCAdESSession?
-    @State var authenticationAttempted = false
-    @State var authenticationStatus = ""
+    /// Consent and PIN flow; see SigningAuthorization.
+    @StateObject var authorization = SigningAuthorization()
+    var approvedAuthenticationMode: BatchAuthenticationMode { authorization.approvedMode }
+    var authenticationSession: BatchCAdESSession? { authorization.session }
+    var authenticationStatus: String { authorization.notice }
+    var approvedHolder: String {
+        get { authorization.approvedHolder } nonmutating set { authorization.approvedHolder = newValue }
+    }
+    var approvedRoute: DeviceCertificateRoute? {
+        get { authorization.approvedRoute } nonmutating set { authorization.approvedRoute = newValue }
+    }
     @AppStorage(SigningExperiencePreferences.Keys.additionalConfirmation) var additionalConfirmation = false
     @FocusState var pinFocused: Bool
     @AppStorage(SigningExperiencePreferences.Keys.showExcluded) var showExcludedCertificates = false
@@ -38,8 +45,6 @@ enum SignumFormat: String, Hashable, CaseIterable {
     @State var customDirectory: URL?
     /// Every visible PAdES stamp of the session; see PDFStampBoard for the rules.
     @StateObject var stamps = PDFStampBoard()
-    @State var approvedHolder = ""
-    @State var approvedRoute: DeviceCertificateRoute?
     @State var provider: ProviderSelection
     @State var devices: DeviceSelection
     @State var discoveryStarted = false
@@ -117,7 +122,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         _status = State(initialValue: initialDevices.providers.isEmpty ? "Ricerca dei dispositivi di firma…" : initialDevices.message)
     }
 
-    var interfaceLocked: Bool { !session.isActive || busy || batch.isPreparing || batch.isRunning || batch.isContinuingAuthenticated || (authenticationSession?.canContinue ?? false) || interaction.isRequestingApproval || interaction.isSubmittingPIN }
+    var interfaceLocked: Bool { !session.isActive || busy || batch.isPreparing || batch.isRunning || batch.isContinuingAuthenticated || authorization.isContinuing || interaction.isRequestingApproval || interaction.isSubmittingPIN }
     var authenticationMode: BatchAuthenticationMode { BatchAuthenticationMode(rawValue: authenticationModeRaw) ?? .perSignature }
     var authenticationExplanation: String {
         BatchAuthenticationPolicy.explanation(formats: batch.documents.map(\.format),
@@ -284,18 +289,9 @@ enum SignumFormat: String, Hashable, CaseIterable {
         selectionRequestID = UUID(); workspace.select(nil); inputFile = nil
         stamps.reset(); previewSnapshotID = nil
         approvedRoute = nil; approvedHolder = ""; authorizedManualPaths = []; manualPath = ""
-        authenticationAttempted = false; authenticationStatus = ""; busy = false; pinFocused = false
+        busy = false; pinFocused = false
         showDeviceConfiguration = false; showDefaultApplications = false
-        if let context = authenticationSession {
-            context.requestStop()
-            if !batch.isContinuingAuthenticated {
-                let retirement = batch.retireAuthenticatedSession(using: context)
-                session.own(Task { @MainActor in
-                    await retirement.value
-                    if authenticationSession === context { authenticationSession = nil }
-                })
-            }
-        }
+        authorization.revoke(batch: batch, own: { session.own($0) })
     }
     func scheduleSystemDocuments() {
         guard session.isActive else { return }
@@ -478,8 +474,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         guard session.isActive else { return }
         if results.releaseIfFinished(batch, interactionBusy: interaction.isSubmittingPIN || interaction.isRequestingApproval,
             hasAuthenticationContext: authenticationSession != nil, otherWork: busy) {
-            review.cancel(); provider.pin = ""; approvedRoute = nil; approvedHolder = ""
-            authenticationAttempted = false; authenticationStatus = ""
+            review.cancel(); provider.pin = ""; authorization.clear()
             stamps.reset(); workspace.select(nil)
             status = "Sessione conclusa. Gli esiti sono conservati; puoi firmare altri documenti o aprire Verifica."
         }
@@ -487,8 +482,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     func resetSession() {
         guard !interfaceLocked else { return }
-        authenticationSession?.requestStop(); authenticationSession = nil
-        authenticationAttempted = false; authenticationStatus = ""
+        authorization.reset()
         batch.reset(); stamps.reset(); approvedRoute = nil
         showDocument(nil); provider.pin = ""; lastSignedFile = nil
         status = "Nuova sessione. Scegli i documenti da firmare."
@@ -616,7 +610,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         discoveryOperation?.requestCancellation(); discoveryOperation = nil
         refresh.cancel(); devices.cancelDiscovery(); provider.beginDiscovery()
         review.cancel(); batch.invalidateReview()
-        approvedRoute = nil; approvedHolder = ""; authenticationAttempted = false
+        authorization.withdrawApproval()
         status = "Configurazione manuale rimossa. Cerca nuovamente per scegliere un certificato."
     }
 
@@ -679,7 +673,7 @@ enum SignumFormat: String, Hashable, CaseIterable {
         batch.remove(id)
         provider.pin = ""
         if !batch.isApproved {
-            approvedRoute = nil; authenticationAttempted = false
+            approvedRoute = nil; authorization.attempted = false
             status = "Rimozione richiesta. L’eventuale firma corrente conserva il proprio esito; i documenti rimasti richiedono una nuova approvazione."
         }
         guard !batch.documents.contains(where: { $0.id == id }) else { return }
@@ -737,93 +731,23 @@ enum SignumFormat: String, Hashable, CaseIterable {
                 })
             guard session.accepts(generation) else { return }
             if approved {
-                approvedHolder = holder; approvedRoute = route
-                approvedAuthenticationMode = requestedAuthenticationMode
-                authenticationAttempted = false
-                authenticationStatus = BatchAuthenticationPolicy.explanation(formats: plan.jobs.map(\.format), serial: route.token.serial, mode: requestedAuthenticationMode)
+                authorization.approved(holder: holder, route: route, mode: requestedAuthenticationMode, formats: plan.jobs.map(\.format))
                 status = "Documenti approvati. Inserisci il PIN per la firma corrente."
             } else { status = "Conferma annullata. Nessuna firma avviata." }
         } catch { if session.accepts(generation) { status = error.localizedDescription } }
     }
 
     func authorizeNextDocument() {
-        guard canAuthorizeNext, let route = approvedRoute else { return }
-        let holder = approvedHolder, worker = signingWorker
-        if !authenticationAttempted, let plan = batch.approval,
-           BatchAuthenticationPolicy.canAttempt(jobs: plan.jobs, serial: route.token.serial, mode: approvedAuthenticationMode) {
-            authenticationAttempted = true
-            do {
-                authenticationSession = try BatchCAdESSession(approval: plan, serial: route.token.serial,
-                    moduleIdentity: route.moduleIdentity, automaticModule: route.origin == .known,
-                    temporaryPIN: approvedAuthenticationMode == .temporaryPIN,
-                    startingAt: batch.nextDocument?.id, remainingSnapshotIDs: Set(batch.documents.filter { !$0.state.isTerminal }.map(\.id)), executable: worker.executable,
-                    padesRunner: SignumPAdESHelper.available ? { job, operation, signer in
-                        // The helper loads no middleware and never receives the PIN.
-                        try SignumPAdESHelper.sign(job: job, pin: nil, appearanceName: holder, field: nil, operation: operation,
-                                                   appearance: job.padesAppearance, remoteSigner: signer)
-                    } : nil)
-            } catch { provider.pin = ""; status = error.localizedDescription; return }
-        }
-        let session = authenticationSession
-        let generation = self.session.generation
+        guard canAuthorizeNext, approvedRoute != nil else { return }
+        let generation = session.generation
         workspace.showingPDFPreview = false
-        let submission = interaction.submitPIN(&provider.pin, batch: batch, execute: { job, pin, operation in
-            guard job.providerContext != nil else { throw SignumError.module("Contesto dispositivo approvato mancante.") }
-            try route.requireCurrentModule()
-            if let session { try session.sign(job: job, pin: pin, operation: operation) }
-            else if job.format == .cades { try job.signCAdES(using: worker, pin: pin, operation: operation) }
-            else if job.format.isAdvancedCAdES { try job.signAdvancedCAdES(using:worker,pin:pin,operation:operation) }
-            else if job.format == .xades || job.format.isASiC { try job.signXAdES(using:worker,pin:pin,operation:operation) }
-            else { try SignumPAdESHelper.sign(job: job, pin: pin, appearanceName: holder,
-                field: nil, operation: operation, appearance: job.padesAppearance) }
-        }, completion: { result in
-            guard self.session.accepts(generation) else { return }
-            lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
-            if let session {
-                if session.canContinue && batch.isApproved {
-                    authenticationStatus = approvedAuthenticationMode == .temporaryPIN
-                        ? "PIN temporaneo attivo soltanto per questo batch approvato."
-                        : "Sessione autenticata per questo batch. Nessun PIN riutilizzato."
-                    self.session.own(Task { @MainActor in
-                        await batch.continueAuthenticatedBatch(using: session)
-                        if authenticationSession === session { authenticationSession = nil }
-                        guard self.session.accepts(generation) else { return }
-                        lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination
-                        authenticationStatus = batch.authenticationNotice.isEmpty ? "Sessione autenticata conclusa." : batch.authenticationNotice
-                        status = presentation.resultSummary
-                    })
-                } else {
-                    let retirement = batch.retireAuthenticatedSession(using: session)
-                    let newPINAllowed: Bool = { if case .failure(let error) = result { return error.allowsNewPIN }; return false }()
-                    self.session.own(Task { @MainActor in
-                        await retirement.value
-                        if authenticationSession === session { authenticationSession = nil }
-                        guard self.session.accepts(generation) else { return }
-                        if newPINAllowed, case .failure(let error) = result {
-                            // Nothing was signed: the next PIN may start a new session for the same batch.
-                            // The PIN field shows the refusal; keep the session text quiet.
-                            authenticationAttempted = false
-                            authenticationStatus = ""
-                            status = error.localizedDescription
-                            return
-                        }
-                        authenticationStatus = batch.authenticationNotice.isEmpty
-                            ? (batch.documents.contains(where: { $0.state == .failed || $0.state == .uncertain })
-                                ? "Batch interrotto. Consulta i dettagli; nessun tentativo viene ripetuto."
-                                : "Riuso non verificabile per questa chiave o sessione: PIN esplicito per le firme restanti.")
-                            : batch.authenticationNotice
-                        status = presentation.resultSummary
-                    })
-                }
-            } else {
-                switch result {
-                case .success: status = batch.nextDocument == nil ? "Sessione conclusa. Consulta gli esiti." : "Consulta l'esito e inserisci il PIN per la firma successiva."
-                case .failure(let error): status = error.localizedDescription
-                }
-            }
-        })
-        self.session.own(submission)
+        authorization.authorizeNext(pin: &provider.pin, batch: batch, interaction: interaction, worker: signingWorker, hooks: .init(
+            accepts: { session.accepts(generation) },
+            own: { session.own($0) },
+            status: { status = $0 },
+            signed: { lastSignedFile = batch.documents.last(where: { $0.state == .completed })?.destination }))
     }
+
 
 }
 #endif
