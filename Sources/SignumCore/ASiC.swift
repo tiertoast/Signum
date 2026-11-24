@@ -138,7 +138,7 @@ public enum ASiC {
             let invalid: Bool
             if case SignumError.invalidSignature = error { invalid = true } else { invalid = false }
             let signatures: [SignatureVerificationResult] = invalid ? [.init(id:0,integrity:.invalid,certificate:nil,algorithm:"ASiC · XAdES-B",declaredTime:"",reason:"Integrità del contenuto o della firma non valida.",signedRevisionEnd:nil,laterChanges:false,cmsLayer:1)] : []
-            return .init(id:UUID(),documentName:name,sha256:DocumentSnapshot.digest(archive),format:.asic,signatures:signatures,documentState:invalid ? "signed" : "unsupported",
+            return .init(id:UUID(),documentName:name,sha256:DocumentSnapshot.digest(archive),format:.asic,signatures:signatures,documentState:invalid ? .signed : .unsupported,
                 issue:invalid ? "" : "ASiC non verificabile: archivio o profilo non supportato, riferimenti o copertura dei documenti non validi.",previewPDF:nil,originalContent:nil)
         }
     }

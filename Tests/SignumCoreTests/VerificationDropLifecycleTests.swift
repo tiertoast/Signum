@@ -27,7 +27,7 @@ final class ControlledDrop: @unchecked Sendable {
 }
 @MainActor final class VerificationDropLifecycleTests: XCTestCase {
     private let verifier: VerificationWorkspace.Verifier = { url,_ in
-        .init(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.unknown,signatures:[],documentState:"unsupported",issue:"",previewPDF:nil,originalContent:nil)
+        .init(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.unknown,signatures:[],documentState:.unsupported,issue:"",previewPDF:nil,originalContent:nil)
     }
     func testResolverKeepsOrderIgnoresDuplicatesAndBoundsMissingCallback() async throws {
         let ready = expectation(description:"all callbacks registered"), drop = ControlledDrop(3,ready:ready)
@@ -77,7 +77,7 @@ final class ControlledDrop: @unchecked Sendable {
         let workspace = VerificationWorkspace(), entered = expectation(description:"old verifier entered"), release = DispatchSemaphore(value:0)
         let old = workspace.start([URL(fileURLWithPath:"/synthetic/old")]) { url,_ in
             entered.fulfill();_ = release.wait(timeout:.now()+3)
-            return .init(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.unknown,signatures:[],documentState:"unsupported",issue:"",previewPDF:nil,originalContent:nil)
+            return .init(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.unknown,signatures:[],documentState:.unsupported,issue:"",previewPDF:nil,originalContent:nil)
         }
         await fulfillment(of:[entered],timeout:2)
         let selected = workspace.selectedDocument

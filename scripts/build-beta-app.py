@@ -333,7 +333,7 @@ def build(output, configuration, native_prefix, cmake, preview=False, preview_bu
     run(swift, cwd=REPO, env=env)
     bins = Path(run(swift + ["--show-bin-path"], capture=True, cwd=REPO, env=env).strip())
     native_build = workspace / 'pades' if workspace else REPO / ((".build/preview-pades-" if preview else ".build/beta-pades-") + configuration)
-    run([cmake, "-S", REPO / "Tools/PAdESPrototype", "-B", native_build,
+    run([cmake, "-S", REPO / "Tools/PAdESHelper", "-B", native_build,
          "-DCMAKE_BUILD_TYPE=" + configuration.capitalize(), "-DCMAKE_PREFIX_PATH=" + str(prefix),
          "-DOPENSSL_ROOT_DIR=" + str(prefix), "-DOPENSSL_USE_STATIC_LIBS=" + ("FALSE" if preview else "TRUE"),
          "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + declared_target, "-DCMAKE_OSX_ARCHITECTURES=arm64",

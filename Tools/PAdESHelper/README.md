@@ -51,7 +51,7 @@ physical token is used. No CI is configured or invoked.
 For a separate Release helper:
 
 ```bash
-cmake -S Tools/PAdESPrototype -B .build/signum-pades-release \
+cmake -S Tools/PAdESHelper -B .build/signum-pades-release \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/.build/native-prefix" \
   -DOPENSSL_ROOT_DIR="$PWD/.build/native-prefix"
 cmake --build .build/signum-pades-release --parallel 6

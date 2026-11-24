@@ -6,10 +6,12 @@
 #include "process_coordination.h"
 #include "SignumCertificatePolicy.h"
 #include <cctype>
-// Experimental local PAdES-B proof of concept.
-// Uses PoDoFo for incremental PDF signing, Bit4id/OpenSC PKCS#11 for RSA.
-// Does NOT export the private key or validate trust; visible AP is an experimental text-only stream.
-// Invoked by SignumApp when bundled; success means integrity verified and published.
+// Signum's production PDF engine (PAdES-B, bundled as Contents/Helpers/signum-pades-local).
+// PoDoFo applies an incremental signature over the approved snapshot. RSA comes either
+// from the helper's own PKCS#11 session (PIN on stdin) or, with --remote-signer-v1, from
+// the app's batch worker over the status pipe (no middleware, no PIN here). The visible
+// appearance is rendered by the app and passed in. The private key never leaves the token;
+// trust is assessed elsewhere. Success means integrity verified and exclusively published.
 #include <podofo/podofo.h>
 #include "SignumPKCS11.h"
 #include "TransactionalOutput.h"
@@ -565,7 +567,7 @@ int main(int argc, char** argv) {
             return respond(authenticationMayHaveStarted ? "uncertain" : "rejectedBeforeAuthentication",
                            authenticationMayHaveStarted ? "interrupted" : rejectionReason);
         }
-        std::cerr << "PAdES proof of concept failed: " << error.what();
+        std::cerr << "PAdES signing failed: " << error.what();
         if (!cleanupConfirmed) std::cerr << "; chiusura del dispositivo non confermata";
         std::cerr << "\n";
         return 1;

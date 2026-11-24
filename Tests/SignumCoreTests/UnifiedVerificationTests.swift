@@ -105,7 +105,7 @@ final class UnifiedVerificationTests: XCTestCase {
         }
     }
     func testUnknownXMLMalformedCMSAndTruncatedPDFDoNotBecomeVerified() throws {
-        for (bytes,format,state) in [(Data("ordinary bytes".utf8),VerifiedDocumentFormat.unknown,"unsupported"),(Data("<?xml version=\"1.0\"?><document/>".utf8),.xml,"unsupported"),(Data([0x30,0x03,0x06,0x01,0x2a]),.cades,"damaged"),(Data("%PDF-1.7\ntruncated".utf8),.pades,"damaged")] {
+        for (bytes,format,state) in [(Data("ordinary bytes".utf8),VerifiedDocumentFormat.unknown,VerifiedDocumentState.unsupported),(Data("<?xml version=\"1.0\"?><document/>".utf8),.xml,.unsupported),(Data([0x30,0x03,0x06,0x01,0x2a]),.cades,.damaged),(Data("%PDF-1.7\ntruncated".utf8),.pades,.damaged)] {
             let report = try verify(bytes,name:"misleading.p7m")
             XCTAssertEqual(report.format,format);XCTAssertEqual(report.documentState,state);XCTAssertEqual(report.integrity,.notVerifiable)
             XCTAssertNil(report.previewPDF)
@@ -114,7 +114,7 @@ final class UnifiedVerificationTests: XCTestCase {
             try Data("Synthetic unsupported CMS ContentInfo".utf8).write(to:root.appendingPathComponent("input"))
             try openssl(["cms","-data_create","-binary","-in","input","-outform","DER","-out","data.cms"],root:root)
             let unsupported = try verify(Data(contentsOf:root.appendingPathComponent("data.cms")))
-            XCTAssertEqual(unsupported.documentState,"unsupported");XCTAssertEqual(unsupported.integrity,.notVerifiable)
+            XCTAssertEqual(unsupported.documentState,.unsupported);XCTAssertEqual(unsupported.integrity,.notVerifiable)
             XCTAssertTrue(unsupported.issue.contains("Tipo CMS non supportato"))
         }
     }
@@ -279,7 +279,7 @@ final class UnifiedVerificationTests: XCTestCase {
         XCTAssertEqual(dropped,urls)
         let memory = Data(repeating:0,count:65*1024*1024), workspace = VerificationWorkspace()
         await workspace.verify(urls) { url,_ in
-            VerificationReport(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.pades,signatures:[],documentState:"unsigned",issue:"",previewPDF:memory,originalContent:nil)
+            VerificationReport(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.pades,signatures:[],documentState:.unsigned,issue:"",previewPDF:memory,originalContent:nil)
         }
         XCTAssertNotNil(workspace.rows[0].report?.previewPDF)
         XCTAssertNil(workspace.rows[1].report?.previewPDF);XCTAssertFalse(workspace.rows[1].issue.isEmpty)

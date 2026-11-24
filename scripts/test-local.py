@@ -47,6 +47,7 @@ def setup(args):
     ui = full or args.group == 'sanitizers' or bool(set(selected) & set(manifest['requires']['windowserver']))
     native = helper or args.group in ('complete', 'pkcs11', 'sanitizers')
     config = {'group': args.group, 'selected': selected, 'fullSwift': full, 'helper': helper, 'ui': ui, 'skipSanitizers': getattr(args, 'skip_sanitizers', False),
+              'swiftConfiguration': getattr(args, 'swift_configuration', 'debug'),
               'deploymentTarget': os.environ.get('MACOSX_DEPLOYMENT_TARGET', '13.0'),
               'triple': getattr(args, 'triple', None) or platform.machine() + '-apple-macosx' + os.environ.get('MACOSX_DEPLOYMENT_TARGET', '13.0'),
               'swift': executable('/usr/bin/swift', 'Swift'), 'cc': executable('/usr/bin/cc', 'C compiler'),
@@ -138,7 +139,7 @@ class Run:
     def native(self, name, source, configuration='Debug', sanitizer=None):
         build = self.root / name
         flags = ['-DCMAKE_BUILD_TYPE=' + configuration, '-DCMAKE_OSX_DEPLOYMENT_TARGET=' + self.config.get('deploymentTarget','13.0'), '-DCMAKE_OSX_ARCHITECTURES=' + platform.machine()]
-        if source == 'Tools/PAdESPrototype':
+        if source == 'Tools/PAdESHelper':
             flags += ['-DCMAKE_PREFIX_PATH=' + self.config['prefix'], '-DOPENSSL_ROOT_DIR=' + self.config['prefix'], '-DSIGNUM_BUILD_OFFLINE_TESTS=ON']
         if sanitizer:
             option = '-fsanitize=' + sanitizer + ' -fno-omit-frame-pointer'
@@ -153,8 +154,16 @@ class Run:
             raise RuntimeError('No nonempty passing CTest summary in '+name)
         return build
 
+    def configuration_arguments(self, scratch):
+        # Optional optimized build of the regular Swift run (sanitizer runs stay Debug).
+        # -enable-testing keeps @testable imports working in Release.
+        if self.config.get('swiftConfiguration') == 'release' and Path(scratch).name == 'swift':
+            return ['-c', 'release', '-Xswiftc', '-enable-testing']
+        return []
+
     def swift_arguments(self, scratch):
         args = ['--scratch-path', str(scratch), '--jobs', '4', '--triple', self.config['triple']]
+        args += self.configuration_arguments(scratch)
         if 'prefix' in self.config: args += ['-Xlinker', '-rpath', '-Xlinker', str(Path(self.config['prefix'])/'lib')]
         return args
 
@@ -194,13 +203,13 @@ class Run:
     def run(self):
         group = self.config['group']
         if self.config['helper']:
-            build = self.native('pades-debug', 'Tools/PAdESPrototype')
+            build = self.native('pades-debug', 'Tools/PAdESHelper')
             self.env['SIGNUM_TEST_PADES_HELPER'] = str(build / 'signum-pades-local')
-        if group in ('complete', 'pades'): self.native('pades-release', 'Tools/PAdESPrototype', 'Release')
+        if group in ('complete', 'pades'): self.native('pades-release', 'Tools/PAdESHelper', 'Release')
         if group in ('complete', 'pkcs11'): self.native('pkcs11-debug', 'Tools/PKCS11Tests')
         if self.config['fullSwift'] or self.config['selected']:
             scratch = self.swift(selected=None if self.config['fullSwift'] else self.config['selected'])
-            text = self.command('swift-bin-path', [self.config['swift'], 'build', '--scratch-path', scratch, '--show-bin-path'], 60)
+            text = self.command('swift-bin-path', [self.config['swift'], 'build', '--scratch-path', scratch, '--show-bin-path'] + self.configuration_arguments(scratch), 60)
             binary = Path(text.strip().splitlines()[-1]) / 'SignumPKCS11Worker'
             self.env['SIGNUM_TEST_LOCK_REFUSAL_WORKER'] = str(binary)
         if group in ('complete', 'packaging'):
@@ -212,7 +221,7 @@ class Run:
                 self.env['SIGNUM_TEST_LOCK_REFUSAL_WORKER'] = str(Path(text.strip().splitlines()[-1]) / 'SignumPKCS11Worker')
             self.swift('swift-asan', 'address'); self.swift('swift-tsan', 'thread')
             self.native('pkcs11-asan', 'Tools/PKCS11Tests', sanitizer='address')
-            self.native('pades-asan', 'Tools/PAdESPrototype', sanitizer='address')
+            self.native('pades-asan', 'Tools/PAdESHelper', sanitizer='address')
             self.native('pkcs11-tsan', 'Tools/PKCS11Tests', sanitizer='thread')
         self.write_summary('passed')
 
@@ -230,6 +239,8 @@ def main():
     parser.add_argument('--python', default=os.environ.get('SIGNUM_TEST_PYTHON'))
     parser.add_argument('--triple', help='Swift target triple; defaults to host architecture and deployment target')
     parser.add_argument('--output-root', default=str(Path(tempfile.gettempdir()).resolve()/'signum-local-tests'))
+    parser.add_argument('--swift-configuration', choices=['debug', 'release'], default=os.environ.get('SIGNUM_SWIFT_CONFIGURATION', 'debug'),
+                        help='Build the regular Swift test run optimized (faster trust/XML suites); sanitizer runs stay debug')
     parser.add_argument('--skip-sanitizers', action='store_true', help='Omit sanitizer reruns for Swift-only changes; all regular complete gates remain mandatory')
     parser.add_argument('--check', action='store_true', help='Validate prerequisites and compiled XCTest catalog; build in external scratch without running test cases')
     args = parser.parse_args()

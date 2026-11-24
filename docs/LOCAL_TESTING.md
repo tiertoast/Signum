@@ -33,6 +33,21 @@ Explicit tool options are shown in [Building](BUILDING.md). Environment alternat
 include `SIGNUM_NATIVE_PREFIX`, `SIGNUM_CMAKE`, `SIGNUM_CTEST`,
 `SIGNUM_TEST_XMLSEC`, `SIGNUM_TEST_PYTHON` and `SIGNUM_TEST_POPPLER`.
 
+## Speed and environment
+
+`--swift-configuration release` (or `SIGNUM_SWIFT_CONFIGURATION=release`) builds
+the regular Swift run optimized with `-enable-testing`; sanitizer runs stay
+Debug. Trust List and XML suites run about twice as fast (measured on the
+Trusted List authentication bundle: 387 s Debug, 183 s Release, same 34 passes)
+at the cost of a longer first build. Debug remains the default.
+
+The runner links Swift products with an rpath to the native prefix. Workers and
+helpers start with a fixed minimal environment, so `DYLD_LIBRARY_PATH` set for a
+manual `xctest` run never reaches them: use the runner, or the same
+`-Xlinker -rpath` flag, rather than an exported library path. Build, scratch and
+output directories must not sit under a world-writable ancestor such as
+`/private/tmp`; the native helper tests refuse them on purpose.
+
 ## Evidence and safety
 
 The runner creates a unique external execution directory with build scratch,

@@ -9,7 +9,7 @@ spec=importlib.util.spec_from_file_location('official',source/'scripts/test-loca
 r=m.Run(argparse.Namespace(output_root=str(a.output_root.resolve())),dict(group='14C2-profile-preparation',revision=a.revision,cmake=str(a.cmake),ctest=str(a.cmake.with_name('ctest')),prefix=str(a.prefix)))
 try:
     r.command('swift-release',['xcrun','swift','build','-c','release','--scratch-path',r.root/'swift','--jobs','4','-Xswiftc','-enable-testing'],600)
-    helper=r.native('pades-release','Tools/PAdESPrototype','Release')/'signum-pades-local'
+    helper=r.native('pades-release','Tools/PAdESHelper','Release')/'signum-pades-local'
     fixture=source/'.build'/('memory-profile-'+uuid.uuid4().hex)
     r.command('synthetic-provider',['python3',source/'scripts/prepare-batch-demo.py','--output',fixture])
     config=dict(source=str(source),root=str(r.root),helper=str(helper),fixture=str(fixture),revision=a.revision)

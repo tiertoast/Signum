@@ -26,6 +26,16 @@ class LocalRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Missing native prerequisite'):
             runner.setup(args)
 
+    def test_release_configuration_applies_only_to_the_regular_swift_run(self):
+        run = runner.Run.__new__(runner.Run)
+        run.config = dict(triple='arm64-apple-macosx13.0', swiftConfiguration='release')
+        regular = run.swift_arguments(Path('/synthetic/run/swift'))
+        self.assertEqual(regular[regular.index('-c'):regular.index('-c') + 4], ['-c', 'release', '-Xswiftc', '-enable-testing'])
+        for sanitizer in ('swift-asan', 'swift-tsan'):
+            self.assertNotIn('-c', run.swift_arguments(Path('/synthetic/run') / sanitizer))
+        run.config['swiftConfiguration'] = 'debug'
+        self.assertNotIn('-c', run.swift_arguments(Path('/synthetic/run/swift')))
+
     def test_complete_skip_sanitizers_preserves_all_regular_gates(self):
         run = runner.Run.__new__(runner.Run)
         run.config = dict(group='complete', helper=True, fullSwift=True, selected=[],

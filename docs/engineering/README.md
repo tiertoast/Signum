@@ -15,7 +15,7 @@ code review or test campaign.
 | Capability | Implementation | Engineering profile |
 | --- | --- | --- |
 | Attached/detached CAdES | [CAdES](../../Sources/SignumCore/CAdES.swift), [advanced operations](../../Sources/SignumCore/CAdESAdvanced.swift) | [CMS operations](../archive/SIGNUM_0.6D_CADES_ADVANCED.md) |
-| PDF signing/coverage | [native signer](../../Tools/PAdESPrototype/signum_pades_local.cpp), [verifier](../../Tools/PAdESPrototype/PAdESVerification.cpp), [coverage](../../Sources/SignumCore/PDFRevisionCoverage.swift) | [appearance](../archive/SIGNUM_0.4_PADES_APPEARANCE.md), [revision coverage](../SIGNUM_070_S01_PDF_COVERAGE.md) |
+| PDF signing/coverage | [native signer](../../Tools/PAdESHelper/signum_pades_local.cpp), [verifier](../../Tools/PAdESHelper/PAdESVerification.cpp), [coverage](../../Sources/SignumCore/PDFRevisionCoverage.swift) | [appearance](../archive/SIGNUM_0.4_PADES_APPEARANCE.md), [revision coverage](../archive/SIGNUM_070_S01_PDF_COVERAGE.md) |
 | XML | [XAdES](../../Sources/SignumCore/XAdES.swift), [native XML implementation](../../Sources/CXMLSecurity/xades.c) | [XAdES profile](../archive/SIGNUM_0.6B_XADES_BASELINE.md) |
 | ASiC | [ASiC](../../Sources/SignumCore/ASiC.swift), [ZIP bounds](../../Sources/SignumCore/ASiCZIP.swift) | [ASiC profile](../archive/SIGNUM_0.6C_ASIC.md) |
 | Trust and evidence | [certificate validation](../../Sources/SignumCertificateValidation), [trust authentication](../../Sources/SignumTrustAuthentication) | [current/historical policy](../archive/SIGNUM_0.6A_CURRENT_TIME_VALIDATION.md) |
@@ -49,7 +49,7 @@ category (e), with recurrence causes not isolated and follow-up deferred. No new
 fix, skip, timeout relaxation or campaign is implied. The RC stability gate is
 **not passed**. See [stability evidence](../SUITE_STABILITY.md),
 [local checks](../LOCAL_TESTING.md),
-[historical Phase5b status](../PHASE5B_RELEASE_STATUS.md) and
+[historical Phase5b status](../archive/PHASE5B_RELEASE_STATUS.md) and
 [current readiness](../RELEASE_READINESS.md).
 
 ## Historical archive

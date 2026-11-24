@@ -81,6 +81,23 @@ links to operational and provenance records kept at stable paths.
 - [SIGNUM 07 BUILD9 HOTFIX1](SIGNUM_07_BUILD9_HOTFIX1.md)
 - [SIGNUM 07 BUILD9 VERIFICATION](SIGNUM_07_BUILD9_VERIFICATION.md)
 
+### Moved from `docs/` on 2026-11-24
+
+Unchanged content; only relative links were updated. Recorded paths inside the
+evidence JSON files are kept as recorded.
+
+- [PR2 review corrections](PR2_REVIEW_CORRECTIONS.md)
+- [Beta foundation report](SIGNUM_BETA_FOUNDATION_REPORT.md)
+- [DSS 6.5 diagnosis](SIGNUM_DSS_6_5_DIAGNOSIS.md)
+- [PIN/PUK backend qualification (2026-10-26)](SIGNUM_PIN_PUK_BACKEND_QUALIFICATION_2026-10-26.md)
+- 0.7.0 phase reports: [S01 PDF coverage](SIGNUM_070_S01_PDF_COVERAGE.md), [S02 PAdES cleanup](SIGNUM_070_S02_PADES_CLEANUP.md),
+  [S03 PIN input](SIGNUM_070_S03_PIN_INPUT.md), [S06 PIN wipe](SIGNUM_070_S06_PIN_WIPE.md), [S15 signing time](SIGNUM_070_S15_SIGNING_TIME.md)
+- Publication history: [Phase5b status](PHASE5B_RELEASE_STATUS.md), [Phase6b checklist](PHASE6B_PUBLICATION_CHECKLIST.md),
+  [Phase6 public sources](PHASE6_PUBLIC_SOURCES.json)
+- 0.5 evidence: [E1](SIGNUM_0.5E_E1_RESULTS.json), [E1R official](SIGNUM_0.5E1R_OFFICIAL_RESULTS.json),
+  [E1R validation](SIGNUM_0.5E1R_VALIDATION_RESULTS.json), [E1S](SIGNUM_0.5E1S_RESULTS.json), [E2](SIGNUM_0.5E2_RESULTS.json),
+  [E3 DSS plan](SIGNUM_0.5E3_DSS_COMPARISON_PLAN.json), [E4](SIGNUM_0.5E4_RESULTS.json), [F](SIGNUM_0.5F_RESULTS.json)
+
 Two historical reports remain at stable paths because source/tool documentation references them: [ASAN contract](../SIGNUM_0.4_C1_ASAN_GATE.md) and [reliability foundation, part 2](../0.3.3-reliability-foundation-part2.md).
 
 The [original 0.7 publication notes](SIGNUM_0.7_RELEASE_NOTES_ORIGINAL.md) are preserved byte-for-byte as historical evidence; the current English presentation is separate.

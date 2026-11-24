@@ -202,7 +202,7 @@ def perform(args, runner, manifest):
     for p in sorted((prefix/'lib').glob('*.dylib')):
         if not p.is_symlink():runner.run('adhoc-'+p.name,['/usr/bin/codesign','--force','--sign','-','--timestamp=none',p])
     helper=root/'build-helper'
-    runner.run('helper-configure',[args.cmake,'-S',REPO/'Tools/PAdESPrototype','-B',helper]+common+[
+    runner.run('helper-configure',[args.cmake,'-S',REPO/'Tools/PAdESHelper','-B',helper]+common+[
         '-DOPENSSL_ROOT_DIR='+str(prefix),'-DOPENSSL_USE_STATIC_LIBS=FALSE','-DSIGNUM_BUILD_OFFLINE_TESTS=ON'])
     runner.run('helper-build',[args.cmake,'--build',helper,'--parallel',str(args.jobs)])
     junit=root/'native-tests.xml'

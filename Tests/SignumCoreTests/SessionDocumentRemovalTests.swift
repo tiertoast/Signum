@@ -8,7 +8,7 @@ import Security
 @MainActor final class SessionDocumentRemovalTests: XCTestCase {
     private let verifier: VerificationWorkspace.Verifier = { url, _ in
         .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .unknown,
-              signatures: [], documentState: "unsupported", issue: "", previewPDF: nil, originalContent: Data(url.lastPathComponent.utf8))
+              signatures: [], documentState: .unsupported, issue: "", previewPDF: nil, originalContent: Data(url.lastPathComponent.utf8))
     }
     func testVerificationRemovalPreservesOtherReportsAndSelectsNeighbourUntilEmpty() async throws {
         let root = try FixtureFiles.directory("removal")
@@ -42,7 +42,7 @@ import Security
         let release = DispatchSemaphore(value: 0)
         let task = workspace.start([URL(fileURLWithPath: "/synthetic/input"), URL(fileURLWithPath: "/synthetic/next")]) { url, _ in
             if url.lastPathComponent == "input" { entered.fulfill(); _ = release.wait(timeout: .now() + 3) }
-            return .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .unknown, signatures: [], documentState: "unsupported", issue: "", previewPDF: nil, originalContent: nil)
+            return .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .unknown, signatures: [], documentState: .unsupported, issue: "", previewPDF: nil, originalContent: nil)
         }
         await fulfillment(of: [entered], timeout: 2)
         let id = try XCTUnwrap(workspace.rows.first?.id)
@@ -63,7 +63,7 @@ import Security
         let workspace = VerificationWorkspace()
         let original = Data("detached verified original".utf8)
         await workspace.verify([URL(fileURLWithPath: "/synthetic/first"), URL(fileURLWithPath: "/synthetic/signature.p7s")]) { url, _ in
-            .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .cades, signatures: [], documentState: "unsigned", issue: "", previewPDF: nil, originalContent: original)
+            .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .cades, signatures: [], documentState: .unsigned, issue: "", previewPDF: nil, originalContent: original)
         }
         let detached = workspace.rows[1]
         workspace.selectedDocument = detached.id
@@ -216,7 +216,7 @@ import Security
             if url.lastPathComponent == "active" { entered.fulfill(); _ = release.wait(timeout: .now() + 5); XCTAssertFalse(control.isCancellationRequested) }
             if url.lastPathComponent == "pending" { XCTFail("Removed pending row was verified") }
             return .init(id: UUID(), documentName: url.lastPathComponent, sha256: "synthetic", format: .unknown,
-                signatures: [], documentState: "unsupported", issue: "", previewPDF: nil, originalContent: nil)
+                signatures: [], documentState: .unsupported, issue: "", previewPDF: nil, originalContent: nil)
         }
         await fulfillment(of: [entered], timeout: 3)
         XCTAssertTrue(workspace.rows[0].finished)

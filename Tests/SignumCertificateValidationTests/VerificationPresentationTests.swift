@@ -56,7 +56,7 @@ final class VerificationPresentationTests: XCTestCase {
         let workspace = VerificationWorkspace()
         await workspace.verify(request.urls, using: { url, _ in
             .init(id: UUID(), documentName: url.lastPathComponent, sha256: String(repeating: "a", count: 64),
-                  format: url.pathExtension == "pdf" ? .pades : .cades, signatures: [], documentState: "unsigned",
+                  format: url.pathExtension == "pdf" ? .pades : .cades, signatures: [], documentState: .unsigned,
                   issue: "", previewPDF: nil, originalContent: nil)
         })
         XCTAssertEqual(workspace.rows.map(\.name), ["first.p7m", "second.pdf"])

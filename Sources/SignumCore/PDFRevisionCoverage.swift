@@ -33,7 +33,7 @@ extension VerificationReport {
             return .init(state: .notApplicable, documentByteCount: nil, lastVerifiedRevisionEnd: nil,
                          bytesAfterLastVerifiedRevision: nil, subsequentMaterial: .none)
         }
-        guard documentState == "signed", let count = documentByteCount, count > 0 else {
+        guard documentState == .signed, let count = documentByteCount, count > 0 else {
             return .init(state: .notEvaluated, documentByteCount: documentByteCount, lastVerifiedRevisionEnd: nil,
                          bytesAfterLastVerifiedRevision: nil, subsequentMaterial: .unclassified)
         }

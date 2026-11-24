@@ -29,6 +29,12 @@ independent certification, universal interoperability or a legal opinion.
   `utimes`, `ctime` cannot, so an in-place rewrite of a manually selected
   (user-owned) module is still detected. Loading or reading the module does not
   change it; only metadata writes do (on a root-owned module, an administrator).
+- Declared signing times are local claims, not timestamps. In an authenticated
+  batch every CAdES SignerInfo is prepared and bound in the worker manifest when
+  the first PIN is entered, so all of them declare that moment; PDFs, prepared
+  by the helper one at a time, declare their own `/M`. Signing each `.p7m` at a
+  later declared time would require the worker to accept attributes built after
+  the PIN, which the bound manifest deliberately forbids.
 - Worker and helper processes start with a fixed minimal environment (`PATH`,
   `HOME`, `TMPDIR`, `LC_ALL=C`). Nothing is inherited, so variables such as
   `OPENSSL_CONF` or `DYLD_*` cannot redirect the middleware or its crypto library.
