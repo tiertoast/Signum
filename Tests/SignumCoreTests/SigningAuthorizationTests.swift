@@ -127,6 +127,35 @@ import XCTest
         }
     }
 
+    /// The UTCTime after the CMS signingTime OID (1.2.840.113549.1.9.5).
+    private func declaredTime(_ cms: Data) throws -> String {
+        let oid = Data([0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x05])
+        let range = try XCTUnwrap(cms.range(of: oid))
+        let bytes = [UInt8](cms[range.upperBound...].prefix(24))
+        let tag = try XCTUnwrap(bytes.firstIndex(of: 0x17))
+        return String(decoding: bytes[(tag + 2)..<(tag + 2 + Int(bytes[tag + 1]))], as: UTF8.self)
+    }
+
+    func testAuthenticatedBatchDeclaresTheTimeOfTheFirstPINForEveryCAdES() async throws {
+        try await fixture { f in
+            let plan = try XCTUnwrap(f.batch.approval)
+            let session = try BatchCAdESSession(approval: plan, serial: f.route.token.serial, moduleIdentity: f.route.moduleIdentity,
+                                                executable: workerURL)
+            // Each read moves one hour: a per-document read would give different times.
+            var reads = 0; let start = Date(timeIntervalSince1970: 1_800_000_000)
+            session.clock = { defer { reads += 1 }; return start.addingTimeInterval(Double(reads) * 3600) }
+            try await f.batch.authorizeNext(pin: "synthetic-fixture") { job, pin, operation in
+                try session.sign(job: job, pin: pin, operation: operation)
+            }
+            await f.batch.continueAuthenticatedBatch(using: session)
+            XCTAssertEqual(f.batch.documents.map(\.state), [.completed, .completed])
+            XCTAssertEqual(reads, 1, "one clock read, at the first PIN")
+            let times = try f.batch.documents.map { try declaredTime(try Data(contentsOf: try XCTUnwrap($0.destination))) }
+            XCTAssertEqual(times, ["270115080000Z", "270115080000Z"])
+            await session.stopAndWait()
+        }
+    }
+
     func testTextsAndReset() {
         XCTAssertEqual(SigningAuthorization.continuingNotice(.temporaryPIN), "PIN temporaneo attivo soltanto per questo batch approvato.")
         XCTAssertEqual(SigningAuthorization.continuingNotice(.automatic), "Sessione autenticata per questo batch. Nessun PIN riutilizzato.")

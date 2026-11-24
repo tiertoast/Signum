@@ -39,6 +39,8 @@ public final class BatchCAdESSession: @unchecked Sendable {
         set { ioLock.lock(); defer { ioLock.unlock() }; precondition(!began); connectionFactory = newValue }
     }
     private var signingTimes: [UUID: Date] = [:]
+    /// Read once, when the first PIN starts the session (test seam).
+    var clock: () -> Date = { Date() }
     private var stopped = false, reusable = false, began = false, cleanupFailed = false
     public var cleanupUncertain: Bool { state.lock(); defer { state.unlock() }; return cleanupFailed }
     public var canContinue: Bool { state.lock(); defer { state.unlock() }; return reusable && !stopped }
@@ -77,13 +79,17 @@ public final class BatchCAdESSession: @unchecked Sendable {
         guard pin != nil, job.id == jobs[0].id, (jobs[0].format == .pades) == (firstDigest != nil) else {
             throw SupervisedProcess.Failure.protocolViolation
         }
+        // Every .p7m attribute set is fixed in the manifest at the first PIN, so the
+        // worker signs only pre-bound bytes: one declared time for the whole batch.
+        // PDFs are prepared later by the helper and declare their own /M.
+        let declared = clock()
         let manifestJobs = try jobs.enumerated().map { index, approved -> BatchWorkerJob in
             if approved.format == .pades {
                 return .init(id: approved.id, snapshotID: approved.snapshotIdentity.id, sha256: approved.contentSHA256,
                              attributes: index == 0 ? firstDigest! : Data(), lateDigest: true)
             }
             let bytes = try approved.verifiedBytes()
-            let when = Date(); signingTimes[approved.id] = when
+            let when = declared; signingTimes[approved.id] = when
             let attributes = try CAdES.Prepared(document: bytes, certificateDER: approved.certificateDER, declaredSigningTime: approved.includeSigningTime ? when : nil).attributesToSign
             return .init(id: approved.id, snapshotID: approved.snapshotIdentity.id, sha256: approved.contentSHA256, attributes: attributes)
         }

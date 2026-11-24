@@ -4,7 +4,7 @@
 /// attributes from an existing signature or changes supported XML/PDF profiles.
 public enum SigningTimePolicy {
     public static let preferenceTitle = "Includi data e ora dichiarate nel CAdES (CMS signingTime)"
-    public static let preferenceExplanation = "L’opzione riguarda solo CMS signingTime nelle nuove firme CAdES. XAdES e ASiC includono sempre XML SigningTime; PAdES include sempre PDF /M. Sono date dichiarate, non una marca temporale, e non provano l’ora della firma."
+    public static let preferenceExplanation = "L’opzione riguarda solo CMS signingTime nelle nuove firme CAdES. XAdES e ASiC includono sempre XML SigningTime; PAdES include sempre PDF /M. Con un solo PIN per più documenti, tutti i CAdES della sessione dichiarano l’ora del primo PIN. Sono date dichiarate, non una marca temporale, e non provano l’ora della firma."
     public static func declaration(for format: SigningFormat, includeCMS: Bool) -> String {
         let policy: String
         switch format {
