@@ -138,7 +138,7 @@ class Run:
     def native(self, name, source, configuration='Debug', sanitizer=None):
         build = self.root / name
         flags = ['-DCMAKE_BUILD_TYPE=' + configuration, '-DCMAKE_OSX_DEPLOYMENT_TARGET=' + self.config.get('deploymentTarget','13.0'), '-DCMAKE_OSX_ARCHITECTURES=' + platform.machine()]
-        if source == 'Tools/PAdESPrototype':
+        if source == 'Tools/PAdESHelper':
             flags += ['-DCMAKE_PREFIX_PATH=' + self.config['prefix'], '-DOPENSSL_ROOT_DIR=' + self.config['prefix'], '-DSIGNUM_BUILD_OFFLINE_TESTS=ON']
         if sanitizer:
             option = '-fsanitize=' + sanitizer + ' -fno-omit-frame-pointer'
@@ -194,9 +194,9 @@ class Run:
     def run(self):
         group = self.config['group']
         if self.config['helper']:
-            build = self.native('pades-debug', 'Tools/PAdESPrototype')
+            build = self.native('pades-debug', 'Tools/PAdESHelper')
             self.env['SIGNUM_TEST_PADES_HELPER'] = str(build / 'signum-pades-local')
-        if group in ('complete', 'pades'): self.native('pades-release', 'Tools/PAdESPrototype', 'Release')
+        if group in ('complete', 'pades'): self.native('pades-release', 'Tools/PAdESHelper', 'Release')
         if group in ('complete', 'pkcs11'): self.native('pkcs11-debug', 'Tools/PKCS11Tests')
         if self.config['fullSwift'] or self.config['selected']:
             scratch = self.swift(selected=None if self.config['fullSwift'] else self.config['selected'])
@@ -212,7 +212,7 @@ class Run:
                 self.env['SIGNUM_TEST_LOCK_REFUSAL_WORKER'] = str(Path(text.strip().splitlines()[-1]) / 'SignumPKCS11Worker')
             self.swift('swift-asan', 'address'); self.swift('swift-tsan', 'thread')
             self.native('pkcs11-asan', 'Tools/PKCS11Tests', sanitizer='address')
-            self.native('pades-asan', 'Tools/PAdESPrototype', sanitizer='address')
+            self.native('pades-asan', 'Tools/PAdESHelper', sanitizer='address')
             self.native('pkcs11-tsan', 'Tools/PKCS11Tests', sanitizer='thread')
         self.write_summary('passed')
 

@@ -15,7 +15,7 @@ code review or test campaign.
 | Capability | Implementation | Engineering profile |
 | --- | --- | --- |
 | Attached/detached CAdES | [CAdES](../../Sources/SignumCore/CAdES.swift), [advanced operations](../../Sources/SignumCore/CAdESAdvanced.swift) | [CMS operations](../archive/SIGNUM_0.6D_CADES_ADVANCED.md) |
-| PDF signing/coverage | [native signer](../../Tools/PAdESPrototype/signum_pades_local.cpp), [verifier](../../Tools/PAdESPrototype/PAdESVerification.cpp), [coverage](../../Sources/SignumCore/PDFRevisionCoverage.swift) | [appearance](../archive/SIGNUM_0.4_PADES_APPEARANCE.md), [revision coverage](../SIGNUM_070_S01_PDF_COVERAGE.md) |
+| PDF signing/coverage | [native signer](../../Tools/PAdESHelper/signum_pades_local.cpp), [verifier](../../Tools/PAdESHelper/PAdESVerification.cpp), [coverage](../../Sources/SignumCore/PDFRevisionCoverage.swift) | [appearance](../archive/SIGNUM_0.4_PADES_APPEARANCE.md), [revision coverage](../SIGNUM_070_S01_PDF_COVERAGE.md) |
 | XML | [XAdES](../../Sources/SignumCore/XAdES.swift), [native XML implementation](../../Sources/CXMLSecurity/xades.c) | [XAdES profile](../archive/SIGNUM_0.6B_XADES_BASELINE.md) |
 | ASiC | [ASiC](../../Sources/SignumCore/ASiC.swift), [ZIP bounds](../../Sources/SignumCore/ASiCZIP.swift) | [ASiC profile](../archive/SIGNUM_0.6C_ASIC.md) |
 | Trust and evidence | [certificate validation](../../Sources/SignumCertificateValidation), [trust authentication](../../Sources/SignumTrustAuthentication) | [current/historical policy](../archive/SIGNUM_0.6A_CURRENT_TIME_VALIDATION.md) |

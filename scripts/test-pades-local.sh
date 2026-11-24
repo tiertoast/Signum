@@ -14,7 +14,7 @@ if [[ -x .build/native-tools/cmake/data/bin/cmake && -z "${SIGNUM_CMAKE:-}" ]]; 
 fi
 native_prefix="${SIGNUM_NATIVE_PREFIX:-$PWD/.build/native-prefix}"
 native_build="${SIGNUM_PADES_TEST_BUILD:-$PWD/.build/signum-pades}"
-"$cmake_tool" -S Tools/PAdESPrototype -B "$native_build" \
+"$cmake_tool" -S Tools/PAdESHelper -B "$native_build" \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$native_prefix" \
   -DOPENSSL_ROOT_DIR="$native_prefix" -DSIGNUM_BUILD_OFFLINE_TESTS=ON
 "$cmake_tool" --build "$native_build" --parallel 6

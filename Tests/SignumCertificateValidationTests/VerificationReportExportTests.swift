@@ -17,8 +17,8 @@ final class VerificationReportExportTests: XCTestCase {
         s.evidence = .init(signatureValue:value,signatureKey:DocumentSnapshot.digest(value),signerIndex:id,signedAttributes:[],unsignedAttributes:[],timestampTokens:[Data("SECRET_TIMESTAMP_TOKEN".utf8)],embedded:[],issue:"")
         return s
     }
-    func report(_ signatures: [SignatureVerificationResult],format: VerifiedDocumentFormat = .cades,name: String="Contratto sintetico.pdf.p7m",state: String="signed") -> VerificationReport {
-        var r=VerificationReport(id:UUID(),documentName:name,sha256:String(repeating:"a",count:64),format:format,signatures:signatures,documentState:state,issue:state == "signed" ? "":"Struttura non supportata dal motore.",previewPDF:Data("SECRET_ORIGINAL_PREVIEW".utf8),originalContent:Data("SECRET_ORIGINAL_DOCUMENT".utf8))
+    func report(_ signatures: [SignatureVerificationResult],format: VerifiedDocumentFormat = .cades,name: String="Contratto sintetico.pdf.p7m",state: VerifiedDocumentState = .signed) -> VerificationReport {
+        var r=VerificationReport(id:UUID(),documentName:name,sha256:String(repeating:"a",count:64),format:format,signatures:signatures,documentState:state,issue:state == .signed ? "":"Struttura non supportata dal motore.",previewPDF:Data("SECRET_ORIGINAL_PREVIEW".utf8),originalContent:Data("SECRET_ORIGINAL_DOCUMENT".utf8))
         if format == .cades && name.hasSuffix(".p7s") {r.detachedContentSHA256=String(repeating:"c",count:64)}
         return r
     }
@@ -81,7 +81,7 @@ final class VerificationReportExportTests: XCTestCase {
             if format == .cades {XCTAssertTrue(d.plainText.contains("Contenuto separato SHA-256: "+String(repeating:"c",count:64)))}
             if format != .cades {XCTAssertFalse(d.plainText.contains("Cofirmatari del contenuto CMS"))}
         }
-        let empty=try VerificationReportDocument(report:report([],format:.unknown,state:"damaged"),validations:[],verificationDate:at,exportedAt:later)
+        let empty=try VerificationReportDocument(report:report([],format:.unknown,state:.damaged),validations:[],verificationDate:at,exportedAt:later)
         XCTAssertTrue(try XCTUnwrap(PDFDocument(data:VerificationReportPDF.data(empty))?.string).contains("Nessun risultato individuale"))
     }
     func testRejectsUnknownDuplicateSignatureIDsAndMismatchedObservationDate() throws {

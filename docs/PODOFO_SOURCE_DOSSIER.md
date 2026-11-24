@@ -62,11 +62,11 @@ MACOSX_DEPLOYMENT_TARGET=13.0 "$CMAKE" \
 "$CMAKE" --install "$BUILD_ROOT/podofo"
 ```
 
-Il ricollegamento dell'helper, dal checkout Signum autorizzato, usa `Tools/PAdESPrototype/CMakeLists.txt` e richiede il target `podofo::podofo` esattamente 1.1.2. Per verificare una libreria modificata usare il nuovo prefix come primo elemento di ricerca e un rpath coerente; verificare poi `otool -L`, install name, dipendenze private e test. Esempio preparato:
+Il ricollegamento dell'helper, dal checkout Signum autorizzato, usa `Tools/PAdESHelper/CMakeLists.txt` e richiede il target `podofo::podofo` esattamente 1.1.2. Per verificare una libreria modificata usare il nuovo prefix come primo elemento di ricerca e un rpath coerente; verificare poi `otool -L`, install name, dipendenze private e test. Esempio preparato:
 
 ```sh
 MACOSX_DEPLOYMENT_TARGET=13.0 "$CMAKE" \
-  -S "$SIGNUM_ROOT/Tools/PAdESPrototype" -B "$BUILD_ROOT/helper" \
+  -S "$SIGNUM_ROOT/Tools/PAdESHelper" -B "$BUILD_ROOT/helper" \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
   -DCMAKE_PREFIX_PATH="$BUILD_ROOT/relinked-prefix;$NATIVE_PREFIX" \

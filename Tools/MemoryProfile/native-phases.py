@@ -27,7 +27,7 @@ try:
      r.ru_utime.tv_sec+r.ru_stime.tv_sec+(r.ru_utime.tv_usec+r.ru_stime.tv_usec)/1e6,t.tv_sec+t.tv_nsec/1e9,io.ri_diskio_bytesread,io.ri_diskio_byteswritten); fclose(output);
     }
     '''
-        native=copy/'Tools/PAdESPrototype';(native/'profile-mark.h').write_text(header)
+        native=copy/'Tools/PAdESHelper';(native/'profile-mark.h').write_text(header)
         helper=native/'signum_pades_local.cpp';s=helper.read_text();s='#include "profile-mark.h"\n'+s
         changes=[('const auto source = signum::readSource(input.string());','profile_mark("read-source",source.size()); profile_mark("source-capacity",source.capacity());'),
                  ('signum::requireSupportedSource(source);','profile_mark("source-policy-parse",source.size());'),
@@ -50,7 +50,7 @@ try:
         s=s.replace(join,'            profile_mark("inspection-prefix-capacity",signedBytes.capacity());\n'+join+'\n            profile_mark("inspection-joined-capacity",signedBytes.capacity());')
         verifier.write_text(s)
         m.ROOT=copy
-        build=r.native('phase-release','Tools/PAdESPrototype','Release');engine=build/'signum-pades-local'
+        build=r.native('phase-release','Tools/PAdESHelper','Release');engine=build/'signum-pades-local'
     else: engine=a.unmodified_helper.resolve()
     r.config.update(helper=str(engine),helperSHA256=hashlib.sha256(engine.read_bytes()).hexdigest(),instrumented=not bool(a.unmodified_helper))
     rows=[]

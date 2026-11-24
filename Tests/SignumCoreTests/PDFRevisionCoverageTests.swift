@@ -212,7 +212,7 @@ final class PDFRevisionCoverageTests: XCTestCase {
         let signature = SignatureVerificationResult(id: 0, integrity: .verified, certificate: nil,
             algorithm: "", declaredTime: "", reason: "", signedRevisionEnd: 100, laterChanges: false, cmsLayer: 1)
         var report = VerificationReport(id: UUID(), documentName: "metadata.pdf", sha256: String(repeating: "a", count: 64),
-            format: .pades, signatures: [signature], documentState: "signed", issue: "", previewPDF: Data(repeating: 0, count: 100), originalContent: nil)
+            format: .pades, signatures: [signature], documentState: .signed, issue: "", previewPDF: Data(repeating: 0, count: 100), originalContent: nil)
         // Preview length and laterChanges=false alone are not evidence of coverage.
         XCTAssertEqual(report.integrity, .verified)
         XCTAssertEqual(report.currentRevisionCoverage.state, .notEvaluated)
@@ -226,7 +226,7 @@ final class PDFRevisionCoverageTests: XCTestCase {
         XCTAssertEqual(report.integrity, .verified)
         // PDF coverage requirements do not change other formats' mathematics.
         let cms = VerificationReport(id: UUID(), documentName: "metadata.p7m", sha256: report.sha256,
-            format: .cades, signatures: [signature], documentState: "signed", issue: "", previewPDF: nil, originalContent: nil)
+            format: .cades, signatures: [signature], documentState: .signed, issue: "", previewPDF: nil, originalContent: nil)
         XCTAssertEqual(cms.currentRevisionCoverage.state, .notApplicable)
         XCTAssertEqual(cms.documentIntegrity, .verified)
     }
@@ -236,7 +236,7 @@ final class PDFRevisionCoverageTests: XCTestCase {
             SignatureVerificationResult(id: 1, integrity: .verified, certificate: nil, algorithm: "", declaredTime: "", reason: "", signedRevisionEnd: 100, laterChanges: false, cmsLayer: 1)
         ]
         var report = VerificationReport(id: UUID(), documentName: "invalid-previous.pdf", sha256: String(repeating: "a", count: 64),
-            format: .pades, signatures: signatures, documentState: "signed", issue: "", previewPDF: nil, originalContent: nil)
+            format: .pades, signatures: signatures, documentState: .signed, issue: "", previewPDF: nil, originalContent: nil)
         report.documentByteCount = 100
         XCTAssertEqual(report.currentRevisionCoverage.state, .covered)
         XCTAssertEqual(report.documentIntegrity, .invalid)

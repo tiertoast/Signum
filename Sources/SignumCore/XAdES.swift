@@ -73,10 +73,10 @@ public enum XAdES {
                 algorithm:"RSA-SHA256 · XAdES Baseline-B",declaredTime:"",reason:"Firma, riferimenti XMLDSig o identificazione del certificato non validi.",
                 signedRevisionEnd:nil,laterChanges:false,cmsLayer:1)
             return .init(id:UUID(),documentName:name,sha256:DocumentSnapshot.digest(document),format:.xml,signatures:[signer],
-                documentState:"signed",issue:"",previewPDF:nil,originalContent:nil)
+                documentState:.signed,issue:"",previewPDF:nil,originalContent:nil)
         } catch {
             return .init(id:UUID(),documentName:name,sha256:DocumentSnapshot.digest(document),format:.xml,signatures:[],
-                documentState:"unsupported",issue:"XAdES non verificabile: XML alterato, malformato o fuori dal profilo Baseline-B supportato. " + error.localizedDescription,
+                documentState:.unsupported,issue:"XAdES non verificabile: XML alterato, malformato o fuori dal profilo Baseline-B supportato. " + error.localizedDescription,
                 previewPDF:nil,originalContent:nil)
         }
     }
@@ -92,7 +92,7 @@ public enum XAdES {
             signer.evidence = .init(signatureValue:v.signatureValue,signatureKey:DocumentSnapshot.digest(v.signatureValue),signerIndex:0,
                 signedAttributes:[],unsignedAttributes:[],timestampTokens:[],embedded:[],issue:"")
             return .init(id:UUID(),documentName:name,sha256:digest,format:format,signatures:[signer],
-                documentState:"signed",issue:"",previewPDF:nil,originalContent:nil)
+                documentState:.signed,issue:"",previewPDF:nil,originalContent:nil)
     }
 
 }

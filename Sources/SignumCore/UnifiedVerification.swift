@@ -42,12 +42,17 @@ public struct SignatureVerificationResult: Identifiable, Equatable, Sendable {
     public let revocation = UnassessedValidation.notChecked
     public let qualification = UnassessedValidation.notChecked
 }
+/// Document-level outcome of the native engine (wire values are the raw values).
+public enum VerifiedDocumentState: String, Sendable {
+    case signed, unsigned, damaged, unsupported
+}
 public struct VerificationReport: Identifiable, Sendable {
     public let id: UUID
     public let documentName: String, sha256: String
     public let format: VerifiedDocumentFormat
     public let signatures: [SignatureVerificationResult]
-    public let documentState: String, issue: String
+    public let documentState: VerifiedDocumentState
+    public let issue: String
     /// Only a PDF candidate from immutable input or a fully verified CMS payload.
     /// Never written beside the source and never opened as an executable attachment.
     public let previewPDF: Data?
@@ -62,15 +67,15 @@ public struct VerificationReport: Identifiable, Sendable {
     public static let scope = "Attendibilità del certificato non ancora verificata. Revoca, qualificazione eIDAS, marche temporali e LTV non valutate."
     public static let revisionScope = "Le modifiche successive sono rilevate come byte aggiunti: conformità DocMDP/FieldMDP e accettabilità delle revisioni non valutate. Sono esaminate le firme raggiungibili dall'AcroForm corrente, fino a 32."
     public var integrity: CryptographicIntegrity {
-        guard documentState != "damaged", documentState != "unsupported" else { return .notVerifiable }
-        if documentState == "unsigned" { return .absent }
+        guard documentState != .damaged, documentState != .unsupported else { return .notVerifiable }
+        if documentState == .unsigned { return .absent }
         guard !signatures.isEmpty else { return .notVerifiable }
         if signatures.contains(where: { $0.integrity == .invalid }) { return .invalid }
         return signatures.allSatisfy { $0.integrity == .verified } ? .verified : .notVerifiable
     }
     public var summary: String {
-        if documentState == "damaged" { return "Documento danneggiato o struttura non supportata" }
-        if documentState == "unsupported" { return "Formato non supportato" }
+        if documentState == .damaged { return "Documento danneggiato o struttura non supportata" }
+        if documentState == .unsupported { return "Formato non supportato" }
         if format == .pades && integrity == .absent { return "PDF non firmato" }
         if format == .pades { return documentOutcome.value }
         return integrity.description
@@ -183,9 +188,9 @@ public enum SignumVerificationService {
         guard metadataLength > 0, metadataLength <= 8*1024*1024, contentLength <= maximumInputBytes,
               output.count == 8 + metadataLength + contentLength else { throw SupervisedProcess.Failure.protocolViolation }
         let wire = try JSONDecoder().decode(WireReport.self, from: output.subdata(in: 8..<8+metadataLength))
-        guard wire.version == 1, ["signed","unsigned","damaged","unsupported"].contains(wire.state),
+        guard wire.version == 1, let state = VerifiedDocumentState(rawValue: wire.state),
               wire.reason.utf8.count <= 8192, wire.signatures.count <= 32,
-              wire.state != "signed" || !wire.signatures.isEmpty,
+              state != .signed || !wire.signatures.isEmpty,
               wire.signatures.allSatisfy({ (1...5).contains($0.layer) && (0...data.count).contains($0.revisionEnd) &&
                   [$0.reason,$0.subject,$0.issuer,$0.algorithm,$0.declaredTime].allSatisfy({ $0.utf8.count <= 8192 }) &&
                   ($0.fingerprint.isEmpty || ($0.fingerprint.count == 64 && $0.fingerprint.allSatisfy { $0.isHexDigit })) &&
@@ -232,7 +237,7 @@ public enum SignumVerificationService {
         }
         var preview: Data?, original: Data?
         if wire.format == .pades && ["signed","unsigned"].contains(wire.state) { preview = data }
-        else if wire.format == .cades && wire.state == "signed" && records.allSatisfy({$0.integrity == .verified}) && contentLength > 0 {
+        else if wire.format == .cades && state == .signed && records.allSatisfy({$0.integrity == .verified}) && contentLength > 0 {
             let content = output.subdata(in: 8+metadataLength..<output.count)
             original = content
             if wire.previewablePDF && SignatureFormatDetector.candidate(content) == .pades { preview = content }
@@ -240,7 +245,7 @@ public enum SignumVerificationService {
         guard (wire.unassociatedEvidence?.count ?? 0) <= 64,
               (wire.unassociatedEvidence ?? []).allSatisfy({ validEvidence($0, inputSize: data.count) && $0.association == .unassociated }) else { throw SupervisedProcess.Failure.protocolViolation }
         var result = VerificationReport(id: UUID(), documentName: name, sha256: DocumentSnapshot.digest(data), format: wire.format,
-            signatures: records, documentState: wire.state, issue: wire.reason, previewPDF: preview, originalContent: original)
+            signatures: records, documentState: state, issue: wire.reason, previewPDF: preview, originalContent: original)
         result.documentByteCount = data.count
         result.detachedContentSHA256 = detachedContent.map { DocumentSnapshot.digest($0) }
         result.unassociatedEvidence = wire.unassociatedEvidence ?? []

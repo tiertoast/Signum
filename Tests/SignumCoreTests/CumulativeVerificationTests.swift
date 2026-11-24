@@ -7,7 +7,7 @@ import SignumVerificationReports
 
 @MainActor final class CumulativeVerificationTests: XCTestCase {
     private let verifier: VerificationWorkspace.Verifier = { url, _ in
-        .init(id: UUID(), documentName: url.lastPathComponent, sha256: SHA256.hash(data: Data(url.path.utf8)).map { String(format: "%02x", $0) }.joined(), format: .unknown, signatures: [], documentState: "unsupported", issue: "", previewPDF: nil, originalContent: Data(url.path.utf8))
+        .init(id: UUID(), documentName: url.lastPathComponent, sha256: SHA256.hash(data: Data(url.path.utf8)).map { String(format: "%02x", $0) }.joined(), format: .unknown, signatures: [], documentState: .unsupported, issue: "", previewPDF: nil, originalContent: Data(url.path.utf8))
     }
     func testTwoThreeAndManyAppendPreservingReportIdentityAndSelectedRow() async throws {
         for count in [2,3,12] {
@@ -47,7 +47,7 @@ import SignumVerificationReports
         let workspace = VerificationWorkspace()
         await workspace.verify([URL(fileURLWithPath: "/synthetic/valid"), URL(fileURLWithPath: "/synthetic/altered")]) { url, _ in
             if url.lastPathComponent == "altered" { throw SignumError.invalidCertificate }
-            return .init(id: UUID(), documentName: url.lastPathComponent, sha256: "valid", format: .unknown, signatures: [], documentState: "unsupported", issue: "", previewPDF: nil, originalContent: nil)
+            return .init(id: UUID(), documentName: url.lastPathComponent, sha256: "valid", format: .unknown, signatures: [], documentState: .unsupported, issue: "", previewPDF: nil, originalContent: nil)
         }
         XCTAssertNotNil(workspace.rows[0].report);XCTAssertNil(workspace.rows[1].report)
         XCTAssertFalse(workspace.rows[1].issue.isEmpty)
@@ -71,7 +71,7 @@ import SignumVerificationReports
         let ready = expectation(description:"waiting"),release = DispatchSemaphore(value:0)
         let active = workspace.start([URL(fileURLWithPath:"/synthetic/late")]) { url,_ in
             ready.fulfill();_ = release.wait(timeout:.now()+3)
-            return .init(id:UUID(),documentName:url.lastPathComponent,sha256:"late",format:.unknown,signatures:[],documentState:"unsupported",issue:"",previewPDF:nil,originalContent:nil)
+            return .init(id:UUID(),documentName:url.lastPathComponent,sha256:"late",format:.unknown,signatures:[],documentState:.unsupported,issue:"",previewPDF:nil,originalContent:nil)
         }
         await fulfillment(of:[ready],timeout:2)
         let queued = workspace.start([URL(fileURLWithPath:"/synthetic/queued")],using:verifier)
@@ -86,7 +86,7 @@ import SignumVerificationReports
         let workspace = VerificationWorkspace()
         let bytes = Data(repeating: 0, count: 65 * 1024 * 1024)
         let verify: VerificationWorkspace.Verifier = { url,_ in
-            .init(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.unknown,signatures:[],documentState:"unsupported",issue:"",previewPDF:nil,originalContent:bytes)
+            .init(id:UUID(),documentName:url.lastPathComponent,sha256:"synthetic",format:.unknown,signatures:[],documentState:.unsupported,issue:"",previewPDF:nil,originalContent:bytes)
         }
         await workspace.verify([URL(fileURLWithPath:"/synthetic/one")],using:verify)
         await workspace.verify([URL(fileURLWithPath:"/synthetic/two")],using:verify)

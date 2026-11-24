@@ -165,7 +165,7 @@ import PDFKit
         XCTAssertEqual(try Data(contentsOf: copy), bytes); XCTAssertEqual(try Data(contentsOf: source), cms)
         for candidate in [nil, Data("%PDF-not-a-document".utf8)] as [Data?] {
             let invalid = VerificationReport(id: UUID(), documentName: "misleading.pdf.p7m", sha256: "synthetic", format: .pades,
-                signatures: [], documentState: "unsigned", issue: "", previewPDF: candidate, originalContent: nil)
+                signatures: [], documentState: .unsigned, issue: "", previewPDF: candidate, originalContent: nil)
             XCTAssertThrowsError(try VerifiedPDFPreview.prepare(invalid, root: root))
         }
         XCTAssertThrowsError(try VerifiedPDFPreview.prepare(report.withoutPreview(), root: root))

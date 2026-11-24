@@ -55,7 +55,7 @@ final class S06PINCleanupTests: XCTestCase {
         let optimize="-O2"
         #endif
         let cc=Process();cc.executableURL=URL(fileURLWithPath:"/usr/bin/clang++")
-        cc.arguments=["-std=c++17",optimize,"-I",repo.appendingPathComponent("Tools/PAdESPrototype").path,source.path,"-o",binary.path]
+        cc.arguments=["-std=c++17",optimize,"-I",repo.appendingPathComponent("Tools/PAdESHelper").path,source.path,"-o",binary.path]
         if let sanitizer=ProcessInfo.processInfo.environment["SIGNUM_TEST_PIN_PROBE_SANITIZER"], ["address","thread"].contains(sanitizer) {
             cc.arguments! += ["-fsanitize="+sanitizer,"-fno-omit-frame-pointer","-g"]
         }
