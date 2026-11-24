@@ -155,9 +155,10 @@ published stable HTTP API or general JSON automation contract.
 ## Beta scope, roadmap and contributing
 
 This is a **Beta**, with compatibility, accessibility, interoperability and
-stability work still open. It is not Stable or RC-qualified. Detailed engineering
-follow-up, including M3–M6, is kept in [issue #9](https://github.com/tiertoast/Signum/issues/9)
-and the [engineering documentation](docs/engineering/README.md).
+stability work still open. It is not Stable or RC-qualified. The M3–M6
+repeated campaign passed on 2026-11-24 ([issue #9](https://github.com/tiertoast/Signum/issues/9),
+[record](docs/engineering/stability/M3_M6_CAMPAIGN_2026-11-24.json)); remaining
+engineering follow-up is in the [engineering documentation](docs/engineering/README.md).
 
 See the [roadmap](docs/ROADMAP.md) for reliability and distribution, optional
 trusted timestamp issuance and the path to a defined Stable support matrix.

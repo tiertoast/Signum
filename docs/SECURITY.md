@@ -86,8 +86,8 @@ contain paths or public certificate information even when it contains no PIN.
 The release is arm64, ad-hoc signed and not Developer ID signed/notarized. The
 minimum macOS 13.0 declaration is not a completed OS/clean-machine qualification.
 Broader token/middleware compatibility, failure handling, accessibility and
-stability checks remain open. M3–M6 are tracked in [issue #9](https://github.com/tiertoast/Signum/issues/9);
-the RC stability gate is not passed. No Stable claim or general QES certification applies.
+stability checks remain open. The M3–M6 campaign passed ([issue #9](https://github.com/tiertoast/Signum/issues/9));
+the RC stability gate is not yet declared passed. No Stable claim or general QES certification applies.
 
 Report security concerns without secrets or exploitable personal documents.
 The repository has no published security-response SLA. For development evidence,
