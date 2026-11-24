@@ -12,7 +12,9 @@ final class PKCS11WorkerTests: XCTestCase {
         let cert = try CertificateEligibilityTests.fixtures.get().der("valid")
         let mock = try MockModule(certificate: cert), client = IsolatedPKCS11Client(executable: executable)
         let scan = try client.scan(provider: mock.path.path)
-        XCTAssertEqual(scan.tokens.map(\.slot), [7]); XCTAssertEqual(scan.provider, mock.path.resolvingSymlinksInPath().path)
+        XCTAssertEqual(scan.tokens.map(\.slot), [7]); // realpath, like the worker: Foundation's resolvingSymlinksInPath drops
+        // "/private" from /var/folders, so the comparison depended on TMPDIR.
+        XCTAssertEqual(scan.provider, try XCTUnwrap(realpath(mock.path.path, nil).map { p in defer { free(p) }; return String(cString: p) }))
         let found = try client.certificates(provider: scan.provider, slot: 7)
         XCTAssertEqual(found.first?.der, cert)
         // The parent has loaded only the fixture's control symbols, never Init.
