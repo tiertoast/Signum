@@ -1,0 +1,29 @@
+{
+ "productCommit": "f265b05734d1d43fd4723763cb9e4d813edeca70",
+ "channel": "experimental-beta",
+ "rcGate": "NOT PASSED",
+ "openMethods": [
+  "M3",
+  "M4",
+  "M5",
+  "M6"
+ ],
+ "issue": "https://github.com/tiertoast/Signum/issues/9",
+ "artifactBytes": 22937547,
+ "sha256": {
+  "ArtifactManifest.json": "e98103295376f8d7ca6c04554c0e0662326dc5cf1c60e8499a6c3899d9e1d7bb",
+  "AppAudit.json": "cc1eaca99cabf9bc033808b24e803dfe4ee0cd14c5e0a4c68e4621d1247bf953",
+  "summary.json": "db3d7a7127969992f9243198b22d55e897e7e958f3b712b8850f86593442c58e",
+  "Signum.app.SHA256SUMS": "bdf5dca3ac71b22175cbbdab43899d13c2e9e61966b3829578d55a7e33a7e920",
+  "Signum.app.symlinks.json": "68074f47470fa0570ae5ed94f3fc304ac16745ed28b6d3f749b46da405b4adca",
+  "Signum-0.7.0-beta-arm64.dmg": "602e07531dc0250a52c9c21778e90fe08468ad598549d28daa57bce03134a012",
+  "Signum-0.7.0-beta-arm64.dmg.sha256": "6f8221b55276603e953669b26a1283b24597bf3b8a60b9e93d6de458fe4b0c72",
+  "BuildManifest.json": "acce4af4f82a76abedaf8b0673fe21cb337beb7ade6a9fe73567a7de461525bd"
+ },
+ "publicationDecision": "Explicit author request, 2026-11-24; publish after merge (#19) and uploaded asset verification; prerelease only, no Stable or RC promotion.",
+ "runtimeOS13Attested": false,
+ "cleanMacAttested": false,
+ "newHardwareTests": true,
+ "rebuiltForPublication": false,
+ "hardwareNote": "Owner-verified on a real token before packaging: PIN refusal, mixed PDF/CAdES one-PIN batch, USB and network destinations."
+}
