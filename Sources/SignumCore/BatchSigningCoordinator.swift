@@ -287,41 +287,15 @@ public struct BatchApproval: Sendable {
         isFrozen = false; isApproved = false; needsOutcomeReview = false
     }
 
+    /// Review and freeze in one step, for callers without a separate review
+    /// screen (tests, CLI). Same checks as `prepareReview` + `freezeReview`.
     public func prepareApproval(provider: String, slot: UInt, certificate: SignumCertificate,
-                                der: Data, directory: URL, includeSigningTime: Bool = true) async throws -> BatchApproval {
-        try await prepareApproval(provider: provider, slot: slot, certificate: certificate, der: der, destination: .commonDirectory(directory), includeSigningTime: includeSigningTime)
-    }
-
-    public func prepareApproval(provider: String, slot: UInt, certificate: SignumCertificate,
-                                der: Data, destination: BatchOutputDestination = .originalFolders, includeSigningTime: Bool = true) async throws -> BatchApproval {
-        guard !needsOutcomeReview, !isFrozen, !isPreparing, !pendingDocuments.isEmpty, !isRunning, !isContinuingAuthenticated else { throw Self.failure("Selezione non disponibile.") }
-        isFrozen = true; isPreparing = true
-        let request = UUID(); acquisitionID = request
-        let selected = pendingDocuments.map(\.snapshot), padesHelper = padesHelper
-        let formats = Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.format) })
-        let counterKeys=Dictionary(uniqueKeysWithValues:documents.map { ($0.id,$0.configuration.counterSignatureKey) })
-        do {
-            let prepared = try await Task.detached(priority: .userInitiated) {
-                try CertificateEligibility.requireEligible(certificateDER: der)
-                for snapshot in selected { _ = try snapshot.verifiedBytes() }
-                let outputs = try destination.plan(selected,formats:formats)
-                let jobs = try zip(selected, outputs).map { snapshot, output in
-                    try SigningJob(snapshot: snapshot, format: formats[snapshot.identity.id], providerPath: provider, slot: slot,
-                        certificate: certificate, certificateDER: der, destination: output.url,
-                        destinationDirectoryIdentity: output.directoryIdentity,
-                        padesSourcePreflight: formats[snapshot.identity.id] == .pades ? Self.preflight(snapshot, helper: padesHelper) : nil, includeSigningTime: includeSigningTime, counterSignatureKey: counterKeys[snapshot.identity.id] ?? nil)
-                }
-                return BatchApproval(id: UUID(), jobs: jobs)
-            }.value
-            guard acquisitionID == request, selected.map(\.identity.id) == pendingDocuments.map(\.id) else { throw Self.failure("Preparazione annullata.") }
-            approval = prepared
-            authorizationRevoked = false
-            for index in documents.indices {
-                if let job = prepared.jobs.first(where: { $0.snapshotIdentity.id == documents[index].id }) { documents[index].destination = job.destination }
-            }
-            isPreparing = false
-            return prepared
-        } catch { isFrozen = false; isPreparing = false; throw error }
+                                der: Data, destination: BatchOutputDestination = .originalFolders,
+                                includeSigningTime: Bool = true) async throws -> BatchApproval {
+        let plan = try await prepareReview(provider: provider, slot: slot, certificate: certificate, der: der,
+                                           destination: destination, includeSigningTime: includeSigningTime)
+        try freezeReview(plan)
+        return plan
     }
 
     nonisolated private static func preflight(_ snapshot: DocumentSnapshot, helper: URL?, isCancelled: () -> Bool = { false }) throws -> PAdESSourcePreflight {

@@ -470,6 +470,63 @@ static int check_authenticated_certificate(SGContext *ctx, CK_SESSION_HANDLE ses
     return assessment.status == SG_CERT_ELIGIBLE ? 0 : invalid(error, size, "Certificate no longer locally eligible");
 }
 
+// SHA-256 DigestInfo is exactly 51 bytes:
+// SEQUENCE AlgorithmIdentifier SHA256 + OCTET STRING 32.
+static const uint8_t sha256_digest_info_prefix[] = {
+    0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,
+    0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
+};
+static int is_sha256_digest_info(const uint8_t *data, size_t length) {
+    return data && length == 51 && !memcmp(data, sha256_digest_info_prefix, sizeof(sha256_digest_info_prefix));
+}
+
+// One-shot signature in a fresh session: USER login, optional certificate
+// re-check, CONTEXT_SPECIFIC login when the key asks for it, one C_Sign.
+// Callers validate `data` for `mechanism` before calling.
+static int sign_once(SGContext *ctx, unsigned long slot, const uint8_t *id, size_t id_length,
+                     const uint8_t *pin, size_t pin_length, CK_MECHANISM_TYPE mechanism_type,
+                     const uint8_t *data, size_t data_length, uint8_t *signature, size_t signature_capacity,
+                     size_t *signature_length, const uint8_t *expected, size_t expected_length, char *error, size_t error_size) {
+    *signature_length = 0;
+    CK_SESSION_HANDLE session;
+    if (open_session(ctx, slot, &session, error, error_size)) return -1;
+    CK_RV rv;
+    int status = login_user(ctx, session, pin, pin_length, error, error_size);
+    if (!status && expected) status = check_authenticated_certificate(ctx, session, id, id_length, expected, expected_length, error, error_size);
+    CK_OBJECT_HANDLE key;
+    if (!status) status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length, &key, error, error_size);
+    if (!status) {
+        CK_MECHANISM mechanism = {mechanism_type, NULL, 0};
+        rv = ctx->api->C_SignInit(session, &mechanism, key);
+        if (rv != CKR_OK) status = failed(error, error_size, "C_SignInit", rv);
+    }
+    if (!status) {
+        CK_BBOOL always_auth = CK_FALSE;
+        CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
+        CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
+        if (arv == CKR_OK && (auth.ulValueLen != sizeof(always_auth) || (always_auth != CK_TRUE && always_auth != CK_FALSE))) {
+            status = invalid(error, error_size, "Invalid authentication attribute");
+        } else if (arv == CKR_OK && always_auth == CK_TRUE) {
+            rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
+            if (rv != CKR_OK) { sign_outcome_login(ctx, session, rv); status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv); }
+        } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID && arv != CKR_ATTRIBUTE_SENSITIVE) {
+            status = failed(error, error_size, "C_GetAttributeValue authentication", arv);
+        }
+    }
+    if (!status) {
+        CK_ULONG n = signature_capacity;
+        ctx->sign_called = 1;
+        rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)data, data_length, signature, &n);
+        if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
+        else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
+        else status = failed(error, error_size, "C_Sign", rv);
+    }
+    // Close only our session. Other owners' sessions may keep a shared login.
+    status = close_session(ctx, session, status, error, error_size);
+    if (status) { memset(signature, 0, signature_capacity); *signature_length = 0; }
+    return status;
+}
+
 static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *id,
                  size_t id_length, const uint8_t *pin, size_t pin_length,
                  const uint8_t *message, size_t message_length,
@@ -478,46 +535,8 @@ static int sg_sign_test_impl(SGContext *ctx, unsigned long slot, const uint8_t *
     if (!ctx || !id || !id_length || !pin || !pin_length || !message || !signature ||
         !signature_length || message_length > 1024 * 1024 || signature_capacity < 8192)
         return invalid(error, error_size, "Invalid signing arguments");
-    *signature_length = 0;
-    CK_SESSION_HANDLE session;
-    if (open_session(ctx, slot, &session, error, error_size)) return -1;
-    CK_RV rv;
-    int status = login_user(ctx, session, pin, pin_length, error, error_size);
-    if (!status && expected) status = check_authenticated_certificate(ctx, session, id, id_length, expected, expected_length, error, error_size);
-    if (!status) {
-        CK_OBJECT_HANDLE key;
-        status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length, &key, error, error_size);
-        if (!status) {
-            CK_MECHANISM mechanism = {CKM_SHA256_RSA_PKCS, NULL, 0};
-            rv = ctx->api->C_SignInit(session, &mechanism, key);
-            if (rv != CKR_OK) status = failed(error, error_size, "C_SignInit", rv);
-            else {
-                CK_BBOOL always_auth = CK_FALSE;
-                CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
-                CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
-                if (arv == CKR_OK && (auth.ulValueLen != sizeof(always_auth) || (always_auth != CK_TRUE && always_auth != CK_FALSE))) {
-                    status = invalid(error, error_size, "Invalid authentication attribute");
-                } else if (arv == CKR_OK && always_auth == CK_TRUE) {
-                    rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC, (CK_UTF8CHAR_PTR)pin, pin_length);
-                    if (rv != CKR_OK) { sign_outcome_login(ctx, session, rv); status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv); }
-                } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID && arv != CKR_ATTRIBUTE_SENSITIVE) {
-                    status = failed(error, error_size, "C_GetAttributeValue authentication", arv);
-                }
-                if (!status) {
-                    CK_ULONG n = signature_capacity;
-                    ctx->sign_called = 1;
-                    rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)message, message_length, signature, &n);
-                    if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
-                    else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
-                    else status = failed(error, error_size, "C_Sign", rv);
-                }
-            }
-        }
-    }
-    // Close only our session. Other owners' sessions may keep a shared login.
-    status = close_session(ctx, session, status, error, error_size);
-    if (status) { memset(signature, 0, signature_capacity); *signature_length = 0; }
-    return status;
+    return sign_once(ctx, slot, id, id_length, pin, pin_length, CKM_SHA256_RSA_PKCS, message, message_length,
+                     signature, signature_capacity, signature_length, expected, expected_length, error, error_size);
 }
 
 // Raw PKCS#1 v1.5 signature of *already ASN.1 wrapped* SHA-256 digest.
@@ -529,60 +548,11 @@ static int sg_sign_encoded_digest_impl(SGContext *ctx, unsigned long slot,
                            const uint8_t *digestinfo, size_t digestinfo_length,
                            uint8_t *signature, size_t signature_capacity,
                            size_t *signature_length, const uint8_t *expected, size_t expected_length, char *error, size_t error_size) {
-    // SHA-256 DigestInfo is exactly 51 bytes:
-    // SEQUENCE AlgorithmIdentifier SHA256 + OCTET STRING 32.
-    static const uint8_t prefix[] = {
-        0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,
-        0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
-    };
-    if (!ctx || !id || !id_length || !pin || !pin_length ||
-        !digestinfo || digestinfo_length != 51 ||
-        memcmp(digestinfo, prefix, sizeof(prefix)) != 0 ||
+    if (!ctx || !id || !id_length || !pin || !pin_length || !is_sha256_digest_info(digestinfo, digestinfo_length) ||
         !signature || signature_capacity < 8192 || !signature_length)
         return invalid(error, error_size, "Expected DER SHA-256 DigestInfo and valid signing buffers");
-    *signature_length = 0;
-    CK_SESSION_HANDLE session;
-    if (open_session(ctx, slot, &session, error, error_size)) return -1;
-    CK_RV rv;
-    int status = login_user(ctx, session, pin, pin_length, error, error_size);
-    if (!status && expected) status = check_authenticated_certificate(ctx, session, id, id_length, expected, expected_length, error, error_size);
-    if (!status) {
-        CK_OBJECT_HANDLE key;
-        status = find_one(ctx, session, CKO_PRIVATE_KEY, id, id_length,
-                          &key, error, error_size);
-        if (!status) {
-            CK_MECHANISM mechanism = {CKM_RSA_PKCS, NULL, 0};
-            rv = ctx->api->C_SignInit(session, &mechanism, key);
-            if (rv != CKR_OK) status = failed(error, error_size, "C_SignInit", rv);
-            else {
-                CK_BBOOL always_auth = CK_FALSE;
-                CK_ATTRIBUTE auth = {CKA_ALWAYS_AUTHENTICATE, &always_auth, sizeof(always_auth)};
-                CK_RV arv = ctx->api->C_GetAttributeValue(session, key, &auth, 1);
-                if (arv == CKR_OK && (auth.ulValueLen != sizeof(always_auth) || (always_auth != CK_TRUE && always_auth != CK_FALSE))) {
-                    status = invalid(error, error_size, "Invalid authentication attribute");
-                } else if (arv == CKR_OK && always_auth == CK_TRUE) {
-                    rv = ctx->api->C_Login(session, CKU_CONTEXT_SPECIFIC,
-                                           (CK_UTF8CHAR_PTR)pin, pin_length);
-                    if (rv != CKR_OK) { sign_outcome_login(ctx, session, rv); status = failed(error, error_size, "C_Login CONTEXT_SPECIFIC", rv); }
-                } else if (arv != CKR_OK && arv != CKR_ATTRIBUTE_TYPE_INVALID &&
-                           arv != CKR_ATTRIBUTE_SENSITIVE) {
-                    status = failed(error, error_size, "C_GetAttributeValue authentication", arv);
-                }
-                if (!status) {
-                    CK_ULONG n = signature_capacity;
-                    ctx->sign_called = 1;
-                    rv = ctx->api->C_Sign(session, (CK_BYTE_PTR)digestinfo,
-                                          digestinfo_length, signature, &n);
-                    if (rv == CKR_OK && n > 0 && n <= signature_capacity) *signature_length = n;
-                    else if (rv == CKR_OK) status = invalid(error, error_size, "Invalid returned signature length");
-                    else status = failed(error, error_size, "C_Sign", rv);
-                }
-            }
-        }
-    }
-    status = close_session(ctx, session, status, error, error_size);
-    if (status) { memset(signature, 0, signature_capacity); *signature_length = 0; }
-    return status;
+    return sign_once(ctx, slot, id, id_length, pin, pin_length, CKM_RSA_PKCS, digestinfo, digestinfo_length,
+                     signature, signature_capacity, signature_length, expected, expected_length, error, error_size);
 }
 
 int sg_tokens(SGContext *ctx, SGToken *out, size_t capacity, size_t *count, size_t *unavailable, char *error, size_t error_size) {
@@ -735,17 +705,13 @@ static int batch_pin_current(SGBatchSession *s) {
     double now = sg_batch_monotonic_now();
     return now >= 0 && now < s->pin_deadline;
 }
-static const uint8_t sha256_digest_info_prefix[] = {
-    0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,
-    0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
-};
 static int batch_sign(SGBatchSession *s, int first, const uint8_t *pin, size_t pin_length,
     const uint8_t *message, size_t message_length, uint8_t *signature, size_t capacity, size_t *length, char *error, size_t size) {
     if (!message || !message_length || message_length > 4096 || !signature || capacity < 8192 || !length || s->failed)
         return invalid(error, size, "Invalid/retired batch signature request");
     /* Raw RSA only over an exact SHA-256 DigestInfo (PAdES CMS); never arbitrary data. */
     const int encoded = s->ctx->batch_encoded_digest;
-    if (encoded && (message_length != 51 || memcmp(message, sha256_digest_info_prefix, sizeof(sha256_digest_info_prefix))))
+    if (encoded && !is_sha256_digest_info(message, message_length))
         return invalid(error, size, "Expected DER SHA-256 DigestInfo for batch digest signature");
     *length = 0;
     int status = batch_token(s, 0, NULL, error, size);

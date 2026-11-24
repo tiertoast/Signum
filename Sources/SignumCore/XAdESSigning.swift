@@ -42,12 +42,8 @@ extension SigningJob {
             operation.transition(to:.completed)
         } catch {
             keepSnapshot = error.allowsNewPIN
+            let error = error.classifiedAfterSigningRequest(submitted: submitted, received: received)
             if case SignumError.outputUncertain = error { operation.transition(to:.outcomeUncertain); throw error }
-            if submitted && !received && !(error is IsolatedPKCS11Client.Failure) && !error.provablyNotSigned &&
-                (error as? SupervisedProcess.Failure) != .launch && (error as? SupervisedProcess.Failure) != .capacity {
-                operation.transition(to:.outcomeUncertain)
-                throw SignumError.outputUncertain("Richiesta privata interrotta o senza firma verificabile. Nessun documento pubblicato; non ripetere automaticamente il PIN.")
-            }
             if operation.isCancellationRequested { operation.transition(to:.cancelled); throw SupervisedProcess.Failure.cancelled }
             operation.transition(to:.failed); throw error
         }
