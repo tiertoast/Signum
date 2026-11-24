@@ -1,4 +1,4 @@
-# Rebuilding the covered libraries without the private Signum repository
+# Rebuilding the covered libraries without the Signum repository
 
 The original PoDoFo1.1.2 and FreeType2.13.3 source archives are beside this file.
 Their SHA256 values and acquired URLs are recorded in SOURCE_INVENTORY.json.
@@ -45,8 +45,8 @@ PkgConfig discovery and Homebrew library search paths.
    its own copies for Apple Silicon loading; no Apple identity/notarization.
 
 These steps preserve the libraries' replacement/rebuildability and do not
-require private Signum credentials. The separate Signum helper integration
-check in rebuild-beta-native.py does require the authorized Signum worktree;
+require the Signum repository or any Signum credentials. The separate Signum helper integration
+check in rebuild-beta-native.py does require a Signum checkout;
 that is a product qualification step, not a restriction on the covered sources.
 Do not treat these instructions or a successful native run as public-release
 approval. Preserve source, notices and any changes for every shipped build.

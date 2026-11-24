@@ -15,7 +15,7 @@ binary is introduced. All original archive notices are retained.
 The prepared route is source-with-artifact: the existing packaging recipe
 copies this entire directory into `Signum.app/Contents/Resources/ThirdPartySources`.
 Recipients can select the app in Finder, Show Package Contents, then open that
-path without needing access to the private Signum repository or an account.
+path without needing the Signum repository or an account.
 Alongside this file they will find:
 
 - `podofo.tar.gz` — PoDoFo 1.1.2, SHA256

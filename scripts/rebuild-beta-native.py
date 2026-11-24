@@ -318,8 +318,8 @@ def main(argv=None):
                 'hashes, tests and resulting hashes are recorded there.\n\n'
                 'The original archives and licenses are beside this file. Use '
                 'BUILD_NATIVE_SOURCES.md for library-only rebuild instructions without the '
-                'private Signum repository. The copied Python driver is recipe evidence; its '
-                'Signum helper integration check requires the authorized Signum worktree. '
+                'Signum repository. The copied Python driver is recipe evidence; its '
+                'Signum helper integration check requires a Signum checkout. '
                 'Global adoption, app/DMG testing and public distribution remain unqualified.\n')
             manifest['outputPrefixInventory']=inventory(root/'prefix')
             manifest['outputHashScope']='All prefix inputs/output files except NATIVE_BUILD_PROVENANCE.json itself (avoids a self-hash cycle)'
