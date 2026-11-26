@@ -75,7 +75,9 @@ final class PAdESHelperProcessTests: XCTestCase {
             var input = Data()
             let outcome = PAdESHelperProcess.run(executable: URL(fileURLWithPath: "/bin/sh"),
                 arguments: ["-c", "printf synthetic > \"$1\"; while :; do :; done", "fixture", output.path], input: &input,
-                destination: output, isCancelled: { FileManager.default.fileExists(atPath: output.path) })
+                // The shell creates (truncates) the file before printf writes, so
+                // cancel only once the bytes are there, not when the path appears.
+                destination: output, isCancelled: { (try? String(contentsOf: output)) == "synthetic" })
             guard case .uncertain = outcome else { return XCTFail("Possible commit must stay uncertain") }
             XCTAssertEqual(try String(contentsOf: output), "synthetic")
         }
