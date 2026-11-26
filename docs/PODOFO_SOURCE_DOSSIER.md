@@ -78,7 +78,7 @@ MACOSX_DEPLOYMENT_TARGET=13.0 "$CMAKE" \
 /usr/bin/otool -L "$BUILD_ROOT/helper/signum-pades-local"
 ```
 
-Queste istruzioni descrivono un percorso tecnico per chi possiede il worktree. Non sono ancora un kit accessibile al destinatario di un repository privato. La recipe completa `scripts/build-preview-native.py` usa oggi archivi in `.build/preview-native-src` e default tool locali: non è stata lanciata qui, né si inventano flag esterni inesistenti; la predisposizione di scratch/archivi per la RC resta T07/Fase 5. I comandi realmente eseguiti in Fase 4, con timeout esterno e ambiente controllato, sono nei log esterni e nel rapporto.
+Queste istruzioni descrivono un percorso tecnico per chi possiede il worktree. Non sono ancora un kit autosufficiente per chi riceve soltanto l’app. La recipe completa `scripts/build-preview-native.py` usa oggi archivi in `.build/preview-native-src` e default tool locali: non è stata lanciata qui, né si inventano flag esterni inesistenti; la predisposizione di scratch/archivi per la RC resta T07/Fase 5. I comandi realmente eseguiti in Fase 4, con timeout esterno e ambiente controllato, sono nei log esterni e nel rapporto.
 
 ## Fatti dai testi e rischi da verificare
 
