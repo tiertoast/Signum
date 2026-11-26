@@ -126,8 +126,14 @@ import SwiftUI
         artView.cacheDisplay(in:artView.bounds,to:bitmap)
         var visibleInk=0
         for y in 0..<bitmap.pixelsHigh {for x in 0..<bitmap.pixelsWide {
-            if let color=bitmap.colorAt(x:x,y:y)?.usingColorSpace(.deviceRGB),color.alphaComponent>0.5,
-               max(color.redComponent,color.greenComponent,color.blueComponent)<0.7 {visibleInk+=1}
+            // Neutral (non-accent) ink clearly darker than the white field. At 1x
+            // (non-Retina main display) the fitted stamp text is ~3 px tall and
+            // antialiased to 0.6–0.9 grey, so a 0.7 cut-off counted only 1 pixel.
+            if let color=bitmap.colorAt(x:x,y:y)?.usingColorSpace(.deviceRGB),color.alphaComponent>0.5 {
+                let high=max(color.redComponent,color.greenComponent,color.blueComponent)
+                let low=min(color.redComponent,color.greenComponent,color.blueComponent)
+                if high<0.9 && high-low<0.15 {visibleInk+=1}
+            }
         }}
         XCTAssertGreaterThan(visibleInk,20,"Prepared default text/border must actually produce visible pixels")
         let capture=try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in:host.bounds))
