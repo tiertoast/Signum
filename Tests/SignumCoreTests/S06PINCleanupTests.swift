@@ -107,7 +107,16 @@ final class S06PINCleanupTests: XCTestCase {
                 XCTAssertEqual(mock.count(1),0,"Erase before Finalize")
             })
             XCTAssertEqual(erasures,1,scenario)
-            XCTAssertEqual(result,(scenario == "finish" || scenario == "eofCancel") ? 0:2,scenario)
+            // A token mismatch is refused provably before C_Sign: since b64fc2b the
+            // server reports a typed "not signed" reply and exits cleanly (0).
+            XCTAssertEqual(result,(scenario == "finish" || scenario == "eofCancel" || scenario == "changedToken") ? 0:2,scenario)
+            if scenario == "changedToken" {
+                var reply=[UInt8](repeating:0,count:65536)
+                let count=reply.withUnsafeMutableBytes{Darwin.read(output[0],$0.baseAddress,$0.count)}
+                XCTAssertGreaterThan(count,4,scenario)
+                let text=String(decoding:reply.prefix(max(count,0)),as:UTF8.self)
+                XCTAssertTrue(text.contains("auth.notSigned"),scenario)
+            }
             XCTAssertLessThanOrEqual(mock.count(8),1)
             XCTAssertEqual(mock.count(16),scenario == "finish" ? 3:scenario == "changedToken" ? 0:scenario == "signError" ? 2:1,scenario)
         }

@@ -47,7 +47,9 @@ final class PAdESHelperProcessTests: XCTestCase {
     }
     func testTimeoutAfterOutputIsUncertainAndPreservesFile() throws {
         try fixture { output in
-            guard case .uncertain = run("printf synthetic > \"$1\"; while :; do :; done", output: output, timeout: 0.05) else { return XCTFail("Expected uncertainty after possible commit") }
+            // The timeout must outlast the write even on a loaded machine; 50 ms
+            // could expire before the shell wrote anything.
+            guard case .uncertain = run("printf synthetic > \"$1\"; while :; do :; done", output: output, timeout: 1) else { return XCTFail("Expected uncertainty after possible commit") }
             XCTAssertEqual(try String(contentsOf: output), "synthetic")
         }
     }

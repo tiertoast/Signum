@@ -50,8 +50,10 @@ on 2026-11-24, commit `2d08f14`, the six historical methods passed 20/20 in each
 Debug/Release × idle/cpu cell (80/80 runs, no skip or timeout), without test or
 budget changes ([campaign record](stability/M3_M6_CAMPAIGN_2026-11-24.json)).
 Historical recurrence causes remain undetermined. The RC stability gate is
-**not yet declared passed**: the five-class context campaign and ≥5 runs per
-cell of the pertinent selection (needs Poppler) are still pending. See [stability evidence](../SUITE_STABILITY.md),
+**not yet declared passed**: on 2026-11-26 the five-class context campaign was
+green (12/12 runs) but the pertinent selection had 25/9800 failed executions
+from three test-side causes, now corrected; the pertinent rerun is pending
+([campaign record](stability/PHASE5A_CAMPAIGN_2026-11-26.json)). See [stability evidence](../SUITE_STABILITY.md),
 [local checks](../LOCAL_TESTING.md),
 [historical Phase5b status](../archive/PHASE5B_RELEASE_STATUS.md) and
 [current readiness](../RELEASE_READINESS.md).

@@ -1,0 +1,213 @@
+{
+ "schema": 1,
+ "scope": "Phase 5a context campaigns: five historical classes (failed-classes, 57 methods) and pertinent selection (490 methods)",
+ "sourceCommit": "62149f9d966b34ac220931051f8d7dae12ede3d6",
+ "date": "2026-11-26",
+ "runner": "scripts/test-suite-stability.py --selection failed-classes --repeat 3 and --selection pertinent --repeat 5 (timeout 1800), Debug/Release x idle/cpu, sequential",
+ "host": {
+  "chip": "Apple M2",
+  "logicalCPUs": 8,
+  "macOS": "27.2.1",
+  "swift": "Apple Swift 6.4.2 (swiftlang-6.4.2.1.9)",
+  "triple": "arm64-apple-macosx13.0",
+  "display": "non-Retina 1x main display"
+ },
+ "tools": {
+  "poppler": "/opt/homebrew/bin/pdftoppm (Poppler 26.11.0)",
+  "padesHelper": "built Release from Tools/PAdESHelper at sourceCommit (ctest 1/1 passed)"
+ },
+ "result": {
+  "failedClasses": {
+   "runs": 12,
+   "passedRuns": 12,
+   "executions": 684,
+   "failedExecutions": 0
+  },
+  "pertinent": {
+   "runs": 20,
+   "passedRuns": 0,
+   "executions": 9800,
+   "failedExecutions": 25
+  }
+ },
+ "failures": [
+  {
+   "method": "S06PINCleanupTests/testActualBatchServerErasesOwnedPageBeforeFinalizeOnEveryControlledExit",
+   "failed": "20/20",
+   "cause": "Stale expectation: since b64fc2b (2026-11-23) a token-serial mismatch before C_Sign is a typed auth.notSigned reply with exit 0; the test still expected exit 2 for changedToken. PIN erasure assertions passed. Also failing before PRs #24-#26.",
+   "classification": "test expectation, product behaviour intended"
+  },
+  {
+   "method": "PAdESHelperProcessTests/testTimeoutAfterOutputIsUncertainAndPreservesFile",
+   "failed": "4/10 under CPU load, 0/10 idle",
+   "cause": "50 ms timeout could expire before /bin/sh wrote the synthetic output; outcome was still uncertain and nothing was deleted.",
+   "classification": "test timing"
+  },
+  {
+   "method": "PAdESPlacementPerformanceTests/testRealPaneDragAtSixtyEventsPerSecondDoesNotRenderOrApproveDuringMovement",
+   "failed": "1/20 (debug, cpu)",
+   "cause": "Readiness reported twice after release (late PDFKit redraw re-fires displayed). Consumer PDFStampBoard.previewReady is idempotent (set insert); no readiness during the drag, no extra render or rasterisation.",
+   "classification": "test strictness"
+  }
+ ],
+ "followUp": "Test corrections in the PR that adds this record; pertinent selection to be rerun (>= 5 per cell) on the merged commit.",
+ "notCovered": [
+  "Real tokens/middleware; offline synthetic-fixture measurement."
+ ],
+ "conclusion": "Five-class campaign green (12/12 runs, 684/684). Pertinent selection not green (25/9800 failed executions, three test-side causes). RC stability gate not declared passed pending the rerun.",
+ "rawEvidence": "Kept locally outside the checkout (logs, events, results.json per cell); not committed.",
+ "cells": [
+  {
+   "configuration": "debug",
+   "condition": "idle",
+   "selection": "failed-classes",
+   "repetitions": 3,
+   "expectedMethods": 57,
+   "passedRepetitions": 3,
+   "completeCoverageEveryRun": true,
+   "executions": 171,
+   "failedExecutions": 0,
+   "syntheticCPUProcesses": 0,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "808026115e7127a1d80a04f797cedfee1d349730ea39bf71572098feeec6ba6a",
+   "failingMethods": {}
+  },
+  {
+   "configuration": "debug",
+   "condition": "cpu",
+   "selection": "failed-classes",
+   "repetitions": 3,
+   "expectedMethods": 57,
+   "passedRepetitions": 3,
+   "completeCoverageEveryRun": true,
+   "executions": 171,
+   "failedExecutions": 0,
+   "syntheticCPUProcesses": 8,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "e7184bf224b8f6378cb120b4f0db31c78757096a9e91c00d384cc464f3f0a654",
+   "failingMethods": {}
+  },
+  {
+   "configuration": "release",
+   "condition": "idle",
+   "selection": "failed-classes",
+   "repetitions": 3,
+   "expectedMethods": 57,
+   "passedRepetitions": 3,
+   "completeCoverageEveryRun": true,
+   "executions": 171,
+   "failedExecutions": 0,
+   "syntheticCPUProcesses": 0,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "70cc93ebc86ece6fe16c37d537890981c802c6267570a0e015378feea099bf35",
+   "failingMethods": {}
+  },
+  {
+   "configuration": "release",
+   "condition": "cpu",
+   "selection": "failed-classes",
+   "repetitions": 3,
+   "expectedMethods": 57,
+   "passedRepetitions": 3,
+   "completeCoverageEveryRun": true,
+   "executions": 171,
+   "failedExecutions": 0,
+   "syntheticCPUProcesses": 8,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "29a4a69461ed8f80ca95ad2883e48f5ed156f6f21cd280ff4fa69ff3d7e51b92",
+   "failingMethods": {}
+  },
+  {
+   "configuration": "debug",
+   "condition": "idle",
+   "selection": "pertinent",
+   "repetitions": 5,
+   "expectedMethods": 490,
+   "passedRepetitions": 0,
+   "completeCoverageEveryRun": true,
+   "executions": 2450,
+   "failedExecutions": 5,
+   "syntheticCPUProcesses": 0,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "5ce596b405d69bdd140e4d298d261c31c3f00f40fc8a7f2b9ebfbcfaa9a79217",
+   "failingMethods": {
+    "SignumCoreTests.S06PINCleanupTests/testActualBatchServerErasesOwnedPageBeforeFinalizeOnEveryControlledExit": {
+     "passed": 0,
+     "failed": 5
+    }
+   }
+  },
+  {
+   "configuration": "debug",
+   "condition": "cpu",
+   "selection": "pertinent",
+   "repetitions": 5,
+   "expectedMethods": 490,
+   "passedRepetitions": 0,
+   "completeCoverageEveryRun": true,
+   "executions": 2450,
+   "failedExecutions": 8,
+   "syntheticCPUProcesses": 8,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "30512125f6dd10620420c69d082feee193ff30ae0aaa325fcb475e3301ee4bcf",
+   "failingMethods": {
+    "SignumCoreTests.PAdESHelperProcessTests/testTimeoutAfterOutputIsUncertainAndPreservesFile": {
+     "passed": 3,
+     "failed": 2
+    },
+    "SignumCoreTests.PAdESPlacementPerformanceTests/testRealPaneDragAtSixtyEventsPerSecondDoesNotRenderOrApproveDuringMovement": {
+     "passed": 4,
+     "failed": 1
+    },
+    "SignumCoreTests.S06PINCleanupTests/testActualBatchServerErasesOwnedPageBeforeFinalizeOnEveryControlledExit": {
+     "passed": 0,
+     "failed": 5
+    }
+   }
+  },
+  {
+   "configuration": "release",
+   "condition": "idle",
+   "selection": "pertinent",
+   "repetitions": 5,
+   "expectedMethods": 490,
+   "passedRepetitions": 0,
+   "completeCoverageEveryRun": true,
+   "executions": 2450,
+   "failedExecutions": 5,
+   "syntheticCPUProcesses": 0,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "7fb21537cd81c85b07f832d8a94c121ff6e554618042fb2dc4981ca52b508855",
+   "failingMethods": {
+    "SignumCoreTests.S06PINCleanupTests/testActualBatchServerErasesOwnedPageBeforeFinalizeOnEveryControlledExit": {
+     "passed": 0,
+     "failed": 5
+    }
+   }
+  },
+  {
+   "configuration": "release",
+   "condition": "cpu",
+   "selection": "pertinent",
+   "repetitions": 5,
+   "expectedMethods": 490,
+   "passedRepetitions": 0,
+   "completeCoverageEveryRun": true,
+   "executions": 2450,
+   "failedExecutions": 7,
+   "syntheticCPUProcesses": 8,
+   "sourceUnchangedDuringMeasurements": true,
+   "resultsSHA256": "fd1175069f462116e18316d0d71e436fb9045206df824dca1dc51ea0b0f5db63",
+   "failingMethods": {
+    "SignumCoreTests.PAdESHelperProcessTests/testTimeoutAfterOutputIsUncertainAndPreservesFile": {
+     "passed": 3,
+     "failed": 2
+    },
+    "SignumCoreTests.S06PINCleanupTests/testActualBatchServerErasesOwnedPageBeforeFinalizeOnEveryControlledExit": {
+     "passed": 0,
+     "failed": 5
+    }
+   }
+  }
+ ]
+}
