@@ -1,0 +1,23 @@
+{
+ "productCommit": "522767ffee1978c829b76671cf8a2de9e4c147e3",
+ "channel": "experimental-beta",
+ "rcGate": "PASSED (offline, synthetic fixtures)",
+ "rcGateEvidence": "docs/engineering/stability/PHASE5A_CAMPAIGN_2026-11-26.json (20/20 runs, 9800/9800 on bc99935)",
+ "artifactBytes": 22968726,
+ "sha256": {
+  "ArtifactManifest.json": "20f20cb21457f0d4990513aec9ed9605b1072dc6db1dff47272833929311f472",
+  "AppAudit.json": "6b904df5436aaa688cbfeb4d1ca1b523a74aab9f91e75db872a8d1e0ce946f9e",
+  "summary.json": "efbf6be9fca8f69c1b909e5dd38f9a9f45ed709d4520940aca28dee6c1da895f",
+  "Signum.app.SHA256SUMS": "b52902fde2e24b051e5ec497429d01cc0fd9b318b5a0608f07f88a7113930dd5",
+  "Signum.app.symlinks.json": "68074f47470fa0570ae5ed94f3fc304ac16745ed28b6d3f749b46da405b4adca",
+  "Signum-0.7.0-beta-arm64.dmg": "bc4efb42d7aeae560fdf2f1d360d891264282e9bd717897514f417f112662683",
+  "Signum-0.7.0-beta-arm64.dmg.sha256": "5612a8a6c620a6605efc5fd85be73e5472a4668f013f34430e6bd92e66ed3cca",
+  "BuildManifest.json": "b8ae4d6a40c0fb44643916e1ef41e77c7ccea2ea5a363e2bcd24b6c0b3516c4d"
+ },
+ "publicationDecision": "Explicit author request, 2026-11-27; publish after merge (#31) and uploaded asset verification; prerelease only, no Stable or RC promotion.",
+ "runtimeOS13Attested": false,
+ "cleanMacAttested": false,
+ "newHardwareTests": true,
+ "rebuiltForPublication": false,
+ "hardwareNote": "Owner-verified on a real token before packaging (local build of c93ca75): PIN refusal, one-PIN PDF/CAdES batch, cancel controls; no unexpected results. Retry and About/Help additions (9e41674) checked visually by the owner."
+}
