@@ -11,10 +11,10 @@
     <a href="docs/RELEASE_NOTES.md"><img alt="Apple Silicon release" src="https://img.shields.io/badge/architecture-Apple%20Silicon-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
   </p>
   <p>
-    <a href="https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.17"><img alt="Current release: 0.7.0 Beta Build 17" src="https://img.shields.io/badge/release-0.7.0%20Beta%20%7C%20Build%2017-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
+    <a href="https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.18"><img alt="Current release: 0.7.0 Beta Build 18" src="https://img.shields.io/badge/release-0.7.0%20Beta%20%7C%20Build%2018-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
     <a href="docs/USAGE.md"><img alt="Compatible PKCS#11 hardware signing" src="https://img.shields.io/badge/hardware-PKCS%2311-64313E?style=flat-square&amp;labelColor=4B4B4B"></a>
   </p>
-  <p><strong><a href="https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.17">Download Signum 0.7.0 Beta — Build 17</a></strong><br>
+  <p><strong><a href="https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.18">Download Signum 0.7.0 Beta — Build 18</a></strong><br>
   <a href="docs/FEATURES.md">Features</a> · <a href="docs/USAGE.md">User guide</a> · <a href="docs/RELEASE_NOTES.md">Release notes</a></p>
 </div>
 
@@ -101,7 +101,7 @@ and PUK unblocking are not enabled. [Device and batch workflows](docs/USAGE.md)
 
 ## Installation
 
-1. Download the DMG and its checksum from the [0.7.0 Beta release](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.17).
+1. Download the DMG and its checksum from the [0.7.0 Beta release](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.18).
 2. Check the download, then open the DMG and drag **Signum** to **Applications**.
 3. Install compatible arm64 PKCS#11 middleware if you need hardware signing.
 4. Open Signum, select the device/certificate and add documents to the workspace.
@@ -124,7 +124,7 @@ workers perform PKCS#11 operations and native parsing/signing; approved snapshot
 and exclusive output handling protect document and destination identity.
 Worker isolation is process isolation, not a security sandbox for hostile middleware.
 
-| Component in Build 17 | Purpose | License / platform |
+| Component in Build 18 | Purpose | License / platform |
 | --- | --- | --- |
 | PoDoFo **1.1.2** | PDF processing and signing helper | MPL-2.0 distribution choice |
 | FreeType **2.13.3** | Font support within the native stack | FreeType License (FTL) |

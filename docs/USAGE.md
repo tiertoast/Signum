@@ -2,7 +2,7 @@
 
 ## Install
 
-Use the [Signum 0.7.0 Beta release](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.17).
+Use the [Signum 0.7.0 Beta release](https://github.com/tiertoast/Signum/releases/tag/v0.7.0-beta.18).
 Download the arm64 DMG and its `.sha256` sidecar into the same directory:
 
 ```sh

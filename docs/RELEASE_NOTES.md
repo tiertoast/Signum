@@ -1,4 +1,4 @@
-# Signum 0.7.0 Beta — Build 17
+# Signum 0.7.0 Beta — Build 18
 
 **Digital signatures. Simply native.**
 
@@ -7,7 +7,34 @@ verification. Use a compatible smart card or USB token to sign documents,
 review signatures and certificate evidence, and export readable verification
 reports from one document workspace.
 
-## What's new since Build 14
+## What's new since Build 17
+
+Signing
+- A document cancelled before any signing request reached the token can be
+  signed again with **Riprova** (or **Riprova gli annullati**) in Recent activity:
+  the file is read again from disk and needs a new review, PIN and, for PDFs,
+  stamp confirmation. "To be checked" (uncertain) outcomes are never offered.
+- A certificate that changed on the token, or is no longer eligible, is reported
+  as such ("nothing was signed") instead of a generic refusal.
+- Uncertain outcomes have a distinct red symbol; the cancel buttons read
+  "Annulla restanti" and explain what happens; the review step reads
+  "Ho controllato: passa al prossimo".
+
+Interface
+- File › **Aggiungi documenti…** (⌘O) opens the document picker.
+- **Informazioni su Signum** links the GitHub project, issue reports and release
+  notes; the **Aiuto** menu adds the bundled Signum licence, third-party notices
+  and third-party sources, which open offline.
+- One vocabulary for user-facing text; ASiC formats say they must be chosen
+  before adding files; the PIN note appears only with two or more documents.
+
+Quality
+- The offline RC stability gate (synthetic fixtures) passed on 2026-11-27: the
+  pertinent test selection ran 20/20 green across Debug/Release and idle/CPU load.
+  Real tokens and middleware remain outside that gate.
+- Shipped notices no longer describe the Signum repository as private.
+
+## What was new in Build 17 (since Build 14)
 
 Signing
 - A PIN refused by the token (wrong, invalid, locked or expired) is now an ordinary
@@ -100,7 +127,7 @@ does not replace the app's full trust/revocation/eIDAS assessment.
 
 ## Requirements and installation
 
-- **Version 0.7.0, Build 17; Apple Silicon arm64.** No Intel build is supplied.
+- **Version 0.7.0, Build 18; Apple Silicon arm64.** No Intel build is supplied.
 - **Declared minimum macOS 13.0.** Real macOS 13/14 and clean-Mac qualification remain open.
 - Compatible arm64 PKCS#11 middleware is installed separately for hardware signing.
   Verification does not require a token; no universal device/vendor compatibility is claimed.
@@ -115,7 +142,7 @@ opening the download. It does not disable Gatekeeper or other system protections
 
 ## Dependencies and licensing
 
-| Component | Build 17 version | License / role |
+| Component | Build 18 version | License / role |
 | --- | --- | --- |
 | PoDoFo | 1.1.2 | MPL-2.0; native PDF processing |
 | FreeType | 2.13.3 | FTL; native font support |
@@ -132,19 +159,20 @@ are copyright © The FreeType Project.
 
 ## Known limitations
 
-This is a **Beta, not Stable or RC-qualified**. Stability, accessibility,
-interoperability and OS/device compatibility work remains open; detailed
-M3–M6 follow-up is retained in [issue #9](https://github.com/tiertoast/Signum/issues/9).
+This is a **Beta, not Stable or RC-qualified**. The offline RC stability gate
+(synthetic fixtures) passed; accessibility, interoperability, real-device and
+OS compatibility work remains open (M3–M6 history in
+[issue #9](https://github.com/tiertoast/Signum/issues/9)).
 Real PIN change and PUK unblocking are disabled/unqualified. Worker isolation is
 not a privilege sandbox against hostile middleware. See the
 [security scope](https://github.com/tiertoast/Signum/blob/main/docs/SECURITY.md).
 
 Build numbers 15 and 16 were used only for local test builds and were never
-published; Build 17 follows Build 14 as the next public Beta.
+published; Build 17 followed Build 14, and Build 18 follows Build 17.
 
 ## Downloads and checksum
 
-**[Signum-0.7.0-beta-arm64.dmg](https://github.com/tiertoast/Signum/releases/download/v0.7.0-beta.17/Signum-0.7.0-beta-arm64.dmg)**
+**[Signum-0.7.0-beta-arm64.dmg](https://github.com/tiertoast/Signum/releases/download/v0.7.0-beta.18/Signum-0.7.0-beta-arm64.dmg)**
 — 22,937,547 bytes.
 
 SHA256:

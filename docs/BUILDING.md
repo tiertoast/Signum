@@ -17,7 +17,7 @@ Building the Swift package alone does not assemble the complete application.
 - For the complete local checks: xmlsec CLI, Python `zipfile`, Poppler `pdftoppm`,
   system OpenSSL for synthetic keys and an active macOS WindowServer session.
 
-The Build 17 versions are listed in [Architecture](ARCHITECTURE.md). Installing
+The Build 18 versions are listed in [Architecture](ARCHITECTURE.md). Installing
 unversioned packages does not reproduce that inventory or its source provenance.
 Token middleware is needed for real hardware use, not synthetic local checks.
 
@@ -28,7 +28,7 @@ git clone https://github.com/tiertoast/Signum.git
 cd Signum
 ```
 
-Use the `v0.7.0-beta.17` tag when inspecting the exact release source baseline;
+Use the `v0.7.0-beta.18` tag when inspecting the exact release source baseline;
 `main` includes later changes.
 The product revision recorded in the binary's manifest is
 `f265b05734d1d43fd4723763cb9e4d813edeca70`.
@@ -68,7 +68,7 @@ authorize a release. `scripts/build-app.sh` is retired and deliberately fails.
 Use the current script's `--help` for exact options. Keep source, native inputs,
 build scratch and existing release artifacts separate. Changing documentation
 or source and rebuilding creates a new local artifact even if version metadata
-is unchanged; do not present it as the published Build 17 DMG.
+is unchanged; do not present it as the published Build 18 DMG.
 
 ## Local verification for contributions
 

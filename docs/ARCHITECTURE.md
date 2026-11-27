@@ -49,7 +49,7 @@ signs the DigestInfo, so the middleware is loaded only once. XML uses libxml2/xm
 reference, transform and resource restrictions. ASiC uses a bounded ZIP32 layer
 and the supported detached XAdES profile.
 
-## Build 17 dependency inventory
+## Build 18 dependency inventory
 
 Versions below come from the released `BuildManifest.json`, not an unpinned
 package-manager installation.
