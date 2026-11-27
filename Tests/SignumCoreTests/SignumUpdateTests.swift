@@ -225,6 +225,31 @@ final class SignumUpdateTests: XCTestCase {
         catch { XCTAssertEqual(error as? SignumUpdateError, .tooLarge) }
     }
 
+    func testCompiledReleaseKeysAreValidEd25519Keys() throws {
+        XCTAssertFalse(SignumUpdatePolicy.trustedPublicKeys.isEmpty)
+        for key in SignumUpdatePolicy.trustedPublicKeys {
+            XCTAssertNoThrow(try Curve25519.Signing.PublicKey(rawRepresentation: try XCTUnwrap(Data(base64Encoded: key))))
+        }
+    }
+
+    /// Optional: a manifest made by scripts/update-signing.swift (SIGNUM_TEST_UPDATE_MANIFEST_DIR)
+    /// verifies with the compiled release key, and matches SIGNUM_TEST_UPDATE_DMG when given.
+    func testScriptSignedManifestVerifiesWithTheReleaseKey() throws {
+        guard let dir = ProcessInfo.processInfo.environment["SIGNUM_TEST_UPDATE_MANIFEST_DIR"], !dir.isEmpty else {
+            throw XCTSkip("SIGNUM_TEST_UPDATE_MANIFEST_DIR not set")
+        }
+        let folder = URL(fileURLWithPath: dir, isDirectory: true)
+        let data = try Data(contentsOf: folder.appendingPathComponent(SignumUpdatePolicy.manifestAsset))
+        let signature = try Data(contentsOf: folder.appendingPathComponent(SignumUpdatePolicy.signatureAsset))
+        let verified = try SignumUpdateManifest.verified(data, signature: signature, publicKeys: SignumUpdatePolicy.trustedPublicKeys)
+        XCTAssertEqual(verified.bundleIdentifier, SignumUpdatePolicy.bundleIdentifier)
+        if let dmg = ProcessInfo.processInfo.environment["SIGNUM_TEST_UPDATE_DMG"], !dmg.isEmpty {
+            XCTAssertNoThrow(try verified.verifyPayload(try Data(contentsOf: URL(fileURLWithPath: dmg))))
+        }
+        var tampered = data; tampered[tampered.count / 2] ^= 1
+        XCTAssertThrowsError(try SignumUpdateManifest.verified(tampered, signature: signature, publicKeys: SignumUpdatePolicy.trustedPublicKeys))
+    }
+
     func testPreferencesDefaultToCheckAndInstall() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "signum-update-tests-\(UUID().uuidString)"))
         let preferences = SignumUpdatePreferences(defaults: defaults)

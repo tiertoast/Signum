@@ -10,9 +10,10 @@ enum SignumUpdatePolicy {
     static let releasesAPI = URL(string: "https://api.github.com/repos/tiertoast/Signum/releases?per_page=20")!
     static let manifestAsset = "SignumUpdate.json"
     static let signatureAsset = "SignumUpdate.json.sig"
-    /// Base64 raw Ed25519 public keys. Empty until the release signing key exists:
-    /// updates are then announced but never installed automatically.
-    static let trustedPublicKeys: [String] = []
+    /// Base64 raw Ed25519 public keys of the release signing key (login Keychain of the
+    /// author, service `io.github.tiertoast.Signum.update-signing`). A new key is added
+    /// here before the old one is retired, so installed copies keep updating.
+    static let trustedPublicKeys: [String] = ["wnU1Id2GxZbyB58IELHHGd8BvKUJkJc7fy098wO9XEU="]
     /// HTTPS hosts the update client may contact, including GitHub's asset redirects.
     static let allowedHosts: Set<String> = ["api.github.com", "github.com", "objects.githubusercontent.com",
                                             "release-assets.githubusercontent.com"]
