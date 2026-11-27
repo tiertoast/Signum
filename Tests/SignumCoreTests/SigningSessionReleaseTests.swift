@@ -20,6 +20,56 @@ import SwiftUI
         try batch.confirm(plan)
         try await body(batch, signer, mock, files)
     }
+    func testCancelledReceiptsCanBeReadAgainButSignedOrUncertainNever() async throws {
+        try await fixture { batch, _, mock, files in
+            let store = SigningSessionResults()
+            let client = IsolatedPKCS11Client(executable: Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("SignumPKCS11Worker"))
+            try await batch.authorizeNext(pin: "synthetic") { job, pin, operation in try job.signCAdES(using: client, pin: pin, operation: operation) }
+            batch.cancelPending()
+            XCTAssertTrue(store.releaseIfFinished(batch, interactionBusy: false, hasAuthenticationContext: false))
+            XCTAssertEqual(store.receipts.map(\.state), [.completed, .cancelled, .cancelled])
+            XCTAssertEqual(store.receipts.map(\.canRetry), [false, true, true])
+            XCTAssertEqual(store.receipts.compactMap(\.source), files)
+            XCTAssertEqual(store.receipts.compactMap(\.signingFormat), [.cades, .cades, .cades])
+            let signedBefore = mock.count(16)
+            // Only cancelled receipts are taken; the signed one stays in the history.
+            let taken = store.takeRetryable(Set(store.receipts.map(\.id)))
+            XCTAssertEqual(taken.compactMap(\.source), Array(files[1...]))
+            XCTAssertEqual(store.receipts.map(\.state), [.completed])
+            // Reading them again is an ordinary new selection: fresh snapshots,
+            // pending, no approval and no signing request.
+            await batch.addDocuments(taken.compactMap(\.source), format: .cades)
+            XCTAssertEqual(batch.documents.map(\.state), [.pending, .pending])
+            XCTAssertFalse(batch.isApproved); XCTAssertNil(batch.approval)
+            XCTAssertTrue(Set(batch.documents.map(\.id)).isDisjoint(with: taken.map(\.id)))
+            XCTAssertEqual(mock.count(16), signedBefore)
+        }
+    }
+    func testUncertainAndContainerReceiptsAreNeverRetryable() {
+        let url = URL(fileURLWithPath: "/tmp/x.pdf")
+        func receipt(_ state: BatchDocumentState, _ format: SigningFormat?, _ source: URL? = url) -> SigningReceipt {
+            SigningReceipt(id: UUID(), name: "x", format: "", state: state, detail: "", output: nil, source: source, signingFormat: format)
+        }
+        XCTAssertTrue(receipt(.cancelled, .pades).canRetry)
+        XCTAssertFalse(receipt(.uncertain, .pades).canRetry)
+        XCTAssertFalse(receipt(.failed, .pades).canRetry)
+        XCTAssertFalse(receipt(.completed, .pades).canRetry)
+        XCTAssertFalse(receipt(.cancelled, .asice).canRetry)
+        XCTAssertFalse(receipt(.cancelled, .asics).canRetry)
+        XCTAssertFalse(receipt(.cancelled, nil).canRetry)
+        XCTAssertFalse(receipt(.cancelled, .cades, nil).canRetry)
+    }
+    func testAboutCreditsLinkTheProjectAndBundledLicencesResolveOnlyWhenPresent() {
+        let credits = SignumAboutLinks.credits()
+        var links: [URL] = []
+        credits.enumerateAttribute(.link, in: NSRange(location: 0, length: credits.length)) { value, _, _ in
+            if let url = value as? URL { links.append(url) }
+        }
+        XCTAssertEqual(links, [SignumAboutLinks.repository, SignumAboutLinks.issues, SignumAboutLinks.releases])
+        XCTAssertTrue(links.allSatisfy { $0.scheme == "https" && $0.host == "github.com" && $0.query == nil })
+        XCTAssertTrue(credits.string.contains("Apache 2.0"))
+        XCTAssertNil(SignumAboutLinks.bundled("Signum-LICENSE-absent.txt"))
+    }
     func testCompletedBatchReleasesOnlyAfterLastPublicationAndKeepsAllOutputs() async throws {
         try await fixture { batch, _, _, files in
             let store = SigningSessionResults()

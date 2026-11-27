@@ -80,11 +80,11 @@ extension SignumWindow {
                     }
                 }
                 if !results.receipts.isEmpty {
-                    DisclosureGroup("Attività recenti") { SigningReceiptsView(receipts: results.receipts, clear: results.clear).transition(.opacity).frame(height: 180) }.padding(12)
+                    DisclosureGroup("Attività recenti") { SigningReceiptsView(receipts: results.receipts, clear: results.clear, retryEnabled: canRetryCancelled, retry: retryCancelled).transition(.opacity).frame(height: 180) }.padding(12)
                 }
             } else {
                 if !results.receipts.isEmpty {
-                    SigningReceiptsView(receipts: results.receipts, clear: results.clear).transition(.opacity)
+                    SigningReceiptsView(receipts: results.receipts, clear: results.clear, retryEnabled: canRetryCancelled, retry: retryCancelled).transition(.opacity)
                 }
                 if results.receipts.isEmpty { Spacer(minLength: 0) }
                 SignumEmptyDocumentsView(choose: chooseFile).padding(22)
@@ -104,6 +104,9 @@ extension SignumWindow {
 struct SigningReceiptsView: View {
     let receipts: [SigningReceipt]
     let clear: () -> Void
+    var retryEnabled = false
+    var retry: (Set<UUID>) -> Void = { _ in }
+    static let retryHelp = "Rilegge il file dal disco e lo rimette in lista. Prima di firmare servono di nuovo il controllo del riepilogo e il PIN."
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ScrollView {
@@ -111,6 +114,12 @@ struct SigningReceiptsView: View {
                 HStack {
                     Label("Attività recenti", systemImage: "clock").font(.title2.weight(.semibold))
                     Spacer()
+                    let retryable = Set(receipts.filter(\.canRetry).map(\.id))
+                    if retryable.count > 1 {
+                        Button("Riprova gli annullati") { retry(retryable) }
+                            .disabled(!retryEnabled).help(Self.retryHelp)
+                            .accessibilityIdentifier("signum.retry-cancelled")
+                    }
                     Button("Elimina tutto") {
                         withAnimation(reduceMotion ? nil : .default) { clear() }
                     }.help("Rimuove solo l’elenco in memoria. I file rimangono sul disco.")
@@ -121,6 +130,10 @@ struct SigningReceiptsView: View {
                         Label(receipt.name, systemImage: BatchWorkspaceSummary.symbol(receipt.state)).font(.headline)
                         Text(receipt.state.message + " · " + receipt.format).font(.callout)
                         if !receipt.detail.isEmpty { Text(receipt.detail).font(.caption).textSelection(.enabled) }
+                        if receipt.canRetry {
+                            Button("Riprova") { retry([receipt.id]) }
+                                .disabled(!retryEnabled).help(Self.retryHelp)
+                        }
                         if receipt.state == .completed, let output = receipt.output {
                             HStack {
                                 Button("Apri file firmato") { NSWorkspace.shared.open(output) }
