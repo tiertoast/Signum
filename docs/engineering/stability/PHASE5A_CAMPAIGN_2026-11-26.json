@@ -50,11 +50,12 @@
    "classification": "test strictness"
   }
  ],
- "followUp": "Test corrections in the PR that adds this record; pertinent selection to be rerun (>= 5 per cell) on the merged commit.",
+ "followUp": "Corrections merged in PR #27 (87850c3); pertinent selection rerun twice on that commit, see reruns.",
  "notCovered": [
-  "Real tokens/middleware; offline synthetic-fixture measurement."
+  "Real tokens/middleware; offline synthetic-fixture measurement.",
+  "Display-off/locked-session runs: S04 and the blocked-vendor test time out after PAdESPlacementPerformanceTests; test-isolation hardening not done."
  ],
- "conclusion": "Five-class campaign green (12/12 runs, 684/684). Pertinent selection not green (25/9800 failed executions, three test-side causes). RC stability gate not declared passed pending the rerun.",
+ "conclusion": "Five-class campaign green (12/12). Pertinent selection on 87850c3 with the display awake: 18/20 runs, 2/9800 failed executions, two test-side races (corrected afterwards). RC stability gate not declared passed: one more pertinent run of >= 5 per cell on the commit with the corrections is needed.",
  "rawEvidence": "Kept locally outside the checkout (logs, events, results.json per cell); not committed.",
  "cells": [
   {
@@ -208,6 +209,239 @@
      "failed": 5
     }
    }
+  }
+ ],
+ "reruns": [
+  {
+   "sourceCommit": "87850c3",
+   "window": "2026-11-26T10:40Z-12:40Z",
+   "valid": false,
+   "result": {
+    "runs": 20,
+    "passedRuns": 8,
+    "executions": 9800,
+    "failedExecutions": 46
+   },
+   "invalidReason": "Display turned off at 11:31Z and the session was locked; every failure (S04 blocked-worker tests, SigningOperationTests main-queue test) is in a run ending after that time and none before. Reproduced with the display off: S04 fails after PAdESPlacementPerformanceTests (also with the pre-#27 version of that test) and passes alone. The PR #27 corrections held in every run.",
+   "cells": [
+    {
+     "configuration": "debug",
+     "condition": "idle",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 5,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 0,
+     "syntheticCPUProcesses": 0,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "dd35d0aa47be0da2008f3f2b6f5fc47b6e3c3a42cc9152af1f57aa830fb78e74",
+     "failingMethods": {}
+    },
+    {
+     "configuration": "debug",
+     "condition": "cpu",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 3,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 6,
+     "syntheticCPUProcesses": 8,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "bf845242a16e6a5c6c8546709b15d127253b4dfe323f7c84da37f0cd0c3b3439",
+     "failingMethods": {
+      "SignumCoreTests.S04WindowRevocationTests/testClosureMatrixRetiresLateCapturedArtifact": {
+       "passed": 4,
+       "failed": 1
+      },
+      "SignumCoreTests.S04WindowRevocationTests/testFixtureExplicitCancellationTerminatesBlockedWorker": {
+       "passed": 4,
+       "failed": 1
+      },
+      "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues": {
+       "passed": 3,
+       "failed": 2
+      },
+      "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor": {
+       "passed": 3,
+       "failed": 2
+      }
+     }
+    },
+    {
+     "configuration": "release",
+     "condition": "idle",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 0,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 20,
+     "syntheticCPUProcesses": 0,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "b7667c5ffef9128f02eebd1b302f4b241ca5ef71c4c9843878e42094163e6d81",
+     "failingMethods": {
+      "SignumCoreTests.S04WindowRevocationTests/testClosureMatrixRetiresLateCapturedArtifact": {
+       "passed": 0,
+       "failed": 5
+      },
+      "SignumCoreTests.S04WindowRevocationTests/testFixtureExplicitCancellationTerminatesBlockedWorker": {
+       "passed": 0,
+       "failed": 5
+      },
+      "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues": {
+       "passed": 0,
+       "failed": 5
+      },
+      "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor": {
+       "passed": 0,
+       "failed": 5
+      }
+     }
+    },
+    {
+     "configuration": "release",
+     "condition": "cpu",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 0,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 20,
+     "syntheticCPUProcesses": 8,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "c1fef4bede493c58d37c36b60dc14c41a0d820b0c5232a082bf47c4339e4433f",
+     "failingMethods": {
+      "SignumCoreTests.S04WindowRevocationTests/testClosureMatrixRetiresLateCapturedArtifact": {
+       "passed": 0,
+       "failed": 5
+      },
+      "SignumCoreTests.S04WindowRevocationTests/testFixtureExplicitCancellationTerminatesBlockedWorker": {
+       "passed": 0,
+       "failed": 5
+      },
+      "SignumCoreTests.S04WindowRevocationTests/testNativeCloseInsideSignReapsWorkerAndNeverContinues": {
+       "passed": 0,
+       "failed": 5
+      },
+      "SignumCoreTests.SigningOperationTests/testMainQueueRemainsResponsiveDuringBlockedVendor": {
+       "passed": 0,
+       "failed": 5
+      }
+     }
+    }
+   ]
+  },
+  {
+   "sourceCommit": "87850c3",
+   "window": "2026-11-26T15:37Z-17:32Z",
+   "valid": true,
+   "conditions": "caffeinate -dimsu, session unlocked at every cell start, no display-off event in the window",
+   "result": {
+    "runs": 20,
+    "passedRuns": 18,
+    "executions": 9800,
+    "failedExecutions": 2
+   },
+   "failures": [
+    {
+     "method": "PAdESHelperProcessTests/testCancellationAfterCommitPreservesUncertainOutput",
+     "failed": "1/20 (release, idle)",
+     "cause": "Cancellation keyed on the output path existing; the shell creates the file before printf writes, so cancel could land on an empty file. Outcome stayed uncertain and the file was preserved.",
+     "classification": "test race"
+    },
+    {
+     "method": "S04WindowRevocationTests/testTerminationCannotBeUndoneByLateNativeOpenEvents",
+     "failed": "1/20 (release, cpu)",
+     "cause": "applicationShouldTerminate returned .terminateLater (session not yet drained under load, bounded by the termination deadline) instead of .terminateNow; late open events still did not reactivate the session.",
+     "classification": "test strictness"
+    }
+   ],
+   "cells": [
+    {
+     "configuration": "debug",
+     "condition": "idle",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 5,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 0,
+     "syntheticCPUProcesses": 0,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "588295ec232f3eeae2d0ad14534c2ea7d06de2e1b4cad36a71c99d58afed6bf3",
+     "failingMethods": {}
+    },
+    {
+     "configuration": "debug",
+     "condition": "cpu",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 5,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 0,
+     "syntheticCPUProcesses": 8,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "9463d81f9887588191dbe81483a35df1f126ebfe8afd348403dbc877d513f825",
+     "failingMethods": {}
+    },
+    {
+     "configuration": "release",
+     "condition": "idle",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 4,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 1,
+     "syntheticCPUProcesses": 0,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "404b8e68011eaae7ff5fe5fd10536463e0d8f9e44eeb373b375b66f63d145915",
+     "failingMethods": {
+      "SignumCoreTests.PAdESHelperProcessTests/testCancellationAfterCommitPreservesUncertainOutput": {
+       "passed": 4,
+       "failed": 1
+      }
+     }
+    },
+    {
+     "configuration": "release",
+     "condition": "cpu",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 4,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 1,
+     "syntheticCPUProcesses": 8,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "b98781e790755901e80cd1d2a641b0a89e81bab4be84ba8d5a22c35ccaf4423e",
+     "failingMethods": {
+      "SignumCoreTests.S04WindowRevocationTests/testTerminationCannotBeUndoneByLateNativeOpenEvents": {
+       "passed": 4,
+       "failed": 1
+      }
+     }
+    }
+   ]
   }
  ]
 }

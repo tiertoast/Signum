@@ -52,7 +52,8 @@ budget changes ([campaign record](stability/M3_M6_CAMPAIGN_2026-11-24.json)).
 Historical recurrence causes remain undetermined. The RC stability gate is
 **not yet declared passed**: on 2026-11-26 the five-class context campaign was
 green (12/12 runs) but the pertinent selection had 25/9800 failed executions
-from three test-side causes, now corrected; the pertinent rerun is pending
+from three test-side causes, corrected; the awake rerun on 87850c3 had 2/9800
+from two further test races, corrected; one more pertinent run is pending
 ([campaign record](stability/PHASE5A_CAMPAIGN_2026-11-26.json)). See [stability evidence](../SUITE_STABILITY.md),
 [local checks](../LOCAL_TESTING.md),
 [historical Phase5b status](../archive/PHASE5B_RELEASE_STATUS.md) and
