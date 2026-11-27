@@ -668,6 +668,30 @@ enum SignumFormat: String, Hashable, CaseIterable {
         })
     }
 
+    var canRetryCancelled: Bool {
+        session.isActive && !interfaceLocked && !busy && !batch.isFrozen && !batch.isPreparing && !batch.isRunning
+    }
+    /// "Riprova": read cancelled documents again from disk, as if chosen anew.
+    /// A fresh snapshot, review, PIN and (for PDFs) stamp confirmation follow;
+    /// nothing is signed or retried automatically.
+    func retryCancelled(_ ids: Set<UUID>) {
+        guard canRetryCancelled else { return }
+        let receipts = results.takeRetryable(ids)
+        guard !receipts.isEmpty else { return }
+        provider.pin = ""
+        let generation = session.generation
+        let groups = Dictionary(grouping: receipts) { $0.signingFormat! }
+        session.own(Task { @MainActor in
+            for format in groups.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+                guard session.accepts(generation), let acquisition = batch.enqueueDocuments(groups[format]!.compactMap(\.source), format: format) else { break }
+                await acquisition.value
+            }
+            guard session.accepts(generation) else { return }
+            if documentSnapshot == nil { showDocument(batch.documents.first?.id) }
+            status = "\(receipts.count == 1 ? "Documento riaggiunto" : "\(receipts.count) documenti riaggiunti"). Controlla il riepilogo prima di firmare."
+        })
+    }
+
     var canRemoveSessionDocuments: Bool {
         session.isActive && !busy && !batch.isPreparing && !interaction.isRequestingApproval
     }

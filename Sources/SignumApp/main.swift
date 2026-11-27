@@ -86,6 +86,16 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         showMainWindow()
         NotificationCenter.default.post(name: .signumShowSettings, object: nil)
     }
+    @objc func showAbout() {
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: SignumAboutLinks.credits()])
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    @objc func openRepository() { NSWorkspace.shared.open(SignumAboutLinks.repository) }
+    @objc func openIssues() { NSWorkspace.shared.open(SignumAboutLinks.issues) }
+    @objc func openReleases() { NSWorkspace.shared.open(SignumAboutLinks.releases) }
+    @objc func openLicense() { SignumAboutLinks.license.map { _ = NSWorkspace.shared.open($0) } }
+    @objc func openThirdPartyNotices() { SignumAboutLinks.thirdPartyNotices.map { _ = NSWorkspace.shared.open($0) } }
+    @objc func openThirdPartySources() { SignumAboutLinks.thirdPartySources.map { _ = NSWorkspace.shared.open($0) } }
     @objc func addDocuments() {
         showMainWindow()
         NotificationCenter.default.post(name: .signumAddDocuments, object: nil)
@@ -93,7 +103,7 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
     private func configureMenus() {
         let menu = NSMenu()
         let application = NSMenu(title: "Signum")
-        application.addItem(withTitle: "Informazioni su Signum", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        application.addItem(withTitle: "Informazioni su Signum", action: #selector(showAbout), keyEquivalent: "").target = self
         application.addItem(.separator())
         let settings = application.addItem(withTitle: "Impostazioni…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -134,6 +144,17 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         menu.addItem(withTitle: "Finestra", action: nil, keyEquivalent: "").submenu = windows
         NSApp.windowsMenu = windows
         let help = NSMenu(title: "Aiuto")
+        for (title, action) in [("Signum su GitHub", #selector(openRepository)), ("Segnala un problema…", #selector(openIssues)),
+                                ("Note di rilascio", #selector(openReleases))] as [(String, Selector)] {
+            help.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
+        help.addItem(.separator())
+        for (title, action, available) in [("Licenza di Signum", #selector(openLicense), SignumAboutLinks.license != nil),
+                                           ("Licenze di terze parti", #selector(openThirdPartyNotices), SignumAboutLinks.thirdPartyNotices != nil),
+                                           ("Sorgenti di terze parti", #selector(openThirdPartySources), SignumAboutLinks.thirdPartySources != nil)] as [(String, Selector, Bool)]
+            where available {
+            help.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
         menu.addItem(withTitle: "Aiuto", action: nil, keyEquivalent: "").submenu = help
         NSApp.helpMenu = help
         NSApp.mainMenu = menu
