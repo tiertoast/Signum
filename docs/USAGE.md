@@ -20,6 +20,24 @@ Verification does not need a token. Fresh Trusted Lists or certificate-status
 lookups need network access; offline results depend on sufficient authenticated
 cached or embedded evidence.
 
+## Updates
+
+From the build after Build 18, Signum checks GitHub Releases when it starts and
+from **Signum › Controlla aggiornamenti…**. Both options are under
+**Impostazioni › Generali › Aggiornamenti** and are on by default:
+
+- **Controlla gli aggiornamenti all’avvio**: one request to the GitHub API listing
+  the releases; no documents, certificates or personal data are sent.
+- **Installa automaticamente gli aggiornamenti**: when a release carries a signed
+  update description, Signum downloads the DMG, checks its size and SHA-256
+  against the signed description, checks the app inside it (identifier, build,
+  code signature) and installs it **when Signum quits**, never during a signing
+  session. You can also choose *Riavvia e aggiorna*.
+
+A release without a valid signature, a copy of Signum opened from the DMG or from
+a folder you cannot write to, and local or development builds are never replaced
+automatically: Signum shows the release page instead.
+
 ## Prepare a device
 
 Open the Devices area, discover the token and review its certificates. If the
