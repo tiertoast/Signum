@@ -99,7 +99,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
         self.sessionReady = sessionReady
         self.discoveryLoader = discoveryLoader ?? { paths, cancelled in
             let expected = Set(MiddlewareRegistry.known.flatMap(\.candidatePaths) + paths)
-            return DeviceDiscoveryResult(providers: MiddlewareDiscovery().discover(registry: MiddlewareRegistry.known, manualPaths: paths, isCancelled: cancelled), expectedPaths: expected)
+            let providers = MiddlewareDiscovery().discover(registry: MiddlewareRegistry.known, manualPaths: paths, isCancelled: cancelled)
+            return DeviceDiscoveryResult(providers: providers, expectedPaths: expected, readers: .current())
         }
         _sidebarVisibility = State(initialValue: initialSidebarVisibility)
         _results = StateObject(wrappedValue: sessionResults ?? SigningSessionResults())
@@ -305,7 +306,8 @@ enum SignumFormat: String, Hashable, CaseIterable {
 
     var devicesScreen: some View {
         DevicesExperiencePane(selection: devices, locked: interfaceLocked || batch.isFrozen,
-            status: status, configure: { showDeviceConfiguration = true }, selectRoute: selectRoute)
+            status: status, configure: { showDeviceConfiguration = true }, selectRoute: selectRoute,
+            refresh: { discover() })
     }
 
     func routeSystemDocuments() async {

@@ -8,6 +8,7 @@ struct DevicesExperiencePane: View {
     let status: String
     let configure: () -> Void
     let selectRoute: (String) -> Void
+    var refresh: () -> Void = {}
     @Environment(\.colorScheme) private var colorScheme
     @State private var viewedDevice: String?
     @State private var inspectedRoute: String?
@@ -34,7 +35,8 @@ struct DevicesExperiencePane: View {
                 else if !selection.discoveryComplete && !selection.completenessIssues.isEmpty {
                     Label("Ricerca incompleta: disponibilità e unicità non sono accertate. Controlla i dettagli o aggiorna i dispositivi.", systemImage: "exclamationmark.triangle").font(.callout)
                 }
-                if groups.isEmpty {
+                ForEach(Array(findings.enumerated()), id: \.offset) { _, finding in findingView(finding) }
+                if groups.isEmpty && findings.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Nessun dispositivo disponibile", systemImage: "externaldrive.badge.questionmark").font(.headline)
                         Text(selection.message).foregroundStyle(.secondary)
@@ -78,6 +80,32 @@ struct DevicesExperiencePane: View {
             guard !Task.isCancelled else { return }
             extensions = text
         }
+    }
+    private var findings: [DeviceFinding] { DeviceDiagnosis.findings(for: selection) }
+    private func findingView(_ finding: DeviceFinding) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(finding.title, systemImage: finding.severity == .problem ? "exclamationmark.octagon" : "exclamationmark.triangle")
+                .font(.headline).foregroundStyle(finding.severity == .problem ? Color.red : Color.orange)
+            Text(finding.detail).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                switch finding.action {
+                case .installSoftware:
+                    Button("Scarica OpenSC") { NSWorkspace.shared.open(DeviceDiagnosis.openSCReleases) }
+                        .help("Apre la pagina delle versioni di OpenSC su GitHub")
+                    Button("Configura dispositivo…", action: configure).disabled(locked)
+                case .configure:
+                    Button("Configura dispositivo…", action: configure).disabled(locked)
+                case .refresh:
+                    Button("Aggiorna dispositivi", action: refresh).disabled(locked || selection.isSearching)
+                case .none:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(finding.title)
     }
     private func deviceCard(_ group: DevicePresentation) -> some View {
                         Button {
