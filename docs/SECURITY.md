@@ -87,7 +87,7 @@ The release is arm64, ad-hoc signed and not Developer ID signed/notarized. The
 minimum macOS 13.0 declaration is not a completed OS/clean-machine qualification.
 Broader token/middleware compatibility, failure handling, accessibility and
 stability checks remain open. The M3–M6 campaign passed ([issue #9](https://github.com/tiertoast/Signum/issues/9));
-the RC stability gate is not yet declared passed. No Stable claim or general QES certification applies.
+the offline RC stability gate (synthetic fixtures) passed on 2026-11-27. No Stable claim or general QES certification applies.
 
 Report security concerns without secrets or exploitable personal documents.
 The repository has no published security-response SLA. For development evidence,

@@ -50,12 +50,12 @@
    "classification": "test strictness"
   }
  ],
- "followUp": "Corrections merged in PR #27 (87850c3); pertinent selection rerun twice on that commit, see reruns.",
+ "followUp": "Corrections merged in PR #27 (87850c3) and PR #28 (bc99935).",
  "notCovered": [
   "Real tokens/middleware; offline synthetic-fixture measurement.",
   "Display-off/locked-session runs: S04 and the blocked-vendor test time out after PAdESPlacementPerformanceTests; test-isolation hardening not done."
  ],
- "conclusion": "Five-class campaign green (12/12). Pertinent selection on 87850c3 with the display awake: 18/20 runs, 2/9800 failed executions, two test-side races (corrected afterwards). RC stability gate not declared passed: one more pertinent run of >= 5 per cell on the commit with the corrections is needed.",
+ "conclusion": "RC stability gate (offline, synthetic fixtures) declared passed on bc99935 (2026-11-27): pertinent selection 20/20 runs, 9800/9800 executions, 5 per Debug/Release x idle/cpu cell, display awake, source unchanged. Five-class campaign green earlier (12/12 on 62149f9) and contained in the pertinent run. Real tokens/middleware remain outside this gate.",
  "rawEvidence": "Kept locally outside the checkout (logs, events, results.json per cell); not committed.",
  "cells": [
   {
@@ -440,6 +440,91 @@
        "failed": 1
       }
      }
+    }
+   ]
+  },
+  {
+   "sourceCommit": "bc99935",
+   "window": "2026-11-27T07:18Z-09:15Z",
+   "valid": true,
+   "conditions": "caffeinate -dimsu, session unlocked at every cell start, no display-off event in the window",
+   "result": {
+    "runs": 20,
+    "passedRuns": 20,
+    "executions": 9800,
+    "failedExecutions": 0,
+    "skippedCases": 0,
+    "timeouts": 0
+   },
+   "coversFiveClasses": "All 57 five-class methods are within the 490 pertinent methods, so they also passed 5/5 per cell on this commit.",
+   "cells": [
+    {
+     "configuration": "debug",
+     "condition": "idle",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 5,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 0,
+     "skipped": 0,
+     "syntheticCPUProcesses": 0,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "0ddcb32580e79a0ff6cbfbfe839e7cb6b038d5a14f048f9b1ef836c00ebafce0",
+     "failingMethods": {}
+    },
+    {
+     "configuration": "debug",
+     "condition": "cpu",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 5,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 0,
+     "skipped": 0,
+     "syntheticCPUProcesses": 8,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "3fc4298b4df58547be6dad7cef160a40e7ee55e7c55d3a052198abcabd9c99b0",
+     "failingMethods": {}
+    },
+    {
+     "configuration": "release",
+     "condition": "idle",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 5,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 0,
+     "skipped": 0,
+     "syntheticCPUProcesses": 0,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "48bd14f818c8dc8a21176e80bc120790508e6bc0a23ddcdf3500b4e83817a691",
+     "failingMethods": {}
+    },
+    {
+     "configuration": "release",
+     "condition": "cpu",
+     "selection": "pertinent",
+     "repetitions": 5,
+     "expectedMethods": 490,
+     "passedRepetitions": 5,
+     "completeCoverageEveryRun": true,
+     "executions": 2450,
+     "failedExecutions": 0,
+     "skipped": 0,
+     "syntheticCPUProcesses": 8,
+     "sourceUnchangedDuringMeasurements": true,
+     "state": "completed",
+     "resultsSHA256": "304f9610d23120c271ef81f04bddb9a6a6c6c9c27fb3260a2f5b014a54878fd1",
+     "failingMethods": {}
     }
    ]
   }

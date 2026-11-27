@@ -17,7 +17,7 @@ a batch; revocation retrieval prefers IPv4 and honours the macOS HTTP/HTTPS prox
 CAdES verification uses the bundled OpenSSL.
 
 A local build or startup/loader audit is not complete OS, device or functional
-qualification. The M3–M6 and five-class campaigns are green; the pertinent-selection
-rerun is pending, so the RC stability gate is not passed. Production distribution,
+qualification. The offline RC stability gate (synthetic fixtures) passed on
+2026-11-27; real tokens and middleware are outside it. Production distribution,
 clean-Mac, accessibility and broader compatibility acceptance remain separate.
 The app does not disable system protections.
