@@ -9,10 +9,14 @@ public struct DeviceDiscoveryResult: Sendable {
     public let certificates: [DeviceCertificate]
     public let isComplete: Bool
     public let completenessIssues: [String]
+    /// PC/SC reader state, observed with the scan; nil when not observed.
+    public let readers: SmartCardReaderObservation?
     /// expectedPaths describes the whole configured scan, before it starts.
     /// Missing coverage, unreadable tokens and errors cannot prove uniqueness.
-    public init(providers: [DiscoveredMiddleware], at date: Date = Date(), expectedPaths: Set<String>? = nil) {
+    public init(providers: [DiscoveredMiddleware], at date: Date = Date(), expectedPaths: Set<String>? = nil,
+                readers: SmartCardReaderObservation? = nil) {
         self.providers = providers
+        self.readers = readers
         certificates = DeviceCertificate.collect(providers, at: date)
         var issues: [String] = []
         if expectedPaths.map({ !$0.isEmpty && $0 == Set(providers.map(\.candidatePath)) }) != true {
@@ -61,6 +65,7 @@ public struct DeviceSelection: Sendable {
     public private(set) var selectionOrigin: SelectionOrigin?
     public private(set) var discoveryComplete = false
     public private(set) var completenessIssues: [String] = []
+    public private(set) var readers: SmartCardReaderObservation?
     public private(set) var selectionWasPreserved = false
     private var priorSelection: (id: String, origin: SelectionOrigin)?
     private var wasCancelled = false
@@ -85,6 +90,7 @@ public struct DeviceSelection: Sendable {
         guard request == requestID, isSearching else { return false }
         providers = result.providers; certificates = result.certificates; selectedRouteID = nil; selectionOrigin = nil; isSearching = false
         discoveryComplete = result.isComplete; completenessIssues = result.completenessIssues
+        readers = result.readers
         selectionWasPreserved = false
         let eligible = certificates.flatMap(\.routes).filter { $0.assessment.permitsSigning }
         // Preserve only the same currently observed, locally eligible binding.

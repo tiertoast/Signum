@@ -75,7 +75,15 @@ struct PINDeviceSecurityPane: View {
             Text("Cambio PIN e sblocco con PUK non disponibili: compatibilità non ancora verificata.")
                 .font(.callout).foregroundStyle(.secondary)
         }
-        .onChange(of: accessID) { _ in invalidate() }
+        .onChange(of: accessID) { _ in
+            invalidate()
+            // One access only: read its public PIN state at once (no PIN is sent),
+            // so a blocked PIN shows without an extra click.
+            if group.accesses.count == 1, !accessID.isEmpty { readPublicStatus() }
+        }
+        .onAppear {
+            if accessID.isEmpty, group.accesses.count == 1, !locked { accessID = group.accesses[0].id }
+        }
         .onChange(of: locked) { isLocked in if isLocked { invalidate() } }
         .onDisappear { invalidate() }
         .sheet(item: $form) { selection in PINManagementForm(operation: selection.operation, deviceName: group.name) }
