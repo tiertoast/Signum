@@ -43,6 +43,8 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()
         showMainWindow()
+        SignumUpdateController.shared.isSigningIdle = { [weak self] in self?.mainWindowController?.signingSession?.isDrained ?? true }
+        SignumUpdateController.shared.launchCheck()
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let session = mainWindowController?.signingSession else { return .terminateNow }
@@ -63,6 +65,7 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
     }
     func applicationWillTerminate(_ notification: Notification) {
         mainWindowController?.signingSession?.revoke(terminating: true); trustedLists?.stop()
+        SignumUpdateController.shared.installStagedUpdateAtExit()
     }
     func application(_ application: NSApplication, open urls: [URL]) {
         SystemDocuments.shared.receive(urls)
@@ -104,6 +107,8 @@ func signingApprovalMessage(holder: String, job: SigningJob) -> String {
         let menu = NSMenu()
         let application = NSMenu(title: "Signum")
         application.addItem(withTitle: "Informazioni su Signum", action: #selector(showAbout), keyEquivalent: "").target = self
+        application.addItem(withTitle: "Controlla aggiornamenti…", action: #selector(SignumUpdateController.checkNow),
+                            keyEquivalent: "").target = SignumUpdateController.shared
         application.addItem(.separator())
         let settings = application.addItem(withTitle: "Impostazioni…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self

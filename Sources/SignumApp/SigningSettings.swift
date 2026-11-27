@@ -14,6 +14,20 @@ struct SignumSettingsSection<Content: View>: View {
     }
 }
 
+struct SignumUpdateSettingsSection: View {
+    @AppStorage(SignumUpdatePreferences.Keys.checkAtLaunch) private var checkAtLaunch = true
+    @AppStorage(SignumUpdatePreferences.Keys.installAutomatically) private var installAutomatically = true
+    var body: some View {
+        SignumSettingsSection(title: "Aggiornamenti") {
+            Toggle("Controlla gli aggiornamenti all’avvio", isOn: $checkAtLaunch)
+            Toggle("Installa automaticamente gli aggiornamenti", isOn: $installAutomatically).disabled(!checkAtLaunch)
+            Text("Signum chiede a GitHub l’elenco delle release, senza inviare dati personali o documenti. Un aggiornamento si installa da solo solo se la sua firma è valida, e alla chiusura dell’app: mai durante una firma.")
+                .font(.callout).foregroundStyle(.secondary)
+            Button("Controlla ora") { SignumUpdateController.shared.checkNow() }
+        }
+    }
+}
+
 extension SignumWindow {
     var settingsScreen: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -47,6 +61,8 @@ extension SignumWindow {
                             Text("Per documento: un nuovo PIN a ogni firma. PIN temporaneo: rimane in memoria per i documenti approvati e ne aumenta l’esposizione. Automatica: prova il riutilizzo della sessione del dispositivo senza conservare il PIN. La condivisione è disponibile solo per CAdES.")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
+                        Divider()
+                        SignumUpdateSettingsSection()
                     }.frame(maxWidth: 720, alignment: .leading).padding(24).frame(maxWidth: .infinity, alignment: .center)
                 }.tabItem { Label("Generali", systemImage: "gearshape") }
                 ScrollView {

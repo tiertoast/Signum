@@ -76,6 +76,17 @@ then IPv6. A manual HTTP/HTTPS proxy from the macOS network settings is used,
 honouring its bypass list; PAC/WPAD, SOCKS and authenticated proxies are not
 supported and fall back to a direct connection.
 
+The update check contacts `api.github.com` (and GitHub's release-asset hosts for
+downloads) over HTTPS only, follows redirects only to those hosts, and sends no
+cookies, credentials or document data; GitHub sees normal request metadata.
+GitHub is only the transport: an update is installed automatically only if its
+`SignumUpdate.json` carries a valid Ed25519 signature from a key compiled into
+the app, the DMG matches the signed size and SHA-256, and the app inside has the
+expected identifier, build and a valid code signature. The bundle is replaced
+after Signum quits; the previous copy is restored if the copy fails. Without a
+trusted key or signature, updates are only announced with a link. Both the
+launch check and automatic installation can be turned off in Settings.
+
 PINs, private documents and identifying certificate data do not belong in issue
 reports. Exported verification reports intentionally contain signer/certificate
 information; handle them as potentially personal data. Diagnostic output may

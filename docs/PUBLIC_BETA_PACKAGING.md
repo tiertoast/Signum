@@ -57,6 +57,24 @@ verifiche di firma locali: non è Developer ID né notarizzazione. La configuraz
 storica dei preview e il default ad-hoc delle vecchie recipe restano preservati.
 Nessuna delle due modalità autorizza automaticamente la pubblicazione.
 
+## Descrizione firmata per gli aggiornamenti
+
+Signum installa da sola solo le release che pubblicano `SignumUpdate.json` e
+`SignumUpdate.json.sig`, firmati con la chiave Ed25519 di release. La chiave
+privata resta nel Portachiavi di login dell'autore; la chiave pubblica va in
+`SignumUpdatePolicy.trustedPublicKeys` prima della build.
+
+```sh
+swift scripts/update-signing.swift keygen        # una sola volta; stampa la chiave pubblica
+swift scripts/update-signing.swift sign --dmg <out>/Signum-0.7.0-beta-arm64.dmg \
+  --build <N> --version 0.7.0 --tag v0.7.0-beta.<N> --output <publish>
+swift scripts/update-signing.swift verify --manifest <publish>/SignumUpdate.json \
+  --signature <publish>/SignumUpdate.json.sig --public-key <chiave pubblica>
+```
+
+I due file si caricano come asset della release insieme al DMG e rientrano in
+`SHA256SUMS.txt`. Una release senza di essi viene solo segnalata, con il link.
+
 ## Output e controlli
 
 - `Signum.app`: Release, versione 0.7.0 / nome Beta, build e identifier espliciti;

@@ -21,12 +21,18 @@ display sleeps is still open. The current Beta is not RC-qualified or Stable.
 
 ## 0.8 — Reliability and distribution
 
-- Refine macOS compatibility, including real minimum-OS and clean-machine acceptance.
-- Define device/middleware interoperability and controlled failure/recovery behavior.
+- Refine macOS compatibility, including real minimum-OS and clean-machine acceptance
+  (macOS 13/14 virtual machines; real-token signing on macOS 13 needs physical hardware).
+- Recognise devices and middleware (OpenSC or vendor PKCS#11) and explain clearly
+  what is missing when one is not usable. Signum does not ship drivers and does not
+  maintain a list of supported cards or tokens.
 - Resolve demonstrated stability issues with reproducible evidence.
 - Improve keyboard, accessibility and installation experience.
-- Prepare Developer ID signing, hardened-runtime policy, notarization and Gatekeeper acceptance.
-- Establish a maintainable update and distribution process.
+- Updates from GitHub Releases: launch check and automatic installation of signed
+  updates (in progress).
+
+Distribution stays ad-hoc signed: Developer ID signing and notarization are not
+planned, so macOS asks for approval on first launch of a manual download.
 
 ## 0.9 — Advanced capabilities
 
@@ -41,7 +47,8 @@ credentials. Encryption/decryption remains lower priority and separately scoped.
 
 ## 1.0 — Stable
 
-- A defined and exercised OS, device, middleware and signature-profile support matrix.
+- A defined and exercised OS and signature-profile support matrix; devices and
+  middleware are recognised and diagnosed rather than certified.
 - Reproducible, maintainable distribution and dependency/source governance.
 - Documented security and compatibility guarantees with clear limits.
 - Independent interoperability and recovery evidence for the supported scope.
