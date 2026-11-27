@@ -49,11 +49,13 @@ The DMG's original Italian packaging notes remain embedded unchanged.
 on 2026-11-24, commit `2d08f14`, the six historical methods passed 20/20 in each
 Debug/Release × idle/cpu cell (80/80 runs, no skip or timeout), without test or
 budget changes ([campaign record](stability/M3_M6_CAMPAIGN_2026-11-24.json)).
-Historical recurrence causes remain undetermined. The RC stability gate is
-**not yet declared passed**: on 2026-11-26 the five-class context campaign was
-green (12/12 runs) but the pertinent selection had 25/9800 failed executions
-from three test-side causes, corrected; the awake rerun on 87850c3 had 2/9800
-from two further test races, corrected; one more pertinent run is pending
+Historical recurrence causes remain undetermined. The RC stability gate
+(offline, synthetic fixtures) is **passed** on `bc99935` (2026-11-27): the
+pertinent selection, which contains the five classes, ran 20/20 green (9800/9800
+executions, 5 per cell, display awake) after test-side corrections in PRs #27 and
+#28. Runs with the display asleep and the session locked are not valid
+measurements (S04 and the blocked-vendor test time out after the drag
+performance test); that isolation weakness is still open
 ([campaign record](stability/PHASE5A_CAMPAIGN_2026-11-26.json)). See [stability evidence](../SUITE_STABILITY.md),
 [local checks](../LOCAL_TESTING.md),
 [historical Phase5b status](../archive/PHASE5B_RELEASE_STATUS.md) and

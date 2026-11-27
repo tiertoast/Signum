@@ -9,7 +9,7 @@ This record concerns release assurance, not the features of an earlier version.
 | Distribution | Ad-hoc signature; no Developer ID, hardened-runtime qualification or notarization |
 | OS compatibility | Minimum 13.0 declared; real macOS 13/14 and clean-machine acceptance remain open |
 | Hardware/middleware | Device-specific evidence only; no universal vendor/token certification |
-| Stability | M3–M6 campaign green on 2026-11-24 (80/80 runs, 4 cells; [issue #9](https://github.com/tiertoast/Signum/issues/9) closed). Five-class campaign green on 2026-11-26 (12/12 runs); pertinent selection 25/9800 then 2/9800 failed executions (test-side causes, corrected), one more rerun pending ([record](engineering/stability/PHASE5A_CAMPAIGN_2026-11-26.json)). RC stability gate not yet declared passed |
+| Stability | M3–M6 campaign green on 2026-11-24 (80/80 runs, 4 cells; [issue #9](https://github.com/tiertoast/Signum/issues/9) closed). Five-class campaign green on 2026-11-26 (12/12 runs); pertinent selection green on `bc99935` on 2026-11-27 (20/20 runs, 9800/9800, display awake) after test-side corrections ([record](engineering/stability/PHASE5A_CAMPAIGN_2026-11-26.json)). Offline RC stability gate passed; real tokens outside it |
 | Accessibility/manual experience | Remaining checks are not promoted to completed acceptance |
 | Standards and trust | Explicit supported profiles; no blanket eIDAS/QES, LT/LTA or interoperability certification |
 | Artifact | Released DMG and linked manifest evidence retained unchanged |
