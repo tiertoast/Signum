@@ -13,10 +13,11 @@ XAdES/ASiC profiles, document workspaces, Finder integration, device discovery,
 European trust assessment and PDF/text reports. Build 18 is distributed for Apple
 Silicon with an ad-hoc signature. [Current release](RELEASE_NOTES.md)
 
-Compatibility, accessibility and stability refinements remain open. The M3–M6
-repeated campaign passed ([issue #9](https://github.com/tiertoast/Signum/issues/9) closed);
-the five-class and pertinent-selection campaigns are still due before the RC
-stability gate. The current Beta is not RC-qualified or Stable.
+The offline RC stability gate passed on 2026-11-27 (M3–M6, five-class and
+pertinent-selection campaigns, synthetic fixtures;
+[record](engineering/stability/PHASE5A_CAMPAIGN_2026-11-26.json)). Real tokens,
+compatibility and accessibility remain outside it, and test isolation while the
+display sleeps is still open. The current Beta is not RC-qualified or Stable.
 
 ## 0.8 — Reliability and distribution
 
