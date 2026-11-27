@@ -1,7 +1,7 @@
 # Signum documentation
 
 Start with the [product overview](../README.md) or choose a guide below.
-These pages describe **Signum 0.7.0 Beta — Build 17**.
+These pages describe **Signum 0.7.0 Beta — Build 18**.
 
 | Guide | Contents |
 | --- | --- |
