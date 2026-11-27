@@ -31,7 +31,7 @@ cd Signum
 Use the `v0.7.0-beta.18` tag when inspecting the exact release source baseline;
 `main` includes later changes.
 The product revision recorded in the binary's manifest is
-`f265b05734d1d43fd4723763cb9e4d813edeca70`.
+`522767ffee1978c829b76671cf8a2de9e4c147e3`.
 
 ## Native prerequisites
 

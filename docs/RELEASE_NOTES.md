@@ -173,12 +173,12 @@ published; Build 17 followed Build 14, and Build 18 follows Build 17.
 ## Downloads and checksum
 
 **[Signum-0.7.0-beta-arm64.dmg](https://github.com/tiertoast/Signum/releases/download/v0.7.0-beta.18/Signum-0.7.0-beta-arm64.dmg)**
-— 22,937,547 bytes.
+— 22,968,726 bytes.
 
 SHA256:
 
 ```text
-602e07531dc0250a52c9c21778e90fe08468ad598549d28daa57bce03134a012
+bc4efb42d7aeae560fdf2f1d360d891264282e9bd717897514f417f112662683
 ```
 
 Download the `.dmg.sha256` sidecar alongside the DMG, then run:
